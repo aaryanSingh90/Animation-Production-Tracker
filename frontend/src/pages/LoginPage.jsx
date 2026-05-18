@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import api from "../utils/api";
+import api from "../lib/api";
 import { useAuthStore } from "../store/authStore";
 import { useToastStore } from "../store/toastStore";
 
@@ -29,7 +29,7 @@ export default function LoginPage() {
         navigate("/dashboard", { replace: true });
       }
     } catch (err) {
-      const message = err.response?.data?.message || "Invalid credentials";
+      const message = err.userMessage || err.response?.data?.message || "Invalid credentials";
       setError(message);
       showToast("error", message);
     } finally {

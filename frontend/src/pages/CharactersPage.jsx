@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import api from "../utils/api";
+import api from "../lib/api";
 import Loader from "../components/Loader";
 import EmptyState from "../components/EmptyState";
 import StatusBadge from "../components/StatusBadge";
@@ -30,7 +30,7 @@ export default function CharactersPage() {
       setCharacters(charRes.data);
       setUsers(userRes.data.filter((item) => item.role === "EMPLOYEE"));
     } catch (error) {
-      showToast("error", error.response?.data?.message || "Failed to load characters");
+      showToast("error", error.userMessage || error.response?.data?.message || "Failed to load characters");
     } finally {
       setLoading(false);
     }
@@ -60,7 +60,7 @@ export default function CharactersPage() {
       showToast("success", "Character created");
       await fetchData();
     } catch (error) {
-      showToast("error", error.response?.data?.message || "Unable to create character");
+      showToast("error", error.userMessage || error.response?.data?.message || "Unable to create character");
     }
   };
 
@@ -87,7 +87,7 @@ export default function CharactersPage() {
       setEditing(null);
       await fetchData();
     } catch (error) {
-      showToast("error", error.response?.data?.message || "Unable to update character stage");
+      showToast("error", error.userMessage || error.response?.data?.message || "Unable to update character stage");
     }
   };
 

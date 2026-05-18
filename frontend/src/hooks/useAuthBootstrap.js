@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import api from "../utils/api";
+import api from "../lib/api";
 import { useAuthStore } from "../store/authStore";
 
 export function useAuthBootstrap() {

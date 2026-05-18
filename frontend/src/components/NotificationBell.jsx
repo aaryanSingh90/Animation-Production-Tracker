@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Bell } from "lucide-react";
-import api from "../utils/api";
+import api from "../lib/api";
 import { useNotificationStore } from "../store/notificationStore";
 import { formatRelative } from "../utils/format";
 

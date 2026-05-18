@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import api from "../utils/api";
+import api from "../lib/api";
 import Loader from "../components/Loader";
 import EmptyState from "../components/EmptyState";
 import Modal from "../components/Modal";
@@ -27,7 +27,7 @@ export default function ApprovalsPage() {
       });
       setRows(data);
     } catch (error) {
-      showToast("error", error.response?.data?.message || "Failed to fetch approval queue");
+      showToast("error", error.userMessage || error.response?.data?.message || "Failed to fetch approval queue");
     } finally {
       setLoading(false);
     }
@@ -51,7 +51,7 @@ export default function ApprovalsPage() {
       showToast("success", "Stage approved");
       await fetchData();
     } catch (error) {
-      showToast("error", error.response?.data?.message || "Unable to approve");
+      showToast("error", error.userMessage || error.response?.data?.message || "Unable to approve");
     }
   };
 
@@ -64,7 +64,7 @@ export default function ApprovalsPage() {
       setFeedback("");
       await fetchData();
     } catch (error) {
-      showToast("error", error.response?.data?.message || "Unable to reject");
+      showToast("error", error.userMessage || error.response?.data?.message || "Unable to reject");
     }
   };
 

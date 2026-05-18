@@ -1,6 +1,7 @@
 import { PROJECT_STAGES, STATUS_COLORS } from "../utils/constants";
+import { memo } from "react";
 
-export default function StageStrip({ stages }) {
+function StageStrip({ stages }) {
   const byStage = new Map((stages || []).map((stage) => [stage.stageName, stage]));
 
   return (
@@ -19,3 +20,5 @@ export default function StageStrip({ stages }) {
     </div>
   );
 }
+
+export default memo(StageStrip);

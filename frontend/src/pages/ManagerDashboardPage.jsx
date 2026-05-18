@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertTriangle, Clock } from "lucide-react";
-import api from "../utils/api";
+import api from "../lib/api";
 import Loader from "../components/Loader";
 import EmptyState from "../components/EmptyState";
 import ProgressBar from "../components/ProgressBar";

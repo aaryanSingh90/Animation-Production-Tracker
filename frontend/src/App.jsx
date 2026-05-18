@@ -1,20 +1,23 @@
+import { Suspense, lazy } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import AppShell from "./components/AppShell";
 import ProtectedRoute from "./components/ProtectedRoute";
-import LoginPage from "./pages/LoginPage";
-import ManagerDashboardPage from "./pages/ManagerDashboardPage";
-import ProjectsPage from "./pages/ProjectsPage";
-import ProjectDetailPage from "./pages/ProjectDetailPage";
-import CharactersPage from "./pages/CharactersPage";
-import ApprovalsPage from "./pages/ApprovalsPage";
-import EmployeesPage from "./pages/EmployeesPage";
-import ReportsPage from "./pages/ReportsPage";
-import MyTasksPage from "./pages/MyTasksPage";
-import NotFoundPage from "./pages/NotFoundPage";
+import PageSkeleton from "./components/PageSkeleton";
+import ToastViewport from "./components/ToastViewport";
 import { useAuthBootstrap } from "./hooks/useAuthBootstrap";
 import { useAuthStore } from "./store/authStore";
 import { MANAGER_ROLES } from "./utils/constants";
-import ToastViewport from "./components/ToastViewport";
+
+const LoginPage = lazy(() => import("./pages/LoginPage"));
+const ManagerDashboardPage = lazy(() => import("./pages/ManagerDashboardPage"));
+const ProjectsPage = lazy(() => import("./pages/ProjectsPage"));
+const ProjectDetailPage = lazy(() => import("./pages/ProjectDetailPage"));
+const CharactersPage = lazy(() => import("./pages/CharactersPage"));
+const ApprovalsPage = lazy(() => import("./pages/ApprovalsPage"));
+const EmployeesPage = lazy(() => import("./pages/EmployeesPage"));
+const ReportsPage = lazy(() => import("./pages/ReportsPage"));
+const MyTasksPage = lazy(() => import("./pages/MyTasksPage"));
+const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
 
 function HomeRedirect() {
   const user = useAuthStore((state) => state.user);
@@ -46,78 +49,86 @@ export default function App() {
 
   return (
     <>
-      <Routes>
-        <Route path="/" element={<HomeRedirect />} />
-        <Route path="/login" element={<LoginPage />} />
+      <Suspense
+        fallback={
+          <div className="p-8">
+            <PageSkeleton />
+          </div>
+        }
+      >
+        <Routes>
+          <Route path="/" element={<HomeRedirect />} />
+          <Route path="/login" element={<LoginPage />} />
 
-        <Route
-          path="/dashboard"
-          element={
-            <ManagerLayout>
-              <ManagerDashboardPage />
-            </ManagerLayout>
-          }
-        />
-        <Route
-          path="/projects"
-          element={
-            <ManagerLayout>
-              <ProjectsPage />
-            </ManagerLayout>
-          }
-        />
-        <Route
-          path="/projects/:id"
-          element={
-            <ManagerLayout>
-              <ProjectDetailPage />
-            </ManagerLayout>
-          }
-        />
-        <Route
-          path="/characters"
-          element={
-            <ManagerLayout>
-              <CharactersPage />
-            </ManagerLayout>
-          }
-        />
-        <Route
-          path="/approvals"
-          element={
-            <ManagerLayout>
-              <ApprovalsPage />
-            </ManagerLayout>
-          }
-        />
-        <Route
-          path="/employees"
-          element={
-            <ManagerLayout>
-              <EmployeesPage />
-            </ManagerLayout>
-          }
-        />
-        <Route
-          path="/reports"
-          element={
-            <ManagerLayout>
-              <ReportsPage />
-            </ManagerLayout>
-          }
-        />
+          <Route
+            path="/dashboard"
+            element={
+              <ManagerLayout>
+                <ManagerDashboardPage />
+              </ManagerLayout>
+            }
+          />
+          <Route
+            path="/projects"
+            element={
+              <ManagerLayout>
+                <ProjectsPage />
+              </ManagerLayout>
+            }
+          />
+          <Route
+            path="/projects/:id"
+            element={
+              <ManagerLayout>
+                <ProjectDetailPage />
+              </ManagerLayout>
+            }
+          />
+          <Route
+            path="/characters"
+            element={
+              <ManagerLayout>
+                <CharactersPage />
+              </ManagerLayout>
+            }
+          />
+          <Route
+            path="/approvals"
+            element={
+              <ManagerLayout>
+                <ApprovalsPage />
+              </ManagerLayout>
+            }
+          />
+          <Route
+            path="/employees"
+            element={
+              <ManagerLayout>
+                <EmployeesPage />
+              </ManagerLayout>
+            }
+          />
+          <Route
+            path="/reports"
+            element={
+              <ManagerLayout>
+                <ReportsPage />
+              </ManagerLayout>
+            }
+          />
 
-        <Route
-          path="/my-tasks"
-          element={
-            <EmployeeLayout>
-              <MyTasksPage />
-            </EmployeeLayout>
-          }
-        />
+          <Route
+            path="/my-tasks"
+            element={
+              <EmployeeLayout>
+                <MyTasksPage />
+              </EmployeeLayout>
+            }
+          />
 
-        <Route path="*" element={<NotFoundPage />} />
-      </Routes>
+          <Route path="*" element={<NotFoundPage />} />
+        </Routes>
+      </Suspense>
       <ToastViewport />
     </>
   );

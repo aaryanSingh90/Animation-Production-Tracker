@@ -1,6 +1,7 @@
 import clsx from "clsx";
+import { memo } from "react";
 
-export default function ProgressBar({ value }) {
+function ProgressBar({ value }) {
   const width = Math.max(0, Math.min(100, Number(value) || 0));
   const tone = width > 75 ? "bg-emerald-500" : width >= 40 ? "bg-amber-500" : "bg-red-500";
 
@@ -16,3 +17,5 @@ export default function ProgressBar({ value }) {
     </div>
   );
 }
+
+export default memo(ProgressBar);

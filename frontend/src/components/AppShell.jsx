@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
-import api from "../utils/api";
+import api from "../lib/api";
 import { useAuthStore } from "../store/authStore";
 import { useNotificationStore } from "../store/notificationStore";
 import { useSocketNotifications } from "../hooks/useSocketNotifications";

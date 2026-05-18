@@ -20,7 +20,7 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/animation_tracker?schema=public
       JWT_SECRET: replace-with-a-strong-secret
       PORT: 4000
-      CLIENT_URL: http://localhost:5173
+      CLIENT_URL: https://animation-production-tracker.vercel.app
     ports:
       - "4000:4000"
     depends_on:
@@ -33,8 +33,7 @@ services:
     volumes:
       - ./frontend:/app
     environment:
-      VITE_API_URL: http://localhost:4000/api
-      VITE_SOCKET_URL: http://localhost:4000
+      VITE_API_URL: https://animation-production-tracker.onrender.com/api
     ports:
       - "5173:5173"
     depends_on:

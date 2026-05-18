@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import api from "../utils/api";
+import api from "../lib/api";
 import Loader from "../components/Loader";
 import ProgressBar from "../components/ProgressBar";
 import EmptyState from "../components/EmptyState";

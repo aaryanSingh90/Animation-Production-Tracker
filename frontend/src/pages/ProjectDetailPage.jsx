@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import api from "../utils/api";
+import api from "../lib/api";
 import Loader from "../components/Loader";
 import StatusBadge from "../components/StatusBadge";
 import EmptyState from "../components/EmptyState";
@@ -50,7 +50,7 @@ export default function ProjectDetailPage() {
         audioReceivedDate: formatDateInput(projectRes.data.audioReceivedDate)
       });
     } catch (error) {
-      showToast("error", error.response?.data?.message || "Failed to load project details");
+      showToast("error", error.userMessage || error.response?.data?.message || "Failed to load project details");
     } finally {
       setLoading(false);
     }
@@ -69,7 +69,7 @@ export default function ProjectDetailPage() {
       showToast("success", successMessage);
       await fetchData();
     } catch (error) {
-      showToast("error", error.response?.data?.message || "Unable to update stage");
+      showToast("error", error.userMessage || error.response?.data?.message || "Unable to update stage");
     } finally {
       setSaving(false);
     }
@@ -82,7 +82,7 @@ export default function ProjectDetailPage() {
       showToast("success", "Stage approved");
       await fetchData();
     } catch (error) {
-      showToast("error", error.response?.data?.message || "Unable to approve stage");
+      showToast("error", error.userMessage || error.response?.data?.message || "Unable to approve stage");
     } finally {
       setSaving(false);
     }
@@ -99,7 +99,7 @@ export default function ProjectDetailPage() {
       showToast("success", "Stage rejected");
       await fetchData();
     } catch (error) {
-      showToast("error", error.response?.data?.message || "Unable to reject stage");
+      showToast("error", error.userMessage || error.response?.data?.message || "Unable to reject stage");
     } finally {
       setSaving(false);
     }
@@ -114,7 +114,7 @@ export default function ProjectDetailPage() {
       setIssueStage(null);
       await fetchData();
     } catch (error) {
-      showToast("error", error.response?.data?.message || "Unable to log issue");
+      showToast("error", error.userMessage || error.response?.data?.message || "Unable to log issue");
     } finally {
       setSaving(false);
     }
@@ -135,7 +135,7 @@ export default function ProjectDetailPage() {
       setExtendReason("");
       await fetchData();
     } catch (error) {
-      showToast("error", error.response?.data?.message || "Unable to extend deadline");
+      showToast("error", error.userMessage || error.response?.data?.message || "Unable to extend deadline");
     } finally {
       setSaving(false);
     }
@@ -149,7 +149,7 @@ export default function ProjectDetailPage() {
       setEditingProject(false);
       await fetchData();
     } catch (error) {
-      showToast("error", error.response?.data?.message || "Unable to update project");
+      showToast("error", error.userMessage || error.response?.data?.message || "Unable to update project");
     } finally {
       setSaving(false);
     }
@@ -165,7 +165,7 @@ export default function ProjectDetailPage() {
       setCharacterId("");
       await fetchData();
     } catch (error) {
-      showToast("error", error.response?.data?.message || "Unable to link character");
+      showToast("error", error.userMessage || error.response?.data?.message || "Unable to link character");
     } finally {
       setSaving(false);
     }

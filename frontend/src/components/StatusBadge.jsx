@@ -1,8 +1,9 @@
 import clsx from "clsx";
+import { memo } from "react";
 import { STATUS_COLORS } from "../utils/constants";
 import { labelize } from "../utils/format";
 
-export default function StatusBadge({ status }) {
+function StatusBadge({ status }) {
   const color = STATUS_COLORS[status] || "#64748B";
 
   return (
@@ -17,3 +18,5 @@ export default function StatusBadge({ status }) {
     </span>
   );
 }
+
+export default memo(StatusBadge);

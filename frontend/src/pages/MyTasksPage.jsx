@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import api from "../utils/api";
+import api from "../lib/api";
 import Loader from "../components/Loader";
 import EmptyState from "../components/EmptyState";
 import StatusBadge from "../components/StatusBadge";
@@ -22,7 +22,7 @@ export default function MyTasksPage() {
       setProjects(projectsRes.data);
       setNotifications(notificationsRes.data.slice(0, 12));
     } catch (error) {
-      showToast("error", error.response?.data?.message || "Failed to load your tasks");
+      showToast("error", error.userMessage || error.response?.data?.message || "Failed to load your tasks");
     } finally {
       setLoading(false);
     }
@@ -48,7 +48,7 @@ export default function MyTasksPage() {
       showToast("success", "Stage moved to in progress");
       await fetchData();
     } catch (error) {
-      showToast("error", error.response?.data?.message || "Unable to start work");
+      showToast("error", error.userMessage || error.response?.data?.message || "Unable to start work");
     }
   };
 
@@ -60,7 +60,7 @@ export default function MyTasksPage() {
       showToast("success", "Submitted for approval");
       await fetchData();
     } catch (error) {
-      showToast("error", error.response?.data?.message || "Unable to submit");
+      showToast("error", error.userMessage || error.response?.data?.message || "Unable to submit");
     }
   };
 
@@ -72,7 +72,7 @@ export default function MyTasksPage() {
       setIssueStage(null);
       await fetchData();
     } catch (error) {
-      showToast("error", error.response?.data?.message || "Unable to report issue");
+      showToast("error", error.userMessage || error.response?.data?.message || "Unable to report issue");
     }
   };
 

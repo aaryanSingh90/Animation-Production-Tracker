@@ -8,11 +8,14 @@ export function useSocketNotifications() {
   const token = useAuthStore((state) => state.token);
   const pushNotification = useNotificationStore((state) => state.pushNotification);
   const showToast = useToastStore((state) => state.showToast);
+  const apiUrl = import.meta.env.VITE_API_URL;
 
   useEffect(() => {
-    if (!token) return undefined;
+    if (!token || !apiUrl) return undefined;
 
-    const socket = io(import.meta.env.VITE_SOCKET_URL || "http://localhost:4000", {
+    const socketBaseUrl = apiUrl.replace(/\/api\/?$/, "");
+
+    const socket = io(socketBaseUrl, {
       auth: { token }
     });
 
@@ -21,8 +24,12 @@ export function useSocketNotifications() {
       showToast("info", payload.message);
     });
 
+    socket.on("connect_error", () => {
+      showToast("error", "Realtime notifications are temporarily unavailable.");
+    });
+
     return () => {
       socket.disconnect();
     };
-  }, [token, pushNotification, showToast]);
+  }, [token, apiUrl, pushNotification, showToast]);
 }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import api from "../utils/api";
+import api from "../lib/api";
 import Loader from "../components/Loader";
 import EmptyState from "../components/EmptyState";
 import Modal from "../components/Modal";
@@ -42,7 +42,7 @@ export default function EmployeesPage() {
         setSelectedUser(detail.data);
       }
     } catch (error) {
-      showToast("error", error.response?.data?.message || "Failed to fetch employees");
+      showToast("error", error.userMessage || error.response?.data?.message || "Failed to fetch employees");
     } finally {
       setLoading(false);
     }
@@ -77,7 +77,7 @@ export default function EmployeesPage() {
       const { data } = await api.get(`/users/${userId}`);
       setSelectedUser(data);
     } catch (error) {
-      showToast("error", error.response?.data?.message || "Failed to load employee profile");
+      showToast("error", error.userMessage || error.response?.data?.message || "Failed to load employee profile");
     }
   };
 
@@ -90,7 +90,7 @@ export default function EmployeesPage() {
       setAddForm({ name: "", email: "", password: "", role: "EMPLOYEE", department: "" });
       await fetchUsersAndProjects();
     } catch (error) {
-      showToast("error", error.response?.data?.message || "Unable to create employee");
+      showToast("error", error.userMessage || error.response?.data?.message || "Unable to create employee");
     }
   };
 
@@ -103,7 +103,7 @@ export default function EmployeesPage() {
       await openUserProfile(selectedUserId);
       await fetchUsersAndProjects();
     } catch (error) {
-      showToast("error", error.response?.data?.message || "Unable to assign employee");
+      showToast("error", error.userMessage || error.response?.data?.message || "Unable to assign employee");
     }
   };
 
@@ -118,7 +118,7 @@ export default function EmployeesPage() {
       }
       await fetchUsersAndProjects();
     } catch (error) {
-      showToast("error", error.response?.data?.message || "Unable to deactivate user");
+      showToast("error", error.userMessage || error.response?.data?.message || "Unable to deactivate user");
     }
   };
 

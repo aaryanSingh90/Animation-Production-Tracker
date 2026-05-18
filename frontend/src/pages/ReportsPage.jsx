@@ -14,7 +14,7 @@ import {
   XAxis,
   YAxis
 } from "recharts";
-import api from "../utils/api";
+import api from "../lib/api";
 import Loader from "../components/Loader";
 import EmptyState from "../components/EmptyState";
 import { formatDate, labelize } from "../utils/format";
