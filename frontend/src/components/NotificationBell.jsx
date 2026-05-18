@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { Bell } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import api from "../lib/api";
 import { useNotificationStore } from "../store/notificationStore";
 import { formatRelative } from "../utils/format";
 
 export default function NotificationBell() {
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const notifications = useNotificationStore((state) => state.notifications);
   const markRead = useNotificationStore((state) => state.markRead);
@@ -12,10 +14,14 @@ export default function NotificationBell() {
 
   const unreadCount = notifications.filter((item) => !item.isRead).length;
 
-  const handleMarkRead = async (id) => {
+  const handleMarkRead = async (notification) => {
     try {
-      await api.put(`/notifications/${id}/read`);
-      markRead(id);
+      await api.put(`/notifications/${notification.id}/read`);
+      markRead(notification.id);
+      setOpen(false);
+      if (notification.relatedProjectId) {
+        navigate(`/projects/${notification.relatedProjectId}`);
+      }
     } catch {
       // no-op
     }
@@ -56,7 +62,7 @@ export default function NotificationBell() {
             {notifications.slice(0, 20).map((notification) => (
               <button
                 key={notification.id}
-                onClick={() => handleMarkRead(notification.id)}
+                onClick={() => handleMarkRead(notification)}
                 className={`w-full border-b border-slate-100 px-4 py-3 text-left hover:bg-slate-50 ${
                   notification.isRead ? "bg-white" : "bg-sky-50"
                 }`}

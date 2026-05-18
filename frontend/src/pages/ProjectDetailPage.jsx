@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import api from "../lib/api";
 import Loader from "../components/Loader";
 import StatusBadge from "../components/StatusBadge";
@@ -13,6 +13,7 @@ import { useToastStore } from "../store/toastStore";
 
 export default function ProjectDetailPage() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const showToast = useToastStore((state) => state.showToast);
 
   const [loading, setLoading] = useState(true);
@@ -61,6 +62,15 @@ export default function ProjectDetailPage() {
   }, [id]);
 
   const linkedCharacterIds = useMemo(() => new Set((project?.projectCharacters || []).map((item) => item.character.id)), [project]);
+  const overallBadge = useMemo(() => {
+    if (!project) return { label: "On Track", tone: "bg-emerald-50 text-emerald-700" };
+    if (Number(project.progressPercent) === 100) return { label: "Complete", tone: "bg-sky-50 text-sky-700" };
+    const delayed = project.stages?.some((stage) => stage.deadline && new Date(stage.deadline) < new Date() && stage.status !== "APPROVED");
+    const hasIssues = project.stages?.some((stage) => stage.status === "ISSUE" || stage.status === "EXTENDED");
+    if (hasIssues) return { label: "Has Issues", tone: "bg-amber-50 text-amber-700" };
+    if (delayed) return { label: "Delayed", tone: "bg-red-50 text-red-700" };
+    return { label: "On Track", tone: "bg-emerald-50 text-emerald-700" };
+  }, [project]);
 
   const updateStage = async (stageId, payload, successMessage = "Stage updated") => {
     setSaving(true);
@@ -155,6 +165,23 @@ export default function ProjectDetailPage() {
     }
   };
 
+  const deleteProject = async () => {
+    if (!project) return;
+    const confirmed = window.confirm(`Are you sure you want to delete ${project.name}? This cannot be undone.`);
+    if (!confirmed) return;
+
+    setSaving(true);
+    try {
+      await api.delete(`/projects/${project.id}`);
+      showToast("success", "Project deleted");
+      navigate("/projects", { replace: true });
+    } catch (error) {
+      showToast("error", error.userMessage || error.response?.data?.message || "Unable to delete project");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const linkCharacter = async () => {
     if (!characterId) return;
 
@@ -183,11 +210,17 @@ export default function ProjectDetailPage() {
             <div className="flex items-center gap-3 text-sm text-slate-600">
               <span className="rounded-full bg-slate-100 px-2.5 py-1 font-semibold">Priority {project.priority}</span>
               <span>Audio received: {formatDate(project.audioReceivedDate)}</span>
+              <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${overallBadge.tone}`}>{overallBadge.label}</span>
             </div>
           </div>
-          <button onClick={() => setEditingProject(true)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-            Edit Project
-          </button>
+          <div className="flex gap-2">
+            <button onClick={() => setEditingProject(true)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+              Edit Project
+            </button>
+            <button onClick={deleteProject} className="rounded-xl bg-red-500 px-3 py-2 text-sm font-semibold text-white hover:bg-red-600">
+              Delete
+            </button>
+          </div>
         </div>
         <div className="mt-4 max-w-lg">
           <ProgressBar value={project.progressPercent} />

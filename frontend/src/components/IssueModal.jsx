@@ -37,7 +37,7 @@ export default function IssueModal({ open, onClose, onSubmit, loading = false, s
   };
 
   return (
-    <Modal open={open} onClose={handleClose} title="Log Issue">
+    <Modal open={open} onClose={handleClose} title="Report Issue / Extend Deadline">
       <form className="space-y-4" onSubmit={handleSubmit}>
         <div>
           <label className="mb-1 block text-sm font-semibold text-slate-700">Issue Type</label>

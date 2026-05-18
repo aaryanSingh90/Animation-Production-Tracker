@@ -30,9 +30,11 @@ export default function AppShell({ children }) {
     }
 
     fetchNotifications();
+    const interval = setInterval(fetchNotifications, 30000);
 
     return () => {
       cancelled = true;
+      clearInterval(interval);
     };
   }, [token, setNotifications]);
 

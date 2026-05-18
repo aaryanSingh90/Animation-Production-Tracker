@@ -2,11 +2,12 @@ const prisma = require("../utils/prisma");
 const { asyncHandler } = require("../utils/http");
 
 const getApprovalQueue = asyncHandler(async (req, res) => {
-  const { projectName, artistName } = req.query;
+  const { projectName, artistName, stageName } = req.query;
 
   const stages = await prisma.projectStage.findMany({
     where: {
       status: "SUBMITTED",
+      ...(stageName ? { stageName } : {}),
       ...(projectName
         ? {
             project: {

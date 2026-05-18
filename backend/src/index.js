@@ -11,7 +11,7 @@ const { Server } = require("socket.io");
 const prisma = require("./utils/prisma");
 const { verifyToken } = require("./utils/jwt");
 const { initSocket, trackUserSocket, untrackUserSocket } = require("./utils/socket");
-const { errorHandler, AppError } = require("./utils/http");
+const { errorHandler } = require("./utils/http");
 const { runDeadlineSweep } = require("./utils/deadlines");
 const { requestLogger, errorLogger, write } = require("./utils/logger");
 const { ensureUniversalAdmin } = require("./utils/bootstrapAdmin");
@@ -30,27 +30,27 @@ const issuesRoutes = require("./routes/issuesRoutes");
 const app = express();
 const server = http.createServer(app);
 
-const clientOrigins = (process.env.CLIENT_URL || "")
-  .split(",")
-  .map((value) => value.trim())
-  .filter(Boolean);
-
-function isAllowedOrigin(origin) {
-  if (!origin) return true;
-  if (!clientOrigins.length) return true;
-  return clientOrigins.includes(origin);
-}
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  ...(process.env.CLIENT_URL || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean),
+  "http://localhost:5173",
+  "http://localhost:3000"
+].filter(Boolean);
 
 const corsOptions = {
   origin(origin, callback) {
-    if (isAllowedOrigin(origin)) {
+    if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
       return;
     }
-
-    callback(new AppError("Origin not allowed by CORS", 403));
+    callback(new Error(`Not allowed by CORS: ${origin}`));
   },
-  credentials: true
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
 };
 
 app.set("trust proxy", 1);
@@ -124,7 +124,7 @@ app.use(errorHandler);
 
 const io = new Server(server, {
   cors: {
-    origin: clientOrigins.length ? clientOrigins : true,
+    origin: allowedOrigins.length ? allowedOrigins : true,
     methods: ["GET", "POST"],
     credentials: true
   }

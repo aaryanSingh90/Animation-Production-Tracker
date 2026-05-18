@@ -92,16 +92,17 @@ function getNearestDeadline(stages) {
 }
 
 const createProject = asyncHandler(async (req, res) => {
-  const { name, priority, audioReceivedDate } = req.body;
-  if (!name || !priority || !audioReceivedDate) {
-    throw new AppError("name, priority and audioReceivedDate are required", 400);
+  const { name, priority, audioReceivedDate, description } = req.body;
+  if (!name || !priority) {
+    throw new AppError("name and priority are required", 400);
   }
 
   const project = await prisma.project.create({
     data: {
       name,
+      description: description || null,
       priority: Number(priority),
-      audioReceivedDate: new Date(audioReceivedDate),
+      audioReceivedDate: audioReceivedDate ? new Date(audioReceivedDate) : new Date(),
       overallStatus: "ON_TRACK",
       stages: {
         createMany: {
@@ -203,7 +204,7 @@ const getProjectById = asyncHandler(async (req, res) => {
 const updateProject = asyncHandler(async (req, res) => {
   const id = Number(req.params.id);
   const payload = {};
-  const fields = ["name", "priority", "audioReceivedDate"];
+  const fields = ["name", "priority", "audioReceivedDate", "description"];
 
   for (const field of fields) {
     if (Object.prototype.hasOwnProperty.call(req.body, field)) {

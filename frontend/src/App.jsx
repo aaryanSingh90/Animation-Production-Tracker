@@ -13,6 +13,7 @@ const ManagerDashboardPage = lazy(() => import("./pages/ManagerDashboardPage"));
 const ProjectsPage = lazy(() => import("./pages/ProjectsPage"));
 const ProjectDetailPage = lazy(() => import("./pages/ProjectDetailPage"));
 const CharactersPage = lazy(() => import("./pages/CharactersPage"));
+const CharacterDetailPage = lazy(() => import("./pages/CharacterDetailPage"));
 const ApprovalsPage = lazy(() => import("./pages/ApprovalsPage"));
 const EmployeesPage = lazy(() => import("./pages/EmployeesPage"));
 const ReportsPage = lazy(() => import("./pages/ReportsPage"));
@@ -89,6 +90,14 @@ export default function App() {
             element={
               <ManagerLayout>
                 <CharactersPage />
+              </ManagerLayout>
+            }
+          />
+          <Route
+            path="/characters/:id"
+            element={
+              <ManagerLayout>
+                <CharacterDetailPage />
               </ManagerLayout>
             }
           />

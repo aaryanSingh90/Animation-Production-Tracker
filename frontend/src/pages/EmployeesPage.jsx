@@ -4,7 +4,7 @@ import Loader from "../components/Loader";
 import EmptyState from "../components/EmptyState";
 import Modal from "../components/Modal";
 import StatusBadge from "../components/StatusBadge";
-import { formatDate, labelize } from "../utils/format";
+import { formatDate, initials, labelize } from "../utils/format";
 import { useToastStore } from "../store/toastStore";
 
 export default function EmployeesPage() {
@@ -28,7 +28,16 @@ export default function EmployeesPage() {
     department: ""
   });
 
-  const [assignment, setAssignment] = useState({ projectId: "", stageId: "" });
+  const [editOpen, setEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    email: "",
+    role: "EMPLOYEE",
+    department: "",
+    password: ""
+  });
+
+  const [assignment, setAssignment] = useState({ projectId: "", projectStageId: "" });
 
   async function fetchUsersAndProjects() {
     setLoading(true);
@@ -36,7 +45,6 @@ export default function EmployeesPage() {
       const [usersRes, projectsRes] = await Promise.all([api.get("/users"), api.get("/projects")]);
       setUsers(usersRes.data);
       setProjects(projectsRes.data);
-
       if (selectedUserId) {
         const detail = await api.get(`/users/${selectedUserId}`);
         setSelectedUser(detail.data);
@@ -68,10 +76,10 @@ export default function EmployeesPage() {
 
   const availableStages = useMemo(() => {
     const project = projects.find((item) => String(item.id) === String(assignment.projectId));
-    return project?.stages || [];
+    return (project?.stages || []).filter((stage) => !stage.assignedUserId);
   }, [projects, assignment.projectId]);
 
-  const openUserProfile = async (userId) => {
+  async function openUserProfile(userId) {
     setSelectedUserId(userId);
     try {
       const { data } = await api.get(`/users/${userId}`);
@@ -79,9 +87,9 @@ export default function EmployeesPage() {
     } catch (error) {
       showToast("error", error.userMessage || error.response?.data?.message || "Failed to load employee profile");
     }
-  };
+  }
 
-  const addEmployee = async (event) => {
+  async function addEmployee(event) {
     event.preventDefault();
     try {
       await api.post("/users", addForm);
@@ -92,35 +100,69 @@ export default function EmployeesPage() {
     } catch (error) {
       showToast("error", error.userMessage || error.response?.data?.message || "Unable to create employee");
     }
-  };
+  }
 
-  const assignUser = async () => {
-    if (!selectedUserId || !assignment.stageId) return;
+  function openEditModal() {
+    if (!selectedUser) return;
+    setEditForm({
+      name: selectedUser.name || "",
+      email: selectedUser.email || "",
+      role: selectedUser.role || "EMPLOYEE",
+      department: selectedUser.department || "",
+      password: ""
+    });
+    setEditOpen(true);
+  }
+
+  async function saveEdit(event) {
+    event.preventDefault();
+    if (!selectedUserId) return;
+
     try {
-      await api.post(`/users/${selectedUserId}/assign`, { stageId: Number(assignment.stageId) });
-      showToast("success", "Employee assigned to stage");
-      setAssignment({ projectId: "", stageId: "" });
+      const payload = {
+        name: editForm.name,
+        email: editForm.email,
+        role: editForm.role,
+        department: editForm.department
+      };
+      if (editForm.password.trim()) payload.password = editForm.password.trim();
+      await api.put(`/users/${selectedUserId}`, payload);
+      showToast("success", "Employee updated");
+      setEditOpen(false);
+      await openUserProfile(selectedUserId);
+      await fetchUsersAndProjects();
+    } catch (error) {
+      showToast("error", error.userMessage || error.response?.data?.message || "Unable to update employee");
+    }
+  }
+
+  async function assignUser() {
+    if (!selectedUserId || !assignment.projectStageId) return;
+    try {
+      await api.post(`/users/${selectedUserId}/assign`, { projectStageId: Number(assignment.projectStageId) });
+      showToast("success", "Assigned successfully");
+      setAssignment({ projectId: "", projectStageId: "" });
       await openUserProfile(selectedUserId);
       await fetchUsersAndProjects();
     } catch (error) {
       showToast("error", error.userMessage || error.response?.data?.message || "Unable to assign employee");
     }
-  };
+  }
 
-  const deactivateUser = async (userId) => {
-    if (!window.confirm("Deactivate this user?")) return;
+  async function deactivateUser(userId, name) {
+    const confirmed = window.confirm(`Deactivate ${name}? They will lose access immediately.`);
+    if (!confirmed) return;
     try {
-      await api.delete(`/users/${userId}`);
+      await api.put(`/users/${userId}`, { isActive: false });
       showToast("success", "User deactivated");
       if (selectedUserId === userId) {
-        setSelectedUserId(null);
-        setSelectedUser(null);
+        await openUserProfile(userId);
       }
       await fetchUsersAndProjects();
     } catch (error) {
       showToast("error", error.userMessage || error.response?.data?.message || "Unable to deactivate user");
     }
-  };
+  }
 
   if (loading) return <Loader label="Loading employees..." />;
 
@@ -135,10 +177,7 @@ export default function EmployeesPage() {
               <option value="department">Sort by department</option>
               <option value="active">Sort by active status</option>
             </select>
-            <button
-              onClick={() => setSortDir((prev) => (prev === "asc" ? "desc" : "asc"))}
-              className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700"
-            >
+            <button onClick={() => setSortDir((prev) => (prev === "asc" ? "desc" : "asc"))} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700">
               {sortDir.toUpperCase()}
             </button>
           </div>
@@ -158,35 +197,27 @@ export default function EmployeesPage() {
                   <th className="py-2">Email</th>
                   <th className="py-2">Role</th>
                   <th className="py-2">Department</th>
-                  <th className="py-2">Active</th>
+                  <th className="py-2">Status</th>
                   <th className="py-2">Assigned Projects</th>
-                  <th className="py-2">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {sorted.map((user) => (
                   <tr
                     key={user.id}
-                    className={`cursor-pointer border-b border-slate-100 ${selectedUserId === user.id ? "bg-slate-50" : ""}`}
+                    className={`cursor-pointer border-b border-slate-100 ${selectedUserId === user.id ? "bg-slate-50" : ""} ${!user.isActive ? "opacity-55" : ""}`}
                     onClick={() => openUserProfile(user.id)}
                   >
                     <td className="py-3 font-semibold text-slate-900">{user.name}</td>
                     <td className="py-3">{user.email}</td>
                     <td className="py-3">{labelize(user.role)}</td>
                     <td className="py-3">{user.department || "-"}</td>
-                    <td className="py-3">{user.isActive ? "Yes" : "No"}</td>
-                    <td className="py-3">{user._count?.assignedProjectStages || 0}</td>
                     <td className="py-3">
-                      <button
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          deactivateUser(user.id);
-                        }}
-                        className="rounded-lg bg-red-500 px-2.5 py-1 text-xs font-semibold text-white"
-                      >
-                        Deactivate
-                      </button>
+                      <span className={`rounded-full px-2 py-1 text-xs font-semibold ${user.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>
+                        {user.isActive ? "Active" : "Inactive"}
+                      </span>
                     </td>
+                    <td className="py-3">{user._count?.assignedProjectStages || 0}</td>
                   </tr>
                 ))}
               </tbody>
@@ -200,24 +231,53 @@ export default function EmployeesPage() {
           <EmptyState title="Select an employee" description="Click an employee row to view profile and workload." />
         ) : (
           <div className="space-y-4">
-            <div>
-              <h3 className="text-lg font-bold text-slate-900">{selectedUser.name}</h3>
-              <p className="text-sm text-slate-600">{selectedUser.email}</p>
-              <p className="text-sm text-slate-600">{labelize(selectedUser.role)} · {selectedUser.department || "-"}</p>
+            <div className="rounded-xl border border-slate-200 p-3">
+              <div className="mb-2 flex items-start justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-emerald-500 text-sm font-bold text-white">
+                    {initials(selectedUser.name)}
+                  </span>
+                  <div>
+                    <p className="text-sm font-bold text-slate-900">{selectedUser.name}</p>
+                    <p className="text-xs text-slate-500">{selectedUser.email}</p>
+                    <p className="text-xs text-slate-500">{labelize(selectedUser.role)} · {selectedUser.department || "-"}</p>
+                  </div>
+                </div>
+                <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${selectedUser.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>
+                  {selectedUser.isActive ? "Active" : "Inactive"}
+                </span>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={openEditModal} className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                  Edit
+                </button>
+                <button onClick={() => deactivateUser(selectedUser.id, selectedUser.name)} className="rounded-lg bg-red-500 px-2.5 py-1 text-xs font-semibold text-white">
+                  Deactivate
+                </button>
+              </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <Stat label="Submissions" value={selectedUser.stats?.submittedCount || 0} />
-              <Stat label="Approved" value={selectedUser.stats?.approvedCount || 0} />
-              <Stat label="Approval Rate" value={`${selectedUser.stats?.approvalRate || 0}%`} />
-              <Stat label="Active Stages" value={selectedUser.stats?.activeStages || 0} />
+            <div className="space-y-2 rounded-xl border border-slate-200 p-3">
+              <h4 className="text-sm font-bold text-slate-800">Current Workload</h4>
+              <p className="text-xs text-slate-500">{selectedUser.stats?.activeStages || 0} active tasks</p>
+              <div className="space-y-2">
+                {(selectedUser.assignedProjectStages || []).filter((stage) => stage.status !== "APPROVED").map((stage) => (
+                  <div key={stage.id} className="rounded-lg bg-slate-50 p-2">
+                    <p className="text-xs font-semibold text-slate-800">{stage.project.name} → {labelize(stage.stageName)}</p>
+                    <p className="mt-1 text-[11px] text-slate-500">Deadline: {formatDate(stage.deadline)}</p>
+                  </div>
+                ))}
+                {!selectedUser.assignedProjectStages?.filter((stage) => stage.status !== "APPROVED").length && (
+                  <p className="text-xs text-slate-500">No active stages.</p>
+                )}
+              </div>
             </div>
 
             <div className="space-y-2 rounded-xl border border-slate-200 p-3">
               <h4 className="text-sm font-bold text-slate-800">Assign To Stage</h4>
               <select
                 value={assignment.projectId}
-                onChange={(event) => setAssignment({ projectId: event.target.value, stageId: "" })}
+                onChange={(event) => setAssignment({ projectId: event.target.value, projectStageId: "" })}
                 className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
               >
                 <option value="">Select project</option>
@@ -228,8 +288,8 @@ export default function EmployeesPage() {
                 ))}
               </select>
               <select
-                value={assignment.stageId}
-                onChange={(event) => setAssignment((prev) => ({ ...prev, stageId: event.target.value }))}
+                value={assignment.projectStageId}
+                onChange={(event) => setAssignment((prev) => ({ ...prev, projectStageId: event.target.value }))}
                 className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
               >
                 <option value="">Select stage</option>
@@ -240,13 +300,20 @@ export default function EmployeesPage() {
                 ))}
               </select>
               <button onClick={assignUser} className="w-full rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white">
-                Assign Stage
+                Assign
               </button>
             </div>
 
+            <div className="rounded-xl border border-slate-200 p-3">
+              <h4 className="text-sm font-bold text-slate-800">History</h4>
+              <p className="mt-1 text-xs text-slate-600">{selectedUser.stats?.submittedCount || 0} total submissions</p>
+              <p className="text-xs text-slate-600">{selectedUser.stats?.approvedCount || 0} approved · {(selectedUser.stats?.submittedCount || 0) - (selectedUser.stats?.approvedCount || 0)} rejected</p>
+              <p className="text-xs text-slate-600">Approval rate: {selectedUser.stats?.approvalRate || 0}%</p>
+            </div>
+
             <div>
-              <h4 className="mb-2 text-sm font-bold text-slate-800">Assigned Stages</h4>
-              <div className="max-h-[260px] space-y-2 overflow-auto">
+              <h4 className="mb-2 text-sm font-bold text-slate-800">All Assigned Stages</h4>
+              <div className="max-h-[220px] space-y-2 overflow-auto">
                 {(selectedUser.assignedProjectStages || []).map((stage) => (
                   <div key={stage.id} className="rounded-xl border border-slate-200 p-2">
                     <p className="text-sm font-semibold text-slate-900">{stage.project.name}</p>
@@ -291,15 +358,35 @@ export default function EmployeesPage() {
           </div>
         </form>
       </Modal>
-    </div>
-  );
-}
 
-function Stat({ label, value }) {
-  return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
-      <p className="text-[11px] uppercase tracking-wide text-slate-500">{label}</p>
-      <p className="text-sm font-bold text-slate-800">{value}</p>
+      <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Edit Employee">
+        <form className="space-y-4" onSubmit={saveEdit}>
+          <Input label="Full Name" value={editForm.name} onChange={(value) => setEditForm((prev) => ({ ...prev, name: value }))} required />
+          <Input label="Email Address" type="email" value={editForm.email} onChange={(value) => setEditForm((prev) => ({ ...prev, email: value }))} required />
+          <div>
+            <label className="mb-1 block text-sm font-semibold text-slate-700">Role</label>
+            <select value={editForm.role} onChange={(event) => setEditForm((prev) => ({ ...prev, role: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm">
+              <option value="EMPLOYEE">EMPLOYEE</option>
+              <option value="COORDINATOR">COORDINATOR</option>
+            </select>
+          </div>
+          <Input label="Department / Speciality" value={editForm.department} onChange={(value) => setEditForm((prev) => ({ ...prev, department: value }))} />
+          <Input
+            label="Password Reset (optional)"
+            type="password"
+            value={editForm.password}
+            onChange={(value) => setEditForm((prev) => ({ ...prev, password: value }))}
+          />
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setEditOpen(false)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700">
+              Cancel
+            </button>
+            <button type="submit" className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white">
+              Save
+            </button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import api from "../lib/api";
 import Loader from "../components/Loader";
 import EmptyState from "../components/EmptyState";
@@ -135,6 +136,7 @@ export default function CharactersPage() {
                   </th>
                 ))}
                 <th className="py-2">Used In Projects</th>
+                <th className="py-2">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -160,6 +162,11 @@ export default function CharactersPage() {
                     })}
                     <td className="py-3 text-xs text-slate-700">
                       {(character.projectLinks || []).map((link) => link.project.name).join(", ") || "-"}
+                    </td>
+                    <td className="py-3">
+                      <Link to={`/characters/${character.id}`} className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                        View Detail
+                      </Link>
                     </td>
                   </tr>
                 );

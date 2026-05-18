@@ -83,6 +83,7 @@ npm run dev
 DATABASE_URL=postgresql://<db-user>:<db-password>@<render-db-host>/<db-name>
 JWT_SECRET=<strong-random-secret>
 CLIENT_URL=https://animation-production-tracker.vercel.app
+FRONTEND_URL=https://animation-production-tracker.vercel.app
 NODE_ENV=production
 PORT=10000
 ```
@@ -180,6 +181,7 @@ Environment variables:
 - `DATABASE_URL`
 - `JWT_SECRET`
 - `CLIENT_URL`
+- `FRONTEND_URL` (preferred; `CLIENT_URL` kept for backward compatibility)
 - `NODE_ENV=production`
 - `PORT=10000` (Render injects `PORT`; keep fallback in code)
 

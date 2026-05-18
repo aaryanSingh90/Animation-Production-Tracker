@@ -37,20 +37,31 @@ const createUserSchema = z.object({
 });
 
 const assignUserSchema = z.object({
-  stageId: z.coerce.number().int().positive()
+  stageId: z.coerce.number().int().positive().optional(),
+  projectStageId: z.coerce.number().int().positive().optional()
+}).superRefine((data, ctx) => {
+  if (!data.stageId && !data.projectStageId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["stageId"],
+      message: "stageId or projectStageId is required"
+    });
+  }
 });
 
 const createProjectSchema = z.object({
   name: z.string().min(2),
   priority: z.coerce.number().int().min(1).max(20),
-  audioReceivedDate: isoDate
+  audioReceivedDate: isoDate.optional(),
+  description: z.string().max(5000).optional().or(z.literal(""))
 });
 
 const updateProjectSchema = z
   .object({
     name: z.string().min(2).optional(),
     priority: z.coerce.number().int().min(1).max(20).optional(),
-    audioReceivedDate: isoDate.optional()
+    audioReceivedDate: isoDate.optional(),
+    description: z.string().max(5000).optional().or(z.literal(""))
   })
   .refine((value) => Object.keys(value).length > 0, "At least one field is required");
 

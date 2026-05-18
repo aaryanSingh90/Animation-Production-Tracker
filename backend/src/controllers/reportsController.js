@@ -3,6 +3,13 @@ const prisma = require("../utils/prisma");
 const { asyncHandler } = require("../utils/http");
 const { ACTIVE_STAGE_STATUSES } = require("../utils/constants");
 
+const STATUS_COLORS = {
+  "On Track": "#10B981",
+  Delayed: "#EF4444",
+  Complete: "#3B82F6",
+  "Has Issues": "#F59E0B"
+};
+
 function calculateExpectedProgress(project) {
   if (!project.stages.length) return 0;
 
@@ -29,7 +36,13 @@ function projectIsDelayed(project) {
 const getOverviewReport = asyncHandler(async (req, res) => {
   const projects = await prisma.project.findMany({
     include: {
-      stages: true
+      stages: {
+        include: {
+          assignedUser: {
+            select: { id: true, name: true }
+          }
+        }
+      }
     },
     orderBy: { priority: "asc" }
   });
@@ -63,17 +76,23 @@ const getOverviewReport = asyncHandler(async (req, res) => {
   });
 
   const approvalTrend = [];
+  const approvalsOverTime = [];
   for (let i = 29; i >= 0; i -= 1) {
     const day = subDays(startOfDay(new Date()), i);
     const key = format(day, "yyyy-MM-dd");
     const count = stageApprovals.filter((item) => item.approvedAt && format(item.approvedAt, "yyyy-MM-dd") === key).length;
     approvalTrend.push({ date: key, approvals: count });
+    approvalsOverTime.push({ date: key, count });
   }
 
   const completionByProject = projects.map((project) => ({
     projectId: project.id,
     name: project.name,
     progressPercent: project.progressPercent
+  }));
+  const completionPerProject = completionByProject.map((project) => ({
+    name: project.name,
+    completion: project.progressPercent
   }));
 
   const statusBreakdown = [
@@ -82,6 +101,74 @@ const getOverviewReport = asyncHandler(async (req, res) => {
     { name: "Complete", value: completedProjects.length },
     { name: "Has Issues", value: projectsWithIssues.length }
   ];
+  const projectStatusBreakdown = statusBreakdown.map((item) => ({
+    ...item,
+    color: STATUS_COLORS[item.name]
+  }));
+
+  const groupedIssues = await prisma.issueLog.groupBy({
+    by: ["issueType"],
+    _count: { issueType: true }
+  });
+
+  const issuesByType = groupedIssues.map((item) => ({
+    name: item.issueType.replaceAll("_", " "),
+    value: item._count.issueType
+  }));
+
+  const workloads = await prisma.user.findMany({
+    where: {
+      role: "EMPLOYEE",
+      isActive: true
+    },
+    select: {
+      name: true,
+      assignedProjectStages: {
+        where: {
+          status: {
+            in: ACTIVE_STAGE_STATUSES
+          }
+        },
+        select: {
+          id: true
+        }
+      }
+    },
+    orderBy: { name: "asc" }
+  });
+
+  const workloadPerArtist = workloads.map((user) => ({
+    name: user.name,
+    activeTasks: user.assignedProjectStages.length
+  }));
+
+  const upcomingStages = await prisma.projectStage.findMany({
+    where: {
+      deadline: {
+        gte: startOfDay(new Date()),
+        lte: addDays(startOfDay(new Date()), 7)
+      },
+      status: {
+        not: "APPROVED"
+      }
+    },
+    include: {
+      project: {
+        select: { name: true }
+      },
+      assignedUser: {
+        select: { name: true }
+      }
+    },
+    orderBy: { deadline: "asc" }
+  });
+
+  const upcomingDeadlines = upcomingStages.map((stage) => ({
+    projectName: stage.project.name,
+    stageName: stage.stageName,
+    deadline: stage.deadline,
+    assignedTo: stage.assignedUser?.name || "Unassigned"
+  }));
 
   return res.json({
     totals: {
@@ -93,7 +180,13 @@ const getOverviewReport = asyncHandler(async (req, res) => {
     },
     statusBreakdown,
     completionByProject,
-    approvalTrend
+    approvalTrend,
+    projectStatusBreakdown,
+    completionPerProject,
+    approvalsOverTime,
+    issuesByType,
+    workloadPerArtist,
+    upcomingDeadlines
   });
 });
 

@@ -130,7 +130,7 @@ const updateUser = asyncHandler(async (req, res) => {
 
   const payload = {};
   const allowedForSelf = ["name", "department"];
-  const allowedForManager = ["name", "email", "role", "department", "isActive"];
+  const allowedForManager = ["name", "email", "role", "department", "isActive", "password"];
   const allowed = isManager(req.user.role) ? allowedForManager : allowedForSelf;
 
   for (const key of allowed) {
@@ -141,6 +141,13 @@ const updateUser = asyncHandler(async (req, res) => {
 
   if (payload.email) {
     payload.email = String(payload.email).toLowerCase();
+  }
+
+  if (payload.password) {
+    if (String(payload.password).length < 8) {
+      throw new AppError("Password must be at least 8 characters", 400);
+    }
+    payload.password = await bcrypt.hash(String(payload.password), 10);
   }
 
   const updated = await prisma.user.update({
@@ -193,10 +200,10 @@ const getWorkload = asyncHandler(async (req, res) => {
 
 const assignUserToStage = asyncHandler(async (req, res) => {
   const userId = Number(req.params.id);
-  const stageId = Number(req.body.stageId);
+  const stageId = Number(req.body.stageId || req.body.projectStageId);
 
   if (!stageId) {
-    throw new AppError("stageId is required", 400);
+    throw new AppError("stageId or projectStageId is required", 400);
   }
 
   const [user, stage] = await Promise.all([

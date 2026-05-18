@@ -30,6 +30,7 @@ function readTokenFromStorage() {
 
 const api = axios.create({
   baseURL: API_BASE_URL,
+  withCredentials: true,
   timeout: 30000,
   headers: {
     "Content-Type": "application/json",

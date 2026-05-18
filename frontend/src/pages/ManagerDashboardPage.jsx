@@ -20,9 +20,9 @@ export default function ManagerDashboardPage() {
   const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);
-  const [overview, setOverview] = useState(null);
   const [projects, setProjects] = useState([]);
   const [users, setUsers] = useState([]);
+  const [pendingApprovals, setPendingApprovals] = useState(0);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -35,15 +35,15 @@ export default function ManagerDashboardPage() {
     async function fetchData() {
       setLoading(true);
       try {
-        const [overviewRes, projectsRes, usersRes] = await Promise.all([
-          api.get("/reports/overview"),
+        const [projectsRes, approvalsRes, usersRes] = await Promise.all([
           api.get("/projects"),
+          api.get("/approvals"),
           api.get("/users"),
         ]);
 
         if (!cancelled) {
-          setOverview(overviewRes.data);
           setProjects(projectsRes.data);
+          setPendingApprovals(approvalsRes.data.length);
           setUsers(usersRes.data.filter((item) => item.role === "EMPLOYEE"));
         }
       } finally {
@@ -98,20 +98,21 @@ export default function ManagerDashboardPage() {
     return <Loader label="Loading dashboard..." />;
   }
 
-  const totals = overview?.totals || {
-    totalProjects: 0,
-    onTrackPercent: 0,
-    delayedPercent: 0,
-    pendingApprovals: 0,
-  };
+  const totalProjects = projects.length;
+  const onTrackProjects = projects.filter((project) => project.progressPercent >= 50 && !project.stages?.some((stage) => stage.status === "ISSUE" || stage.isDeadlineMissed)).length;
+  const delayedProjects = projects.filter((project) =>
+    project.stages?.some((stage) => stage.deadline && new Date(stage.deadline) < new Date() && stage.status !== "APPROVED")
+  ).length;
+  const onTrackPercent = totalProjects ? Math.round((onTrackProjects / totalProjects) * 100) : 0;
+  const delayedPercent = totalProjects ? Math.round((delayedProjects / totalProjects) * 100) : 0;
 
   return (
     <div className="space-y-6">
       <section className="grid grid-cols-4 gap-4">
-        <StatCard label="Total Projects" value={totals.totalProjects} tone="bg-slate-900" />
-        <StatCard label="Projects On Track" value={`${totals.onTrackPercent}%`} tone="bg-emerald-600" />
-        <StatCard label="Projects Delayed" value={`${totals.delayedPercent}%`} tone="bg-red-500" />
-        <StatCard label="Pending Approvals" value={totals.pendingApprovals} tone="bg-sky-600" />
+        <StatCard label="Total Projects" value={totalProjects} tone="bg-slate-900" />
+        <StatCard label="Projects On Track" value={`${onTrackPercent}%`} tone="bg-emerald-600" />
+        <StatCard label="Projects Delayed" value={`${delayedPercent}%`} tone="bg-red-500" />
+        <StatCard label="Pending Approvals" value={pendingApprovals} tone="bg-sky-600" />
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4">
