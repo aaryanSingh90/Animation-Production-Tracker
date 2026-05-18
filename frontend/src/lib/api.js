@@ -1,12 +1,20 @@
 import axios from "axios";
 import { useAuthStore } from "../store/authStore";
 
-const API_BASE_URL = (import.meta.env.VITE_API_URL || "").trim();
+const RAW_API_BASE_URL = (import.meta.env.VITE_API_URL || "").trim().replace(/\/+$/, "");
+const API_BASE_URL = RAW_API_BASE_URL
+  ? /\/api$/i.test(RAW_API_BASE_URL)
+    ? RAW_API_BASE_URL
+    : `${RAW_API_BASE_URL}/api`
+  : "";
 
 console.log("VITE_API_URL:", import.meta.env.VITE_API_URL);
+console.log("normalized API_BASE_URL:", API_BASE_URL);
 
 if (!API_BASE_URL) {
   console.error("Missing VITE_API_URL. Set it in your Vercel environment variables.");
+} else if (!/\/api$/i.test(RAW_API_BASE_URL || "")) {
+  console.warn("VITE_API_URL is missing '/api'. Auto-corrected at runtime.");
 }
 
 function readTokenFromStorage() {
