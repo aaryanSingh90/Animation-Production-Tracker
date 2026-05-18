@@ -47,6 +47,16 @@ api.interceptors.request.use(
       return Promise.reject(configError);
     }
 
+    // Defensive fix: guarantee requests always target the `/api` namespace.
+    if (typeof config.baseURL === "string" && !/\/api$/i.test(config.baseURL.replace(/\/+$/, ""))) {
+      config.baseURL = `${config.baseURL.replace(/\/+$/, "")}/api`;
+    }
+
+    // If any call accidentally uses `/api/...`, strip duplicate prefix because baseURL already contains `/api`.
+    if (typeof config.url === "string" && config.url.startsWith("/api/")) {
+      config.url = config.url.slice(4);
+    }
+
     const inMemoryToken = useAuthStore.getState().token;
     const token = inMemoryToken || readTokenFromStorage();
 
