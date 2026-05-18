@@ -189,6 +189,18 @@ After first deploy (optional seed):
 npx prisma db seed
 ```
 
+Universal admin is auto-created on backend startup (even without running seed):
+
+- Email: `admin@animationtracker.com`
+- Password: `Admin@12345`
+
+You can override these in Render env vars:
+
+- `UNIVERSAL_ADMIN_EMAIL`
+- `UNIVERSAL_ADMIN_PASSWORD`
+- `UNIVERSAL_ADMIN_NAME`
+- `UNIVERSAL_ADMIN_DEPARTMENT`
+
 ### C) Deploy Frontend (Vercel)
 
 Project settings:

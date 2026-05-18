@@ -14,6 +14,7 @@ const { initSocket, trackUserSocket, untrackUserSocket } = require("./utils/sock
 const { errorHandler, AppError } = require("./utils/http");
 const { runDeadlineSweep } = require("./utils/deadlines");
 const { requestLogger, errorLogger, write } = require("./utils/logger");
+const { ensureUniversalAdmin } = require("./utils/bootstrapAdmin");
 const sanitizeInput = require("./middleware/sanitize");
 
 const authRoutes = require("./routes/authRoutes");
@@ -167,8 +168,6 @@ const deadlineTask = cron.schedule("0 9 * * *", async () => {
   }
 });
 
-deadlineSweepOnStartup();
-
 async function deadlineSweepOnStartup() {
   try {
     await runDeadlineSweep();
@@ -180,12 +179,31 @@ async function deadlineSweepOnStartup() {
 
 const PORT = Number(process.env.PORT || 5000);
 
-server.listen(PORT, () => {
-  write("info", "server_started", {
-    port: PORT,
-    mode: process.env.NODE_ENV || "development"
+async function startServer() {
+  try {
+    const admin = await ensureUniversalAdmin();
+    write("info", "universal_admin_ready", {
+      id: admin.id,
+      email: admin.email,
+      role: admin.role
+    });
+  } catch (error) {
+    write("error", "universal_admin_failed", {
+      message: error.message
+    });
+  }
+
+  await deadlineSweepOnStartup();
+
+  server.listen(PORT, () => {
+    write("info", "server_started", {
+      port: PORT,
+      mode: process.env.NODE_ENV || "development"
+    });
   });
-});
+}
+
+startServer();
 
 let shuttingDown = false;
 
