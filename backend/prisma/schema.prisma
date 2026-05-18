@@ -1,0 +1,206 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  BOSS
+  PRODUCTION_MANAGER
+  COORDINATOR
+  EMPLOYEE
+}
+
+enum StageName {
+  AUDIO
+  ANIMATICS
+  CHARACTER_MODELLING
+  BLENDSHAPES
+  BG_MODELLING
+  RIGGING
+  TEXTURING
+  ANIMATION
+  LIGHTING
+  RENDER
+  COMPOSITING
+  EDITING
+}
+
+enum StageStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  SUBMITTED
+  APPROVED
+  REJECTED
+  ISSUE
+  EXTENDED
+}
+
+enum CharacterStageName {
+  REFERENCE
+  MODELLING
+  BLENDSHAPES
+  TEXTURING
+  RIGGING
+}
+
+enum IssueType {
+  TECHNICAL
+  SOFTWARE_CRASH
+  ASSET_MISSING
+  HARDWARE_FAILURE
+  ARTIST_UNAVAILABLE
+  OTHER
+}
+
+enum NotificationType {
+  APPROVAL_NEEDED
+  APPROVED
+  REJECTED
+  DEADLINE_WARNING
+  DEADLINE_MISSED
+  ISSUE_LOGGED
+  ASSIGNED
+}
+
+enum OverallStatus {
+  ON_TRACK
+  DELAYED
+  COMPLETED
+  HAS_ISSUES
+}
+
+model User {
+  id                      Int              @id @default(autoincrement())
+  name                    String
+  email                   String           @unique
+  password                String
+  role                    Role
+  department              String?
+  isActive                Boolean          @default(true)
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+  assignedProjectStages   ProjectStage[]   @relation("UserProjectStages")
+  assignedCharacterStages CharacterStage[] @relation("UserCharacterStages")
+  loggedIssues            IssueLog[]
+  notifications           Notification[]
+  activityLogs            ActivityLog[]
+}
+
+model Project {
+  id                Int                @id @default(autoincrement())
+  name              String             @unique
+  priority          Int
+  audioReceivedDate DateTime
+  overallStatus     OverallStatus      @default(ON_TRACK)
+  progressPercent   Float              @default(0)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  stages            ProjectStage[]
+  projectCharacters ProjectCharacter[]
+  notifications     Notification[]
+  activityLogs      ActivityLog[]
+}
+
+model ProjectStage {
+  id               Int            @id @default(autoincrement())
+  projectId        Int
+  stageName        StageName
+  status           StageStatus    @default(NOT_STARTED)
+  deadline         DateTime?
+  assignedUserId   Int?
+  submittedAt      DateTime?
+  approvedAt       DateTime?
+  rejectedAt       DateTime?
+  notes            String?
+  feedback         String?
+  isDeadlineMissed Boolean        @default(false)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  project          Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignedUser     User?          @relation("UserProjectStages", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  issueLogs        IssueLog[]
+  notifications    Notification[]
+  activityLogs     ActivityLog[]
+
+  @@unique([projectId, stageName])
+}
+
+model Character {
+  id           Int                @id @default(autoincrement())
+  name         String             @unique
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  stages       CharacterStage[]
+  projectLinks ProjectCharacter[]
+}
+
+model CharacterStage {
+  id             Int                @id @default(autoincrement())
+  characterId    Int
+  stageName      CharacterStageName
+  status         StageStatus        @default(NOT_STARTED)
+  deadline       DateTime?
+  assignedUserId Int?
+  notes          String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  character      Character          @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  assignedUser   User?              @relation("UserCharacterStages", fields: [assignedUserId], references: [id], onDelete: SetNull)
+
+  @@unique([characterId, stageName])
+}
+
+model ProjectCharacter {
+  id          Int       @id @default(autoincrement())
+  projectId   Int
+  characterId Int
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, characterId])
+}
+
+model IssueLog {
+  id               Int          @id @default(autoincrement())
+  projectStageId   Int
+  issueType        IssueType
+  description      String
+  originalDeadline DateTime?
+  newDeadline      DateTime?
+  extensionReason  String?
+  loggedById       Int
+  createdAt        DateTime     @default(now())
+  projectStage     ProjectStage @relation(fields: [projectStageId], references: [id], onDelete: Cascade)
+  loggedBy         User         @relation(fields: [loggedById], references: [id])
+}
+
+model Notification {
+  id               Int              @id @default(autoincrement())
+  userId           Int
+  message          String
+  type             NotificationType
+  isRead           Boolean          @default(false)
+  relatedProjectId Int?
+  relatedStageId   Int?
+  createdAt        DateTime         @default(now())
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  relatedProject   Project?         @relation(fields: [relatedProjectId], references: [id], onDelete: SetNull)
+  relatedStage     ProjectStage?    @relation(fields: [relatedStageId], references: [id], onDelete: SetNull)
+}
+
+model ActivityLog {
+  id        Int           @id @default(autoincrement())
+  projectId Int
+  stageId   Int?
+  actorId   Int?
+  eventType String
+  message   String
+  createdAt DateTime      @default(now())
+  project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  stage     ProjectStage? @relation(fields: [stageId], references: [id], onDelete: SetNull)
+  actor     User?         @relation(fields: [actorId], references: [id], onDelete: SetNull)
+}

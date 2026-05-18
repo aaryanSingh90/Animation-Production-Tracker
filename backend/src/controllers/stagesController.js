@@ -1,0 +1,415 @@
+const prisma = require("../utils/prisma");
+const { AppError, asyncHandler } = require("../utils/http");
+const { MANAGER_ROLES } = require("../utils/constants");
+const { createNotification, notifyManagers } = require("../utils/notifications");
+const { recalculateProjectProgress } = require("../utils/progress");
+const { processStageDeadline } = require("../utils/deadlines");
+const { logActivity } = require("../utils/activities");
+
+function isManager(role) {
+  return MANAGER_ROLES.includes(role);
+}
+
+async function getStageWithProject(stageId) {
+  const stage = await prisma.projectStage.findUnique({
+    where: { id: Number(stageId) },
+    include: {
+      project: true,
+      assignedUser: {
+        select: {
+          id: true,
+          name: true,
+          role: true
+        }
+      }
+    }
+  });
+
+  if (!stage) {
+    throw new AppError("Stage not found", 404);
+  }
+
+  return stage;
+}
+
+const getProjectStages = asyncHandler(async (req, res) => {
+  const projectId = Number(req.params.id);
+
+  const where = { projectId };
+  if (!isManager(req.user.role)) {
+    where.assignedUserId = req.user.id;
+  }
+
+  const stages = await prisma.projectStage.findMany({
+    where,
+    include: {
+      assignedUser: {
+        select: { id: true, name: true, department: true }
+      },
+      issueLogs: {
+        include: {
+          loggedBy: {
+            select: { id: true, name: true }
+          }
+        },
+        orderBy: { createdAt: "desc" }
+      }
+    },
+    orderBy: { createdAt: "asc" }
+  });
+
+  return res.json(stages);
+});
+
+const updateStage = asyncHandler(async (req, res) => {
+  const stageId = Number(req.params.id);
+  const stage = await getStageWithProject(stageId);
+
+  if (!isManager(req.user.role)) {
+    if (stage.assignedUserId !== req.user.id) {
+      throw new AppError("Forbidden", 403);
+    }
+
+    const allowed = ["status", "notes"];
+    for (const key of Object.keys(req.body)) {
+      if (!allowed.includes(key)) {
+        throw new AppError("Employees can only update status and notes", 403);
+      }
+    }
+
+    if (req.body.status && req.body.status !== "IN_PROGRESS") {
+      throw new AppError("Employees can only move stage to IN_PROGRESS", 403);
+    }
+  }
+
+  const data = {};
+
+  if (Object.prototype.hasOwnProperty.call(req.body, "status")) {
+    data.status = req.body.status;
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body, "deadline")) {
+    data.deadline = req.body.deadline ? new Date(req.body.deadline) : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body, "assignedUserId")) {
+    data.assignedUserId = req.body.assignedUserId ? Number(req.body.assignedUserId) : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body, "notes")) {
+    data.notes = req.body.notes;
+  }
+
+  if (data.status === "APPROVED") data.approvedAt = new Date();
+  if (data.status === "REJECTED") data.rejectedAt = new Date();
+
+  const updated = await prisma.projectStage.update({
+    where: { id: stageId },
+    data,
+    include: {
+      project: true,
+      assignedUser: {
+        select: { id: true, name: true }
+      }
+    }
+  });
+
+  await processStageDeadline(updated);
+  await recalculateProjectProgress(updated.projectId);
+
+  await logActivity({
+    projectId: updated.projectId,
+    stageId: updated.id,
+    actorId: req.user.id,
+    eventType: "STAGE_UPDATED",
+    message: `${req.user.name} updated ${updated.stageName.replaceAll("_", " ")} on ${updated.project.name}.`
+  });
+
+  if (Object.prototype.hasOwnProperty.call(data, "assignedUserId") && data.assignedUserId) {
+    await createNotification({
+      userId: data.assignedUserId,
+      message: `You were assigned ${updated.stageName.replaceAll("_", " ")} in ${updated.project.name}.`,
+      type: "ASSIGNED",
+      relatedProjectId: updated.projectId,
+      relatedStageId: updated.id
+    });
+  }
+
+  return res.json(updated);
+});
+
+const submitStage = asyncHandler(async (req, res) => {
+  const stage = await getStageWithProject(req.params.id);
+
+  if (stage.assignedUserId !== req.user.id) {
+    throw new AppError("Only assigned employee can submit this stage", 403);
+  }
+
+  const updated = await prisma.projectStage.update({
+    where: { id: stage.id },
+    data: {
+      status: "SUBMITTED",
+      submittedAt: new Date()
+    },
+    include: {
+      project: true,
+      assignedUser: {
+        select: { id: true, name: true }
+      }
+    }
+  });
+
+  await notifyManagers({
+    message: `${req.user.name} submitted ${updated.stageName.replaceAll("_", " ")} for ${updated.project.name}.`,
+    type: "APPROVAL_NEEDED",
+    relatedProjectId: updated.projectId,
+    relatedStageId: updated.id
+  });
+
+  await recalculateProjectProgress(updated.projectId);
+  await processStageDeadline(updated);
+
+  await logActivity({
+    projectId: updated.projectId,
+    stageId: updated.id,
+    actorId: req.user.id,
+    eventType: "STAGE_SUBMITTED",
+    message: `${req.user.name} submitted ${updated.stageName.replaceAll("_", " ")}.`
+  });
+
+  return res.json(updated);
+});
+
+const approveStage = asyncHandler(async (req, res) => {
+  const stage = await getStageWithProject(req.params.id);
+
+  const updated = await prisma.projectStage.update({
+    where: { id: stage.id },
+    data: {
+      status: "APPROVED",
+      approvedAt: new Date(),
+      rejectedAt: null,
+      feedback: null,
+      isDeadlineMissed: false
+    },
+    include: {
+      project: true,
+      assignedUser: {
+        select: { id: true, name: true }
+      }
+    }
+  });
+
+  if (updated.assignedUserId) {
+    await createNotification({
+      userId: updated.assignedUserId,
+      message: `${updated.stageName.replaceAll("_", " ")} approved for ${updated.project.name}.`,
+      type: "APPROVED",
+      relatedProjectId: updated.projectId,
+      relatedStageId: updated.id
+    });
+  }
+
+  await recalculateProjectProgress(updated.projectId);
+
+  await logActivity({
+    projectId: updated.projectId,
+    stageId: updated.id,
+    actorId: req.user.id,
+    eventType: "STAGE_APPROVED",
+    message: `${req.user.name} approved ${updated.stageName.replaceAll("_", " ")}.`
+  });
+
+  return res.json(updated);
+});
+
+const rejectStage = asyncHandler(async (req, res) => {
+  const { feedback } = req.body;
+  if (!feedback) {
+    throw new AppError("feedback is required", 400);
+  }
+
+  const stage = await getStageWithProject(req.params.id);
+
+  const updated = await prisma.projectStage.update({
+    where: { id: stage.id },
+    data: {
+      status: "REJECTED",
+      rejectedAt: new Date(),
+      feedback,
+      approvedAt: null
+    },
+    include: {
+      project: true,
+      assignedUser: {
+        select: { id: true, name: true }
+      }
+    }
+  });
+
+  if (updated.assignedUserId) {
+    await createNotification({
+      userId: updated.assignedUserId,
+      message: `${updated.stageName.replaceAll("_", " ")} rejected for ${updated.project.name}. Feedback: ${feedback}`,
+      type: "REJECTED",
+      relatedProjectId: updated.projectId,
+      relatedStageId: updated.id
+    });
+  }
+
+  await recalculateProjectProgress(updated.projectId);
+  await processStageDeadline(updated);
+
+  await logActivity({
+    projectId: updated.projectId,
+    stageId: updated.id,
+    actorId: req.user.id,
+    eventType: "STAGE_REJECTED",
+    message: `${req.user.name} rejected ${updated.stageName.replaceAll("_", " ")}.`
+  });
+
+  return res.json(updated);
+});
+
+const logIssue = asyncHandler(async (req, res) => {
+  const stage = await getStageWithProject(req.params.id);
+  const {
+    issueType,
+    description,
+    extendDeadline = false,
+    newDeadline,
+    extensionReason
+  } = req.body;
+
+  if (!issueType || !description) {
+    throw new AppError("issueType and description are required", 400);
+  }
+
+  if (extendDeadline) {
+    if (!newDeadline || !extensionReason) {
+      throw new AppError("newDeadline and extensionReason are required when extending deadline", 400);
+    }
+
+    if (stage.deadline && new Date(newDeadline) <= new Date(stage.deadline)) {
+      throw new AppError("newDeadline must be after original deadline", 400);
+    }
+  }
+
+  const issue = await prisma.issueLog.create({
+    data: {
+      projectStageId: stage.id,
+      issueType,
+      description,
+      originalDeadline: stage.deadline,
+      newDeadline: extendDeadline ? new Date(newDeadline) : null,
+      extensionReason: extendDeadline ? extensionReason : null,
+      loggedById: req.user.id
+    }
+  });
+
+  const stageUpdate = {
+    status: extendDeadline ? "EXTENDED" : "ISSUE"
+  };
+
+  if (extendDeadline) {
+    stageUpdate.deadline = new Date(newDeadline);
+  }
+
+  const updatedStage = await prisma.projectStage.update({
+    where: { id: stage.id },
+    data: stageUpdate,
+    include: {
+      project: true
+    }
+  });
+
+  await notifyManagers({
+    message: `Issue logged in ${updatedStage.project.name} · ${updatedStage.stageName.replaceAll("_", " ")}.`,
+    type: "ISSUE_LOGGED",
+    relatedProjectId: updatedStage.projectId,
+    relatedStageId: updatedStage.id
+  });
+
+  await recalculateProjectProgress(updatedStage.projectId);
+  await processStageDeadline(updatedStage);
+
+  await logActivity({
+    projectId: updatedStage.projectId,
+    stageId: updatedStage.id,
+    actorId: req.user.id,
+    eventType: "ISSUE_LOGGED",
+    message: `${req.user.name} logged issue on ${updatedStage.stageName.replaceAll("_", " ")}.`
+  });
+
+  return res.status(201).json({ issue, stage: updatedStage });
+});
+
+const extendDeadline = asyncHandler(async (req, res) => {
+  const stage = await getStageWithProject(req.params.id);
+  const { newDeadline, reason } = req.body;
+
+  if (!newDeadline || !reason) {
+    throw new AppError("newDeadline and reason are required", 400);
+  }
+
+  if (stage.deadline && new Date(newDeadline) <= new Date(stage.deadline)) {
+    throw new AppError("newDeadline must be after original deadline", 400);
+  }
+
+  await prisma.issueLog.create({
+    data: {
+      projectStageId: stage.id,
+      issueType: "OTHER",
+      description: "Deadline extended by manager",
+      originalDeadline: stage.deadline,
+      newDeadline: new Date(newDeadline),
+      extensionReason: reason,
+      loggedById: req.user.id
+    }
+  });
+
+  const updated = await prisma.projectStage.update({
+    where: { id: stage.id },
+    data: {
+      deadline: new Date(newDeadline),
+      status: "EXTENDED",
+      isDeadlineMissed: false
+    },
+    include: {
+      project: true,
+      assignedUser: {
+        select: { id: true, name: true }
+      }
+    }
+  });
+
+  if (updated.assignedUserId) {
+    await createNotification({
+      userId: updated.assignedUserId,
+      message: `Deadline extended for ${updated.stageName.replaceAll("_", " ")} in ${updated.project.name}.`,
+      type: "ASSIGNED",
+      relatedProjectId: updated.projectId,
+      relatedStageId: updated.id
+    });
+  }
+
+  await recalculateProjectProgress(updated.projectId);
+  await processStageDeadline(updated);
+
+  await logActivity({
+    projectId: updated.projectId,
+    stageId: updated.id,
+    actorId: req.user.id,
+    eventType: "DEADLINE_EXTENDED",
+    message: `${req.user.name} extended deadline for ${updated.stageName.replaceAll("_", " ")}.`
+  });
+
+  return res.json(updated);
+});
+
+module.exports = {
+  getProjectStages,
+  updateStage,
+  submitStage,
+  approveStage,
+  rejectStage,
+  logIssue,
+  extendDeadline
+};
