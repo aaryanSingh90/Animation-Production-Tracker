@@ -1,6 +1,12 @@
 import axios from "axios";
 import { useAuthStore } from "../store/authStore";
 
+const API_BASE_URL = (import.meta.env.VITE_API_URL || "").trim();
+
+if (!API_BASE_URL) {
+  console.error("Missing VITE_API_URL. Set it in your Vercel environment variables.");
+}
+
 function readTokenFromStorage() {
   try {
     const raw = window.localStorage.getItem("animation-tracker-auth");
@@ -13,7 +19,7 @@ function readTokenFromStorage() {
 }
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL,
+  baseURL: API_BASE_URL,
   timeout: 30000,
   headers: {
     "Content-Type": "application/json",
@@ -23,6 +29,12 @@ const api = axios.create({
 
 api.interceptors.request.use(
   (config) => {
+    if (!API_BASE_URL) {
+      const configError = new Error("Missing VITE_API_URL configuration");
+      configError.userMessage = "App configuration error: API URL is missing.";
+      return Promise.reject(configError);
+    }
+
     const inMemoryToken = useAuthStore.getState().token;
     const token = inMemoryToken || readTokenFromStorage();
 
