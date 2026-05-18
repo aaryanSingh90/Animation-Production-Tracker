@@ -3,6 +3,8 @@ import { useAuthStore } from "../store/authStore";
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL || "").trim();
 
+console.log("VITE_API_URL:", import.meta.env.VITE_API_URL);
+
 if (!API_BASE_URL) {
   console.error("Missing VITE_API_URL. Set it in your Vercel environment variables.");
 }
@@ -26,6 +28,8 @@ const api = axios.create({
     Accept: "application/json"
   }
 });
+
+console.log("api.defaults.baseURL:", api.defaults.baseURL);
 
 api.interceptors.request.use(
   (config) => {
