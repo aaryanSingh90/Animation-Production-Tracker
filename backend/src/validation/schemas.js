@@ -16,6 +16,13 @@ const loginSchema = z.object({
   password: z.string().min(1)
 });
 
+const registerSchema = z.object({
+  name: z.string().min(2),
+  email: z.string().email(),
+  password: z.string().min(8),
+  department: z.string().max(255).optional()
+});
+
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
   newPassword: z.string().min(8)
@@ -100,6 +107,7 @@ module.exports = {
   idParamSchema,
   characterStageParamSchema,
   loginSchema,
+  registerSchema,
   changePasswordSchema,
   createUserSchema,
   assignUserSchema,

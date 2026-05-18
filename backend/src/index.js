@@ -24,6 +24,7 @@ const charactersRoutes = require("./routes/charactersRoutes");
 const approvalsRoutes = require("./routes/approvalsRoutes");
 const notificationsRoutes = require("./routes/notificationsRoutes");
 const reportsRoutes = require("./routes/reportsRoutes");
+const issuesRoutes = require("./routes/issuesRoutes");
 
 const app = express();
 const server = http.createServer(app);
@@ -62,6 +63,10 @@ app.options("*", cors(corsOptions));
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(sanitizeInput);
+app.use((req, res, next) => {
+  console.log(req.method, req.originalUrl);
+  next();
+});
 app.use(requestLogger);
 
 const apiRateLimiter = rateLimit({
@@ -93,15 +98,20 @@ app.get("/api/health", (req, res) => {
 
 app.use("/api/auth", authRoutes);
 app.use("/api/users", usersRoutes);
+app.use("/api/employees", usersRoutes);
 app.use("/api/projects", projectsRoutes);
 app.use("/api/stages", stagesRoutes);
 app.use("/api/characters", charactersRoutes);
 app.use("/api/approvals", approvalsRoutes);
 app.use("/api/notifications", notificationsRoutes);
 app.use("/api/reports", reportsRoutes);
+app.use("/api/issues", issuesRoutes);
 
-app.use((req, res, next) => {
-  next(new AppError("Route not found", 404));
+app.use("*", (req, res) => {
+  res.status(404).json({
+    success: false,
+    message: "Route not found"
+  });
 });
 
 app.use((error, req, res, next) => {

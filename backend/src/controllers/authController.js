@@ -35,6 +35,44 @@ const login = asyncHandler(async (req, res) => {
   });
 });
 
+const register = asyncHandler(async (req, res) => {
+  const { name, email, password, department } = req.body;
+
+  const existing = await prisma.user.findUnique({
+    where: { email: email.toLowerCase() }
+  });
+
+  if (existing) {
+    throw new AppError("Email already registered", 409);
+  }
+
+  const hashedPassword = await bcrypt.hash(password, 10);
+
+  const user = await prisma.user.create({
+    data: {
+      name,
+      email: email.toLowerCase(),
+      password: hashedPassword,
+      role: "EMPLOYEE",
+      department: department || null,
+      isActive: true
+    }
+  });
+
+  const token = signToken(user);
+
+  return res.status(201).json({
+    token,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      department: user.department
+    }
+  });
+});
+
 const logout = asyncHandler(async (req, res) => {
   return res.json({ message: "Logged out" });
 });
@@ -72,6 +110,7 @@ const changePassword = asyncHandler(async (req, res) => {
 
 module.exports = {
   login,
+  register,
   logout,
   me,
   changePassword
