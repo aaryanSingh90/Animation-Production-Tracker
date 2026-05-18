@@ -78,7 +78,7 @@ export default function App() {
             }
           />
           <Route
-            path="/projects/:id"
+            path="/projects/:projectId"
             element={
               <ManagerLayout>
                 <ProjectDetailPage />

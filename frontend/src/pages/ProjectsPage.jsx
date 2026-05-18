@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Pencil, Trash2, AlertTriangle } from "lucide-react";
 import api from "../lib/api";
 import Loader from "../components/Loader";
@@ -47,6 +47,7 @@ const initialForm = {
 };
 
 export default function ProjectsPage() {
+  const navigate = useNavigate();
   const showToast = useToastStore((state) => state.showToast);
 
   const [loading, setLoading] = useState(true);
@@ -224,12 +225,22 @@ export default function ProjectsPage() {
               const progress = Number(project.progressPercent || 0);
 
               return (
-                <div key={project.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div
+                  key={project.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => navigate(`/projects/${project.id}`)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      navigate(`/projects/${project.id}`);
+                    }
+                  }}
+                  className="cursor-pointer rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+                >
                   <div className="mb-2 flex items-start justify-between gap-3">
                     <div>
-                      <Link to={`/projects/${project.id}`} className="text-lg font-bold text-slate-900 hover:text-emerald-600">
-                        {project.name}
-                      </Link>
+                      <p className="text-lg font-bold text-slate-900 hover:text-emerald-600">{project.name}</p>
                       <p className="mt-1 text-xs text-slate-500">Priority {project.priority} · Audio: {formatDate(project.audioReceivedDate)}</p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -239,10 +250,24 @@ export default function ProjectsPage() {
                           Has Issues
                         </span>
                       )}
-                      <button onClick={() => openEditModal(project)} className="rounded-lg border border-slate-300 p-1.5 text-slate-600 hover:bg-slate-50" title="Edit project">
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openEditModal(project);
+                        }}
+                        className="rounded-lg border border-slate-300 p-1.5 text-slate-600 hover:bg-slate-50"
+                        title="Edit project"
+                      >
                         <Pencil size={14} />
                       </button>
-                      <button onClick={() => deleteProject(project)} className="rounded-lg border border-red-300 p-1.5 text-red-600 hover:bg-red-50" title="Delete project">
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          deleteProject(project);
+                        }}
+                        className="rounded-lg border border-red-300 p-1.5 text-red-600 hover:bg-red-50"
+                        title="Delete project"
+                      >
                         <Trash2 size={14} />
                       </button>
                     </div>

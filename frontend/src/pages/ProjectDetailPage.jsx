@@ -12,7 +12,8 @@ import { STAGE_STATUSES } from "../utils/constants";
 import { useToastStore } from "../store/toastStore";
 
 export default function ProjectDetailPage() {
-  const { id } = useParams();
+  const { projectId } = useParams();
+  const id = projectId;
   const navigate = useNavigate();
   const showToast = useToastStore((state) => state.showToast);
 
