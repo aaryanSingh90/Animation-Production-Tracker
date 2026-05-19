@@ -72,11 +72,50 @@ const assignUserSchema = z.object({
   }
 });
 
+const createProjectStageSchema = z.object({
+  stageTemplateId: z.string().min(1).optional().nullable(),
+  stageName: z
+    .enum([
+      "AUDIO",
+      "ANIMATICS",
+      "CHARACTER_MODELLING",
+      "BLENDSHAPES",
+      "CHARACTER_MODELLING_BLENDSHAPES",
+      "BG_MODELLING",
+      "RIGGING",
+      "TEXTURING",
+      "ANIMATION",
+      "LIGHTING",
+      "RENDER",
+      "COMPOSITING",
+      "EDITING",
+      "CUSTOM"
+    ])
+    .optional(),
+  customName: z.string().min(1).max(255).optional(),
+  order: z.coerce.number().int().min(0).optional(),
+  status: z.enum(["NOT_STARTED", "IN_PROGRESS", "SUBMITTED", "APPROVED", "REJECTED", "ISSUE", "EXTENDED"]).optional(),
+  deadline: isoDate.nullable().optional(),
+  assignedUserId: z.coerce.number().int().positive().nullable().optional(),
+  notes: z.string().max(5000).optional(),
+  isActive: z.boolean().optional()
+}).superRefine((value, ctx) => {
+  const isCustomStage = value.stageName === "CUSTOM" || (!value.stageTemplateId && !!value.customName);
+  if (isCustomStage && !value.customName) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["customName"],
+      message: "customName is required for custom stages"
+    });
+  }
+});
+
 const createProjectSchema = z.object({
   name: z.string().min(2),
   priority: z.coerce.number().int().min(1).max(20),
   audioReceivedDate: isoDate.optional(),
-  description: z.string().max(5000).optional().or(z.literal(""))
+  description: z.string().max(5000).optional().or(z.literal("")),
+  stages: z.array(createProjectStageSchema).optional()
 });
 
 const updateProjectSchema = z
@@ -93,7 +132,11 @@ const updateStageSchema = z
     status: z.enum(["NOT_STARTED", "IN_PROGRESS", "SUBMITTED", "APPROVED", "REJECTED", "ISSUE", "EXTENDED"]).optional(),
     deadline: isoDate.nullable().optional(),
     assignedUserId: z.coerce.number().int().positive().nullable().optional(),
-    notes: z.string().max(5000).optional()
+    notes: z.string().max(5000).optional(),
+    order: z.coerce.number().int().min(0).optional(),
+    isActive: z.boolean().optional(),
+    customName: z.string().max(255).optional().nullable(),
+    stageTemplateId: z.string().min(1).optional().nullable()
   })
   .refine((value) => Object.keys(value).length > 0, "At least one field is required");
 
@@ -175,6 +218,7 @@ module.exports = {
   changePasswordSchema,
   createUserSchema,
   assignUserSchema,
+  createProjectStageSchema,
   createProjectSchema,
   updateProjectSchema,
   updateStageSchema,

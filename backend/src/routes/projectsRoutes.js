@@ -5,7 +5,7 @@ const validate = require("../middleware/validate");
 const projectsController = require("../controllers/projectsController");
 const stagesController = require("../controllers/stagesController");
 const charactersController = require("../controllers/charactersController");
-const { idParamSchema, createProjectSchema, updateProjectSchema, linkCharacterSchema } = require("../validation/schemas");
+const { idParamSchema, createProjectSchema, updateProjectSchema, createProjectStageSchema, linkCharacterSchema } = require("../validation/schemas");
 
 const router = express.Router();
 
@@ -22,6 +22,12 @@ router.put(
   projectsController.updateProject
 );
 router.delete("/:id", requireRoles("BOSS", "PRODUCTION_MANAGER", "COORDINATOR"), validate({ params: idParamSchema }), projectsController.deleteProject);
+router.post(
+  "/:id/stages",
+  requireRoles("BOSS", "PRODUCTION_MANAGER", "COORDINATOR"),
+  validate({ params: idParamSchema, body: createProjectStageSchema }),
+  projectsController.addProjectStage
+);
 router.get("/:id/stages", validate({ params: idParamSchema }), stagesController.getProjectStages);
 router.post(
   "/:id/characters",

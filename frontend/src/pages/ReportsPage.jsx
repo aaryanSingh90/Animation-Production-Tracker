@@ -178,7 +178,7 @@ export default function ReportsPage() {
                 {upcomingDeadlines.map((stage, index) => (
                   <tr key={stage.id || `${stage.projectName}-${stage.stageName}-${index}`} className="border-b border-slate-100">
                     <td className="py-3 font-semibold text-slate-800">{stage.project?.name || stage.projectName}</td>
-                    <td className="py-3">{labelize(stage.stageName)}</td>
+                    <td className="py-3">{stage.stageDisplayName || labelize(stage.stageName)}</td>
                     <td className="py-3">{stage.assignedUser?.name || stage.assignedTo || "Unassigned"}</td>
                     <td className="py-3">
                       {stage.status ? (

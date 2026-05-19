@@ -4,8 +4,7 @@ import api from "../lib/api";
 import Loader from "../components/Loader";
 import EmptyState from "../components/EmptyState";
 import Modal from "../components/Modal";
-import { formatDate, labelize } from "../utils/format";
-import { PROJECT_STAGES } from "../utils/constants";
+import { formatDate, getStageDisplayName } from "../utils/format";
 import { useToastStore } from "../store/toastStore";
 
 export default function ApprovalsPage() {
@@ -22,13 +21,7 @@ export default function ApprovalsPage() {
   async function fetchData() {
     setLoading(true);
     try {
-      const { data } = await api.get("/approvals", {
-        params: {
-          projectName: projectFilter || undefined,
-          artistName: artistFilter || undefined,
-          stageName: stageFilter !== "ALL" ? stageFilter : undefined
-        }
-      });
+      const { data } = await api.get("/approvals");
       setRows(data);
     } catch (error) {
       showToast("error", error.userMessage || error.response?.data?.message || "Failed to fetch approval queue");
@@ -45,17 +38,35 @@ export default function ApprovalsPage() {
     return rows.filter((row) => {
       const byProject = !projectFilter || row.project.name.toLowerCase().includes(projectFilter.toLowerCase());
       const byArtist = !artistFilter || row.assignedUser?.name?.toLowerCase().includes(artistFilter.toLowerCase());
-      const byStage = stageFilter === "ALL" || row.stageName === stageFilter;
+      const byStage =
+        stageFilter === "ALL" ||
+        row.stageName === stageFilter ||
+        (row.stageDisplayName && row.stageDisplayName === stageFilter);
       return byProject && byArtist && byStage;
     });
   }, [rows, projectFilter, artistFilter, stageFilter]);
+
+  const stageOptions = useMemo(() => {
+    const options = [];
+    const seen = new Set();
+    for (const row of rows) {
+      const optionValue = row.stageDisplayName || row.stageName;
+      if (!optionValue || seen.has(optionValue)) continue;
+      seen.add(optionValue);
+      options.push({
+        value: optionValue,
+        label: row.stageDisplayName || getStageDisplayName(row)
+      });
+    }
+    return options.sort((a, b) => a.label.localeCompare(b.label));
+  }, [rows]);
 
   const removeRow = (stageId) => {
     setRows((prev) => prev.filter((row) => row.id !== stageId));
   };
 
   const approve = async (stage) => {
-    const confirmed = window.confirm(`Approve ${labelize(stage.stageName)} for ${stage.project.name}?`);
+    const confirmed = window.confirm(`Approve ${stage.stageDisplayName || getStageDisplayName(stage)} for ${stage.project.name}?`);
     if (!confirmed) return;
 
     try {
@@ -99,9 +110,9 @@ export default function ApprovalsPage() {
         />
         <select value={stageFilter} onChange={(event) => setStageFilter(event.target.value)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm">
           <option value="ALL">All Stages</option>
-          {PROJECT_STAGES.map((stage) => (
-            <option key={stage} value={stage}>
-              {labelize(stage)}
+          {stageOptions.map((stage) => (
+            <option key={stage.value} value={stage.value}>
+              {stage.label}
             </option>
           ))}
         </select>
@@ -132,7 +143,7 @@ export default function ApprovalsPage() {
                         {row.project.name}
                       </Link>
                     </td>
-                    <td className="py-3">{labelize(row.stageName)}</td>
+                    <td className="py-3">{row.stageDisplayName || getStageDisplayName(row)}</td>
                     <td className="py-3">{row.assignedUser?.name || "Unassigned"}</td>
                     <td className="py-3">{formatDate(row.submittedAt)}</td>
                     <td className={`py-3 ${deadlineMissed ? "font-semibold text-red-600" : ""}`}>{formatDate(row.deadline)}</td>
@@ -163,7 +174,7 @@ export default function ApprovalsPage() {
       <Modal open={Boolean(rejecting)} onClose={() => setRejecting(null)} title="Reject Submission" size="max-w-md">
         <div className="space-y-4">
           <p className="text-sm text-slate-600">
-            Reject: {labelize(rejecting?.stageName || "")} - {rejecting?.project?.name}
+            Reject: {rejecting?.stageDisplayName || getStageDisplayName(rejecting)} - {rejecting?.project?.name}
           </p>
           <div>
             <label className="mb-1 block text-sm font-semibold text-slate-700">Feedback for artist</label>

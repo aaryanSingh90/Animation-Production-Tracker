@@ -1,9 +1,9 @@
 const prisma = require("./prisma");
 
 async function recalculateProjectProgress(projectId) {
-  const totalStages = await prisma.projectStage.count({ where: { projectId } });
+  const totalStages = await prisma.projectStage.count({ where: { projectId, isActive: true } });
   const approvedStages = await prisma.projectStage.count({
-    where: { projectId, status: "APPROVED" }
+    where: { projectId, isActive: true, status: "APPROVED" }
   });
 
   const progressPercent = totalStages === 0 ? 0 : Number(((approvedStages / totalStages) * 100).toFixed(2));
@@ -16,6 +16,7 @@ async function recalculateProjectProgress(projectId) {
       (await prisma.projectStage.count({
         where: {
           projectId,
+          isActive: true,
           OR: [{ status: "ISSUE" }, { isDeadlineMissed: true }]
         }
       })) > 0;

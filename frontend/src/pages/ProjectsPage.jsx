@@ -5,24 +5,26 @@ import api from "../lib/api";
 import Loader from "../components/Loader";
 import EmptyState from "../components/EmptyState";
 import Modal from "../components/Modal";
-import { PROJECT_STAGES, STATUS_COLORS } from "../utils/constants";
-import { formatDate, formatDateInput, labelize, initials } from "../utils/format";
+import { STATUS_COLORS } from "../utils/constants";
+import { formatDate, formatDateInput, getStageDisplayName, labelize, initials } from "../utils/format";
 import { useToastStore } from "../store/toastStore";
 
 function nearestDeadline(stages) {
   const values = (stages || [])
-    .filter((stage) => stage.deadline)
+    .filter((stage) => stage.isActive !== false && stage.deadline)
     .map((stage) => new Date(stage.deadline))
     .sort((a, b) => a.getTime() - b.getTime());
   return values[0] || null;
 }
 
 function projectHasIssue(project) {
-  return project.stages?.some((stage) => stage.status === "ISSUE" || stage.status === "EXTENDED" || stage.isDeadlineMissed);
+  return project.stages?.some((stage) => stage.isActive !== false && (stage.status === "ISSUE" || stage.status === "EXTENDED" || stage.isDeadlineMissed));
 }
 
 function projectIsDelayed(project) {
-  return project.stages?.some((stage) => stage.deadline && new Date(stage.deadline) < new Date() && stage.status !== "APPROVED");
+  return project.stages?.some(
+    (stage) => stage.isActive !== false && stage.deadline && new Date(stage.deadline) < new Date() && stage.status !== "APPROVED"
+  );
 }
 
 function progressTone(value) {
@@ -31,12 +33,13 @@ function progressTone(value) {
   return "bg-red-500";
 }
 
-function stageAbbr(stageName) {
-  return stageName
-    .split("_")
-    .map((part) => part[0])
+function stageAbbr(label) {
+  return String(label || "")
+    .split(" ")
+    .map((part) => part[0] || "")
     .join("")
-    .slice(0, 2);
+    .slice(0, 2)
+    .toUpperCase();
 }
 
 const initialForm = {
@@ -53,6 +56,8 @@ export default function ProjectsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [projects, setProjects] = useState([]);
+  const [stageTemplates, setStageTemplates] = useState([]);
+  const [pipelineTemplates, setPipelineTemplates] = useState([]);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -61,6 +66,8 @@ export default function ProjectsPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingProject, setEditingProject] = useState(null);
   const [form, setForm] = useState(initialForm);
+  const [selectedPipelineId, setSelectedPipelineId] = useState("template_full");
+  const [pipelineStageIds, setPipelineStageIds] = useState([]);
   const [saving, setSaving] = useState(false);
 
   async function fetchProjects() {
@@ -76,8 +83,19 @@ export default function ProjectsPage() {
     }
   }
 
+  async function fetchStageTemplates() {
+    try {
+      const { data } = await api.get("/stage-templates");
+      setStageTemplates(data.templates || []);
+      setPipelineTemplates(data.pipelineTemplates || []);
+    } catch (err) {
+      showToast("error", err.userMessage || err.response?.data?.message || "Failed to load stage templates");
+    }
+  }
+
   useEffect(() => {
     fetchProjects();
+    fetchStageTemplates();
   }, []);
 
   const filtered = useMemo(() => {
@@ -110,9 +128,61 @@ export default function ProjectsPage() {
     return copy;
   }, [projects, search, statusFilter, sortBy]);
 
+  const pipelineStageTemplates = useMemo(() => {
+    return pipelineStageIds
+      .map((id) => stageTemplates.find((template) => template.id === id))
+      .filter(Boolean);
+  }, [pipelineStageIds, stageTemplates]);
+
+  function applyPipelineTemplate(templateId) {
+    setSelectedPipelineId(templateId);
+    const template = pipelineTemplates.find((item) => item.id === templateId);
+    if (!template) return;
+
+    const selectedIds = template.stages
+      .map((stageName) => stageTemplates.find((item) => item.legacyStageName === stageName)?.id)
+      .filter(Boolean);
+
+    if (selectedIds.length) {
+      setPipelineStageIds(selectedIds);
+    }
+  }
+
+  function togglePipelineStage(templateId) {
+    setPipelineStageIds((current) => {
+      if (current.includes(templateId)) {
+        return current.filter((id) => id !== templateId);
+      }
+      return [...current, templateId];
+    });
+  }
+
+  function movePipelineStage(templateId, direction) {
+    setPipelineStageIds((current) => {
+      const index = current.indexOf(templateId);
+      if (index < 0) return current;
+      const nextIndex = direction === "up" ? index - 1 : index + 1;
+      if (nextIndex < 0 || nextIndex >= current.length) return current;
+      const clone = [...current];
+      const [item] = clone.splice(index, 1);
+      clone.splice(nextIndex, 0, item);
+      return clone;
+    });
+  }
+
   function openCreateModal() {
     setEditingProject(null);
     setForm(initialForm);
+    const fullTemplate = pipelineTemplates.find((item) => item.id === "template_full") || pipelineTemplates[0];
+    if (fullTemplate) {
+      setSelectedPipelineId(fullTemplate.id);
+      const defaultStageIds = fullTemplate.stages
+        .map((stageName) => stageTemplates.find((item) => item.legacyStageName === stageName)?.id)
+        .filter(Boolean);
+      setPipelineStageIds(defaultStageIds);
+    } else {
+      setPipelineStageIds(stageTemplates.map((template) => template.id));
+    }
     setFormOpen(true);
   }
 
@@ -124,6 +194,12 @@ export default function ProjectsPage() {
       audioReceivedDate: formatDateInput(project.audioReceivedDate),
       description: project.description || ""
     });
+    const idsFromProject = (project.stages || [])
+      .filter((stage) => stage.isActive !== false)
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      .map((stage) => stage.stageTemplateId)
+      .filter(Boolean);
+    setPipelineStageIds(idsFromProject);
     setFormOpen(true);
   }
 
@@ -142,6 +218,18 @@ export default function ProjectsPage() {
         await api.put(`/projects/${editingProject.id}`, payload);
         showToast("success", "Project updated successfully");
       } else {
+        if (!pipelineStageTemplates.length) {
+          showToast("error", "Select at least one pipeline stage");
+          setSaving(false);
+          return;
+        }
+        payload.stages = pipelineStageTemplates.map((template, index) => ({
+          stageTemplateId: template.id,
+          stageName: template.legacyStageName || "CUSTOM",
+          customName: template.legacyStageName ? null : template.name,
+          order: index + 1,
+          isActive: true
+        }));
         await api.post("/projects", payload);
         showToast("success", "Project created successfully");
       }
@@ -218,19 +306,21 @@ export default function ProjectsPage() {
         ) : (
           <div className="grid grid-cols-2 gap-4">
             {filtered.map((project) => {
-              const byStage = new Map((project.stages || []).map((stage) => [stage.stageName, stage]));
+              const activeStages = (project.stages || [])
+                .filter((stage) => stage.isActive !== false)
+                .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
               const artists = Array.from(
                 new Map(
-                  (project.stages || [])
+                  activeStages
                     .flatMap((stage) => {
                       const assignmentUsers = (stage.assignments || []).map((assignment) => assignment.user);
                       return stage.assignedUser ? [stage.assignedUser, ...assignmentUsers] : assignmentUsers;
                     })
                     .filter(Boolean)
                     .map((artist) => [artist.id, artist])
-                ).values()
+              ).values()
               );
-              const deadline = nearestDeadline(project.stages);
+              const deadline = nearestDeadline(activeStages);
               const hasIssues = projectHasIssue(project);
               const progress = Number(project.progressPercent || 0);
 
@@ -293,29 +383,32 @@ export default function ProjectsPage() {
                     </div>
                   </div>
 
-                  <div className="mb-2 grid gap-1" style={{ gridTemplateColumns: `repeat(${PROJECT_STAGES.length}, minmax(0, 1fr))` }}>
-                    {PROJECT_STAGES.map((stageName) => {
-                      const stage = byStage.get(stageName);
-                      const status = stage?.status || "NOT_STARTED";
-                      const tooltip = `${labelize(stageName)} · ${labelize(status)}${stage?.deadline ? ` · ${formatDate(stage.deadline)}` : ""}`;
-                      return (
-                        <div
-                          key={`${project.id}-${stageName}`}
-                          title={tooltip}
-                          className="h-3 rounded"
-                          style={{ backgroundColor: STATUS_COLORS[status] }}
-                        />
-                      );
-                    })}
-                  </div>
-
-                  <div className="mb-3 grid gap-1 text-[10px] text-slate-500" style={{ gridTemplateColumns: `repeat(${PROJECT_STAGES.length}, minmax(0, 1fr))` }}>
-                    {PROJECT_STAGES.map((stageName) => (
-                      <div key={`${project.id}-${stageName}-abbr`} className="text-center">
-                        {stageAbbr(stageName)}
+                  {!!activeStages.length && (
+                    <>
+                      <div className="mb-2 grid gap-1" style={{ gridTemplateColumns: `repeat(${activeStages.length}, minmax(0, 1fr))` }}>
+                        {activeStages.map((stage) => {
+                          const status = stage?.status || "NOT_STARTED";
+                          const tooltip = `${getStageDisplayName(stage)} · ${labelize(status)}${stage?.deadline ? ` · ${formatDate(stage.deadline)}` : ""}`;
+                          return (
+                            <div
+                              key={`${project.id}-${stage.id}`}
+                              title={tooltip}
+                              className="h-3 rounded"
+                              style={{ backgroundColor: STATUS_COLORS[status] }}
+                            />
+                          );
+                        })}
                       </div>
-                    ))}
-                  </div>
+
+                      <div className="mb-3 grid gap-1 text-[10px] text-slate-500" style={{ gridTemplateColumns: `repeat(${activeStages.length}, minmax(0, 1fr))` }}>
+                        {activeStages.map((stage) => (
+                          <div key={`${project.id}-${stage.id}-abbr`} className="text-center">
+                            {stageAbbr(getStageDisplayName(stage))}
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
 
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1">
@@ -382,6 +475,71 @@ export default function ProjectsPage() {
               className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
             />
           </div>
+
+          {!editingProject && (
+            <div className="space-y-3 rounded-xl border border-slate-200 p-3">
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-slate-700">Pipeline Template</label>
+                <select
+                  value={selectedPipelineId}
+                  onChange={(event) => applyPipelineTemplate(event.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                >
+                  {pipelineTemplates.map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <p className="mb-2 text-sm font-semibold text-slate-700">Custom Stages</p>
+                <div className="grid max-h-40 grid-cols-2 gap-2 overflow-auto rounded-lg border border-slate-200 p-2">
+                  {stageTemplates.map((template) => {
+                    const active = pipelineStageIds.includes(template.id);
+                    return (
+                      <label key={template.id} className="flex cursor-pointer items-center gap-2 text-xs text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={active}
+                          onChange={() => togglePipelineStage(template.id)}
+                        />
+                        <span>{template.name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-2 text-sm font-semibold text-slate-700">Stage Order</p>
+                <div className="space-y-1">
+                  {pipelineStageTemplates.map((template, index) => (
+                    <div key={template.id} className="flex items-center justify-between rounded-lg border border-slate-200 px-2 py-1.5 text-xs">
+                      <span>{index + 1}. {template.name}</span>
+                      <div className="flex gap-1">
+                        <button
+                          type="button"
+                          className="rounded border border-slate-300 px-1.5 py-0.5"
+                          onClick={() => movePipelineStage(template.id, "up")}
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded border border-slate-300 px-1.5 py-0.5"
+                          onClick={() => movePipelineStage(template.id, "down")}
+                        >
+                          ↓
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => setFormOpen(false)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700">

@@ -4,7 +4,7 @@ import Loader from "../components/Loader";
 import EmptyState from "../components/EmptyState";
 import StatusBadge from "../components/StatusBadge";
 import IssueModal from "../components/IssueModal";
-import { formatDate, labelize } from "../utils/format";
+import { formatDate, getStageDisplayName, labelize } from "../utils/format";
 import { useToastStore } from "../store/toastStore";
 import { useAuthStore } from "../store/authStore";
 
@@ -98,7 +98,7 @@ export default function MyTasksPage() {
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="text-sm font-semibold text-slate-900">{task.projectName}</p>
-                    <p className="text-xs text-slate-600">{labelize(task.stageName)}</p>
+                    <p className="text-xs text-slate-600">{getStageDisplayName(task)}</p>
                   </div>
                   <StatusBadge status={task.status} />
                 </div>

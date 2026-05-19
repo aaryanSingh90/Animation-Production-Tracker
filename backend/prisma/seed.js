@@ -7,7 +7,8 @@ const prisma = new PrismaClient();
 const PROJECT_STAGES = [
   "AUDIO",
   "ANIMATICS",
-  "CHARACTER_MODELLING_BLENDSHAPES",
+  "CHARACTER_MODELLING",
+  "BLENDSHAPES",
   "BG_MODELLING",
   "RIGGING",
   "TEXTURING",
@@ -21,7 +22,8 @@ const PROJECT_STAGES = [
 const STAGE_DEFAULTS = {
   AUDIO: "Audio Department",
   ANIMATICS: "Animatics Department",
-  CHARACTER_MODELLING_BLENDSHAPES: "Character Modelling & Blendshapes",
+  CHARACTER_MODELLING: "Character Modelling Department",
+  BLENDSHAPES: "Blendshapes Department",
   BG_MODELLING: "BG Modelling Department",
   RIGGING: "Rigging Department",
   TEXTURING: "Texturing Department",
@@ -32,9 +34,31 @@ const STAGE_DEFAULTS = {
   EDITING: "Editing Department"
 };
 
+const DEFAULT_STAGE_TEMPLATES = [
+  { name: "Audio", legacyStageName: "AUDIO", color: "#6366F1" },
+  { name: "Animatics", legacyStageName: "ANIMATICS", color: "#8B5CF6" },
+  { name: "Character Modelling", legacyStageName: "CHARACTER_MODELLING", color: "#EC4899" },
+  { name: "Blendshapes", legacyStageName: "BLENDSHAPES", color: "#D946EF" },
+  { name: "BG Modelling", legacyStageName: "BG_MODELLING", color: "#10B981" },
+  { name: "Rigging", legacyStageName: "RIGGING", color: "#F59E0B" },
+  { name: "Texturing", legacyStageName: "TEXTURING", color: "#EF4444" },
+  { name: "Animation", legacyStageName: "ANIMATION", color: "#3B82F6" },
+  { name: "Lighting", legacyStageName: "LIGHTING", color: "#F97316" },
+  { name: "Rendering", legacyStageName: "RENDER", color: "#14B8A6" },
+  { name: "Comping", legacyStageName: "COMPOSITING", color: "#84CC16" },
+  { name: "Editing", legacyStageName: "EDITING", color: "#06B6D4" },
+  {
+    name: "Character Modelling & Blendshapes",
+    legacyStageName: "CHARACTER_MODELLING_BLENDSHAPES",
+    color: "#EC4899"
+  }
+];
+
 const DEFAULT_DEPARTMENTS = [
   { name: "Audio Department", color: "#6366F1" },
   { name: "Animatics Department", color: "#8B5CF6" },
+  { name: "Character Modelling Department", color: "#EC4899" },
+  { name: "Blendshapes Department", color: "#D946EF" },
   { name: "Character Modelling & Blendshapes", color: "#EC4899" },
   { name: "BG Modelling Department", color: "#10B981" },
   { name: "Rigging Department", color: "#F59E0B" },
@@ -112,14 +136,15 @@ function makeDeadline(projectIndex, stageIndex) {
 }
 
 async function recalcProgress(projectId) {
-  const total = await prisma.projectStage.count({ where: { projectId } });
-  const approved = await prisma.projectStage.count({ where: { projectId, status: "APPROVED" } });
+  const total = await prisma.projectStage.count({ where: { projectId, isActive: true } });
+  const approved = await prisma.projectStage.count({ where: { projectId, isActive: true, status: "APPROVED" } });
   const progress = total ? Number(((approved / total) * 100).toFixed(2)) : 0;
 
   const hasIssues =
     (await prisma.projectStage.count({
       where: {
         projectId,
+        isActive: true,
         OR: [{ status: "ISSUE" }, { isDeadlineMissed: true }]
       }
     })) > 0;
@@ -150,6 +175,7 @@ async function main() {
   await prisma.character.deleteMany();
   await prisma.projectStage.deleteMany();
   await prisma.project.deleteMany();
+  await prisma.stageTemplate.deleteMany();
   await prisma.user.deleteMany();
   await prisma.department.deleteMany();
 
@@ -162,6 +188,19 @@ async function main() {
       }
     });
     departments.set(record.name, record);
+  }
+
+  const stageTemplates = new Map();
+  for (const template of DEFAULT_STAGE_TEMPLATES) {
+    const record = await prisma.stageTemplate.upsert({
+      where: { name: template.name },
+      create: template,
+      update: {
+        legacyStageName: template.legacyStageName,
+        color: template.color
+      }
+    });
+    stageTemplates.set(record.legacyStageName, record);
   }
 
   const users = await Promise.all([
@@ -248,8 +287,8 @@ async function main() {
         email: "artist5@studio.com",
         password: defaultPassword,
         role: "EMPLOYEE",
-        departmentId: departments.get("Character Modelling & Blendshapes").id,
-        departmentName: "Character Modelling & Blendshapes",
+        departmentId: departments.get("Character Modelling Department").id,
+        departmentName: "Character Modelling Department",
         employmentType: "INHOUSE"
       }
     })
@@ -287,6 +326,8 @@ async function main() {
         data: {
           projectId: project.id,
           stageName,
+          stageTemplateId: stageTemplates.get(stageName)?.id || null,
+          order: stageIndex + 1,
           departmentName: STAGE_DEFAULTS[stageName] || null,
           status,
           assignedUserId,
@@ -309,7 +350,7 @@ async function main() {
       }
 
       const extraArtistIds = [];
-      if (stageName === "CHARACTER_MODELLING_BLENDSHAPES") {
+      if (stageName === "CHARACTER_MODELLING" || stageName === "BLENDSHAPES" || stageName === "CHARACTER_MODELLING_BLENDSHAPES") {
         extraArtistIds.push(artistIds[(projectIndex + stageIndex + 1) % artistIds.length]);
       }
       if (stageName === "ANIMATION") {

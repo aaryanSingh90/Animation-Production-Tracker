@@ -17,6 +17,8 @@ export function formatRelative(value) {
 
 export function labelize(value) {
   if (!value) return "";
+  if (value === "COMPOSITING") return "Comping";
+  if (value === "RENDER") return "Rendering";
   return value.replaceAll("_", " ");
 }
 
@@ -32,4 +34,11 @@ export function getDepartmentLabel(user) {
   if (user.department?.name) return user.department.name;
   if (user.departmentName) return user.departmentName;
   return "-";
+}
+
+export function getStageDisplayName(stage) {
+  if (!stage) return "Stage";
+  if (stage.customName) return stage.customName;
+  if (stage.stageTemplate?.name) return stage.stageTemplate.name;
+  return labelize(stage.stageName || "Stage");
 }

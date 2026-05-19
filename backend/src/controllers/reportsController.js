@@ -2,6 +2,7 @@ const { addDays, differenceInCalendarDays, startOfDay, subDays, format } = requi
 const prisma = require("../utils/prisma");
 const { asyncHandler } = require("../utils/http");
 const { ACTIVE_STAGE_STATUSES } = require("../utils/constants");
+const { displayStageName } = require("../utils/stageTemplates");
 
 const STATUS_COLORS = {
   "On Track": "#10B981",
@@ -37,7 +38,9 @@ const getOverviewReport = asyncHandler(async (req, res) => {
   const projects = await prisma.project.findMany({
     include: {
       stages: {
+        where: { isActive: true },
         include: {
+          stageTemplate: true,
           assignedUser: {
             select: { id: true, name: true }
           }
@@ -61,11 +64,12 @@ const getOverviewReport = asyncHandler(async (req, res) => {
   });
 
   const pendingApprovals = await prisma.projectStage.count({
-    where: { status: "SUBMITTED" }
+    where: { status: "SUBMITTED", isActive: true }
   });
 
   const stageApprovals = await prisma.projectStage.findMany({
     where: {
+      isActive: true,
       approvedAt: {
         gte: subDays(startOfDay(new Date()), 29)
       }
@@ -165,6 +169,7 @@ const getOverviewReport = asyncHandler(async (req, res) => {
 
   const upcomingStages = await prisma.projectStage.findMany({
     where: {
+      isActive: true,
       deadline: {
         gte: startOfDay(new Date()),
         lte: addDays(startOfDay(new Date()), 7)
@@ -177,6 +182,7 @@ const getOverviewReport = asyncHandler(async (req, res) => {
       project: {
         select: { name: true }
       },
+      stageTemplate: true,
       assignedUser: {
         select: { name: true }
       }
@@ -187,6 +193,7 @@ const getOverviewReport = asyncHandler(async (req, res) => {
   const upcomingDeadlines = upcomingStages.map((stage) => ({
     projectName: stage.project.name,
     stageName: stage.stageName,
+    stageDisplayName: displayStageName(stage),
     deadline: stage.deadline,
     assignedTo: stage.assignedUser?.name || "Unassigned"
   }));
@@ -217,6 +224,7 @@ const getUpcomingDeadlines = asyncHandler(async (req, res) => {
 
   const stages = await prisma.projectStage.findMany({
     where: {
+      isActive: true,
       deadline: {
         gte: today,
         lte: sevenDaysLater
@@ -229,6 +237,7 @@ const getUpcomingDeadlines = asyncHandler(async (req, res) => {
       project: {
         select: { id: true, name: true, priority: true }
       },
+      stageTemplate: true,
       assignedUser: {
         select: {
           id: true,
@@ -244,7 +253,12 @@ const getUpcomingDeadlines = asyncHandler(async (req, res) => {
     orderBy: { deadline: "asc" }
   });
 
-  return res.json(stages);
+  return res.json(
+    stages.map((stage) => ({
+      ...stage,
+      stageDisplayName: displayStageName(stage)
+    }))
+  );
 });
 
 const getIssuesGrouped = asyncHandler(async (req, res) => {
@@ -299,6 +313,7 @@ const getWorkloadReport = asyncHandler(async (req, res) => {
       employmentType: true,
       assignedProjectStages: {
         where: {
+          isActive: true,
           status: {
             in: ACTIVE_STAGE_STATUSES
           }
@@ -315,6 +330,7 @@ const getWorkloadReport = asyncHandler(async (req, res) => {
       stageAssignments: {
         where: {
           projectStage: {
+            isActive: true,
             status: {
               in: ACTIVE_STAGE_STATUSES
             }
@@ -381,6 +397,7 @@ const getTeamCompositionReport = asyncHandler(async (req, res) => {
   const activeAssignments = await prisma.stageAssignment.findMany({
     where: {
       projectStage: {
+        isActive: true,
         status: {
           in: ACTIVE_STAGE_STATUSES
         }

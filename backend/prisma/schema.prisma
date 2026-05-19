@@ -22,6 +22,8 @@ enum EmploymentType {
 enum StageName {
   AUDIO
   ANIMATICS
+  CHARACTER_MODELLING
+  BLENDSHAPES
   CHARACTER_MODELLING_BLENDSHAPES
   BG_MODELLING
   RIGGING
@@ -31,6 +33,7 @@ enum StageName {
   RENDER
   COMPOSITING
   EDITING
+  CUSTOM
 }
 
 enum StageStatus {
@@ -118,6 +121,10 @@ model ProjectStage {
   id                    Int                         @id @default(autoincrement())
   projectId             Int
   stageName             StageName
+  stageTemplateId       String?
+  stageTemplate         StageTemplate?              @relation(fields: [stageTemplateId], references: [id], onDelete: SetNull)
+  customName            String?
+  order                 Int                         @default(0)
   departmentName        String?
   status                StageStatus                 @default(NOT_STARTED)
   deadline              DateTime?
@@ -127,6 +134,7 @@ model ProjectStage {
   rejectedAt            DateTime?
   notes                 String?
   feedback              String?
+  isActive              Boolean                     @default(true)
   isDeadlineMissed      Boolean                     @default(false)
   createdAt             DateTime                    @default(now())
   updatedAt             DateTime                    @updatedAt
@@ -138,7 +146,9 @@ model ProjectStage {
   notifications         Notification[]
   activityLogs          ActivityLog[]
 
-  @@unique([projectId, stageName])
+  @@unique([projectId, stageName, customName])
+  @@index([projectId, order])
+  @@index([projectId, isActive])
 }
 
 model Character {
@@ -248,4 +258,13 @@ model StageDepartmentAssignment {
   assignedAt     DateTime     @default(now())
 
   @@unique([projectStageId, departmentId])
+}
+
+model StageTemplate {
+  id              String         @id @default(cuid())
+  name            String         @unique
+  legacyStageName StageName?
+  color           String?
+  createdAt       DateTime       @default(now())
+  projectStages   ProjectStage[]
 }

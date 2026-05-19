@@ -12,9 +12,14 @@ const STAGE_DEFAULTS = [
     recommendedArtists: 3
   },
   {
-    stageName: "CHARACTER_MODELLING_BLENDSHAPES",
-    departmentName: "Character Modelling & Blendshapes",
+    stageName: "CHARACTER_MODELLING",
+    departmentName: "Character Modelling Department",
     recommendedArtists: 3
+  },
+  {
+    stageName: "BLENDSHAPES",
+    departmentName: "Blendshapes Department",
+    recommendedArtists: 2
   },
   {
     stageName: "BG_MODELLING",
@@ -60,6 +65,44 @@ const STAGE_DEFAULTS = [
 
 const PROJECT_STAGES = STAGE_DEFAULTS.map((stage) => stage.stageName);
 
+const PIPELINE_TEMPLATES = [
+  {
+    id: "template_2d",
+    name: "2D Template",
+    stages: ["AUDIO", "ANIMATICS", "ANIMATION", "EDITING"]
+  },
+  {
+    id: "template_3d",
+    name: "3D Template",
+    stages: ["AUDIO", "CHARACTER_MODELLING", "RIGGING", "ANIMATION", "LIGHTING", "RENDER", "COMPOSITING", "EDITING"]
+  },
+  {
+    id: "template_full",
+    name: "Full Studio Template",
+    stages: [
+      "AUDIO",
+      "ANIMATICS",
+      "CHARACTER_MODELLING",
+      "BLENDSHAPES",
+      "BG_MODELLING",
+      "RIGGING",
+      "TEXTURING",
+      "ANIMATION",
+      "LIGHTING",
+      "RENDER",
+      "COMPOSITING",
+      "EDITING"
+    ]
+  }
+];
+
+function humanizeStageName(stageName) {
+  if (!stageName) return "Stage";
+  if (stageName === "COMPOSITING") return "Comping";
+  if (stageName === "RENDER") return "Rendering";
+  return stageName.replaceAll("_", " ");
+}
+
 const CHARACTER_STAGES = ["REFERENCE", "MODELLING", "BLENDSHAPES", "TEXTURING", "RIGGING"];
 
 const ACTIVE_STAGE_STATUSES = ["NOT_STARTED", "IN_PROGRESS", "SUBMITTED", "REJECTED", "ISSUE", "EXTENDED"];
@@ -68,6 +111,8 @@ module.exports = {
   MANAGER_ROLES,
   PROJECT_STAGES,
   STAGE_DEFAULTS,
+  PIPELINE_TEMPLATES,
+  humanizeStageName,
   CHARACTER_STAGES,
   ACTIVE_STAGE_STATUSES
 };

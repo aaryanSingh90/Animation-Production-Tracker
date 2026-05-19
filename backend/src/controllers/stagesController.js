@@ -5,6 +5,7 @@ const { createNotification, notifyManagers } = require("../utils/notifications")
 const { recalculateProjectProgress } = require("../utils/progress");
 const { processStageDeadline } = require("../utils/deadlines");
 const { logActivity } = require("../utils/activities");
+const { displayStageName, resolveLegacyStageNameFromTemplateName } = require("../utils/stageTemplates");
 
 function isManager(role) {
   return MANAGER_ROLES.includes(role);
@@ -23,11 +24,16 @@ function isUserAssigned(stage, userId) {
   return getStageAssignedUserIds(stage).includes(userId);
 }
 
+function stageLabel(stage) {
+  return displayStageName(stage);
+}
+
 async function getStageWithProject(stageId) {
   const stage = await prisma.projectStage.findUnique({
     where: { id: Number(stageId) },
     include: {
       project: true,
+      stageTemplate: true,
       assignedUser: {
         select: {
           id: true,
@@ -80,7 +86,8 @@ const getProjectStages = asyncHandler(async (req, res) => {
   const projectId = Number(req.params.id);
 
   const where = {
-    projectId
+    projectId,
+    isActive: true
   };
   if (!isManager(req.user.role)) {
     where.OR = [
@@ -98,6 +105,7 @@ const getProjectStages = asyncHandler(async (req, res) => {
   const stages = await prisma.projectStage.findMany({
     where,
     include: {
+      stageTemplate: true,
       assignedUser: {
         select: {
           id: true,
@@ -149,7 +157,7 @@ const getProjectStages = asyncHandler(async (req, res) => {
         orderBy: { createdAt: "desc" }
       }
     },
-    orderBy: { createdAt: "asc" }
+    orderBy: [{ order: "asc" }, { createdAt: "asc" }]
   });
 
   return res.json(stages);
@@ -190,6 +198,68 @@ const updateStage = asyncHandler(async (req, res) => {
   if (Object.prototype.hasOwnProperty.call(req.body, "notes")) {
     data.notes = req.body.notes;
   }
+  if (Object.prototype.hasOwnProperty.call(req.body, "order")) {
+    data.order = Number(req.body.order);
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body, "isActive")) {
+    data.isActive = Boolean(req.body.isActive);
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body, "customName")) {
+    data.customName = req.body.customName || null;
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body, "stageTemplateId")) {
+    data.stageTemplateId = req.body.stageTemplateId || null;
+    if (data.stageTemplateId) {
+      const template = await prisma.stageTemplate.findUnique({
+        where: { id: data.stageTemplateId }
+      });
+      if (!template) {
+        throw new AppError("Stage template not found", 404);
+      }
+      data.stageName = template.legacyStageName || resolveLegacyStageNameFromTemplateName(template.name) || "CUSTOM";
+      if (!Object.prototype.hasOwnProperty.call(req.body, "customName")) {
+        data.customName = null;
+      }
+      if (!Object.prototype.hasOwnProperty.call(req.body, "departmentName")) {
+        data.departmentName = `${template.name} Department`;
+      }
+    }
+  }
+
+  const nextStageName = data.stageName || stage.stageName;
+  const nextCustomName = Object.prototype.hasOwnProperty.call(data, "customName") ? data.customName : stage.customName;
+  const nextIsActive = Object.prototype.hasOwnProperty.call(data, "isActive") ? data.isActive : stage.isActive;
+
+  if (nextIsActive) {
+    if (nextStageName !== "CUSTOM") {
+      const duplicate = await prisma.projectStage.findFirst({
+        where: {
+          id: { not: stageId },
+          projectId: stage.projectId,
+          isActive: true,
+          stageName: nextStageName
+        },
+        select: { id: true }
+      });
+      if (duplicate) {
+        throw new AppError("Stage already exists in this project pipeline", 400);
+      }
+    } else if (nextCustomName) {
+      const duplicateCustom = await prisma.projectStage.findFirst({
+        where: {
+          id: { not: stageId },
+          projectId: stage.projectId,
+          isActive: true,
+          stageName: "CUSTOM",
+          customName: nextCustomName
+        },
+        select: { id: true }
+      });
+      if (duplicateCustom) {
+        throw new AppError("Custom stage already exists in this project pipeline", 400);
+      }
+    }
+  }
 
   if (data.status === "APPROVED") data.approvedAt = new Date();
   if (data.status === "REJECTED") data.rejectedAt = new Date();
@@ -224,7 +294,8 @@ const updateStage = asyncHandler(async (req, res) => {
             select: { id: true, name: true, color: true }
           }
         }
-      }
+      },
+      stageTemplate: true
     }
   });
 
@@ -252,13 +323,13 @@ const updateStage = asyncHandler(async (req, res) => {
     stageId: updated.id,
     actorId: req.user.id,
     eventType: "STAGE_UPDATED",
-    message: `${req.user.name} updated ${updated.stageName.replaceAll("_", " ")} on ${updated.project.name}.`
+    message: `${req.user.name} updated ${stageLabel(updated)} on ${updated.project.name}.`
   });
 
   if (Object.prototype.hasOwnProperty.call(data, "assignedUserId") && data.assignedUserId) {
     await createNotification({
       userId: data.assignedUserId,
-      message: `You were assigned ${updated.stageName.replaceAll("_", " ")} in ${updated.project.name}.`,
+      message: `You were assigned ${stageLabel(updated)} in ${updated.project.name}.`,
       type: "ASSIGNED",
       relatedProjectId: updated.projectId,
       relatedStageId: updated.id
@@ -266,6 +337,34 @@ const updateStage = asyncHandler(async (req, res) => {
   }
 
   return res.json(updated);
+});
+
+const deactivateProjectStage = asyncHandler(async (req, res) => {
+  const stageId = Number(req.params.id);
+  const stage = await getStageWithProject(stageId);
+
+  const updated = await prisma.projectStage.update({
+    where: { id: stageId },
+    data: {
+      isActive: false
+    },
+    include: {
+      project: true,
+      stageTemplate: true
+    }
+  });
+
+  await recalculateProjectProgress(updated.projectId);
+
+  await logActivity({
+    projectId: updated.projectId,
+    stageId: updated.id,
+    actorId: req.user.id,
+    eventType: "STAGE_DEACTIVATED",
+    message: `${req.user.name} deactivated ${stageLabel(stage)} on ${updated.project.name}.`
+  });
+
+  return res.json({ success: true, stage: updated });
 });
 
 const submitStage = asyncHandler(async (req, res) => {
@@ -295,7 +394,7 @@ const submitStage = asyncHandler(async (req, res) => {
     if (userId === req.user.id) continue;
     await createNotification({
       userId,
-      message: `${req.user.name} submitted ${updated.stageName.replaceAll("_", " ")} for ${updated.project.name}.`,
+      message: `${req.user.name} submitted ${stageLabel(updated)} for ${updated.project.name}.`,
       type: "APPROVAL_NEEDED",
       relatedProjectId: updated.projectId,
       relatedStageId: updated.id
@@ -303,7 +402,7 @@ const submitStage = asyncHandler(async (req, res) => {
   }
 
   await notifyManagers({
-    message: `${req.user.name} submitted ${updated.stageName.replaceAll("_", " ")} for ${updated.project.name}.`,
+    message: `${req.user.name} submitted ${stageLabel(updated)} for ${updated.project.name}.`,
     type: "APPROVAL_NEEDED",
     relatedProjectId: updated.projectId,
     relatedStageId: updated.id
@@ -317,7 +416,7 @@ const submitStage = asyncHandler(async (req, res) => {
     stageId: updated.id,
     actorId: req.user.id,
     eventType: "STAGE_SUBMITTED",
-    message: `${req.user.name} submitted ${updated.stageName.replaceAll("_", " ")}.`
+    message: `${req.user.name} submitted ${stageLabel(updated)}.`
   });
 
   return res.json(updated);
@@ -349,7 +448,7 @@ const approveStage = asyncHandler(async (req, res) => {
     assignedUserIds.map((userId) =>
       createNotification({
         userId,
-        message: `${updated.stageName.replaceAll("_", " ")} approved for ${updated.project.name}.`,
+        message: `${stageLabel(updated)} approved for ${updated.project.name}.`,
         type: "APPROVED",
         relatedProjectId: updated.projectId,
         relatedStageId: updated.id
@@ -364,7 +463,7 @@ const approveStage = asyncHandler(async (req, res) => {
     stageId: updated.id,
     actorId: req.user.id,
     eventType: "STAGE_APPROVED",
-    message: `${req.user.name} approved ${updated.stageName.replaceAll("_", " ")}.`
+    message: `${req.user.name} approved ${stageLabel(updated)}.`
   });
 
   return res.json(updated);
@@ -400,7 +499,7 @@ const rejectStage = asyncHandler(async (req, res) => {
     assignedUserIds.map((userId) =>
       createNotification({
         userId,
-        message: `${updated.stageName.replaceAll("_", " ")} rejected for ${updated.project.name}. Feedback: ${feedback}`,
+        message: `${stageLabel(updated)} rejected for ${updated.project.name}. Feedback: ${feedback}`,
         type: "REJECTED",
         relatedProjectId: updated.projectId,
         relatedStageId: updated.id
@@ -416,7 +515,7 @@ const rejectStage = asyncHandler(async (req, res) => {
     stageId: updated.id,
     actorId: req.user.id,
     eventType: "STAGE_REJECTED",
-    message: `${req.user.name} rejected ${updated.stageName.replaceAll("_", " ")}.`
+    message: `${req.user.name} rejected ${stageLabel(updated)}.`
   });
 
   return res.json(updated);
@@ -495,7 +594,7 @@ const assignArtistToStage = asyncHandler(async (req, res) => {
 
   await createNotification({
     userId,
-    message: `You were assigned ${stage.stageName.replaceAll("_", " ")} in ${stage.project.name}.`,
+    message: `You were assigned ${stageLabel(stage)} in ${stage.project.name}.`,
     type: "ASSIGNED",
     relatedProjectId: stage.projectId,
     relatedStageId: stage.id
@@ -506,7 +605,7 @@ const assignArtistToStage = asyncHandler(async (req, res) => {
     stageId: stage.id,
     actorId: req.user.id,
     eventType: "ASSIGNED",
-    message: `${req.user.name} assigned ${user.name} to ${stage.stageName.replaceAll("_", " ")}.`
+    message: `${req.user.name} assigned ${user.name} to ${stageLabel(stage)}.`
   });
 
   return res.json(assignment);
@@ -549,7 +648,7 @@ const removeArtistFromStage = asyncHandler(async (req, res) => {
     stageId: stage.id,
     actorId: req.user.id,
     eventType: "ASSIGNED",
-    message: `${req.user.name} removed an artist from ${stage.stageName.replaceAll("_", " ")}.`
+    message: `${req.user.name} removed an artist from ${stageLabel(stage)}.`
   });
 
   return res.json({ success: true });
@@ -631,7 +730,7 @@ const assignDepartmentToStage = asyncHandler(async (req, res) => {
     stageId: stage.id,
     actorId: req.user.id,
     eventType: "DEPARTMENT_ASSIGNED",
-    message: `${req.user.name} assigned ${department.name} to ${stage.stageName.replaceAll("_", " ")}.`
+    message: `${req.user.name} assigned ${department.name} to ${stageLabel(stage)}.`
   });
 
   const updatedStage = await prisma.projectStage.findUnique({
@@ -737,7 +836,7 @@ const removeDepartmentFromStage = asyncHandler(async (req, res) => {
     stageId: stage.id,
     actorId: req.user.id,
     eventType: "DEPARTMENT_REMOVED",
-    message: `${req.user.name} removed ${department.name} from ${stage.stageName.replaceAll("_", " ")}.`
+    message: `${req.user.name} removed ${department.name} from ${stageLabel(stage)}.`
   });
 
   return res.json({ success: true });
@@ -796,7 +895,7 @@ const logIssue = asyncHandler(async (req, res) => {
   });
 
   await notifyManagers({
-    message: `Issue logged in ${updatedStage.project.name} · ${updatedStage.stageName.replaceAll("_", " ")}.`,
+    message: `Issue logged in ${updatedStage.project.name} · ${stageLabel(updatedStage)}.`,
     type: "ISSUE_LOGGED",
     relatedProjectId: updatedStage.projectId,
     relatedStageId: updatedStage.id
@@ -810,7 +909,7 @@ const logIssue = asyncHandler(async (req, res) => {
     stageId: updatedStage.id,
     actorId: req.user.id,
     eventType: "ISSUE_LOGGED",
-    message: `${req.user.name} logged issue on ${updatedStage.stageName.replaceAll("_", " ")}.`
+    message: `${req.user.name} logged issue on ${stageLabel(updatedStage)}.`
   });
 
   return res.status(201).json({ issue, stage: updatedStage });
@@ -861,7 +960,7 @@ const extendDeadline = asyncHandler(async (req, res) => {
     assignedUserIds.map((userId) =>
       createNotification({
         userId,
-        message: `Deadline extended for ${updated.stageName.replaceAll("_", " ")} in ${updated.project.name}.`,
+        message: `Deadline extended for ${stageLabel(updated)} in ${updated.project.name}.`,
         type: "ASSIGNED",
         relatedProjectId: updated.projectId,
         relatedStageId: updated.id
@@ -877,7 +976,7 @@ const extendDeadline = asyncHandler(async (req, res) => {
     stageId: updated.id,
     actorId: req.user.id,
     eventType: "DEADLINE_EXTENDED",
-    message: `${req.user.name} extended deadline for ${updated.stageName.replaceAll("_", " ")}.`
+    message: `${req.user.name} extended deadline for ${stageLabel(updated)}.`
   });
 
   return res.json(updated);
@@ -886,6 +985,7 @@ const extendDeadline = asyncHandler(async (req, res) => {
 module.exports = {
   getProjectStages,
   updateStage,
+  deactivateProjectStage,
   submitStage,
   approveStage,
   rejectStage,

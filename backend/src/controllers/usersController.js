@@ -301,6 +301,7 @@ const getWorkload = asyncHandler(async (req, res) => {
 
   const stages = await prisma.projectStage.findMany({
     where: {
+      isActive: true,
       OR: [
         { assignedUserId: userId },
         {

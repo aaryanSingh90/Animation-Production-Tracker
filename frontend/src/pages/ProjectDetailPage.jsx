@@ -7,7 +7,7 @@ import EmptyState from "../components/EmptyState";
 import IssueModal from "../components/IssueModal";
 import Modal from "../components/Modal";
 import ProgressBar from "../components/ProgressBar";
-import { formatDate, formatDateInput, getDepartmentLabel, labelize } from "../utils/format";
+import { formatDate, formatDateInput, getDepartmentLabel, getStageDisplayName, labelize } from "../utils/format";
 import { STAGE_STATUSES } from "../utils/constants";
 import { useToastStore } from "../store/toastStore";
 
@@ -23,6 +23,7 @@ export default function ProjectDetailPage() {
   const [users, setUsers] = useState([]);
   const [characters, setCharacters] = useState([]);
   const [departments, setDepartments] = useState([]);
+  const [stageTemplates, setStageTemplates] = useState([]);
 
   const [issueStage, setIssueStage] = useState(null);
   const [rejectStage, setRejectStage] = useState(null);
@@ -39,20 +40,28 @@ export default function ProjectDetailPage() {
   const [projectForm, setProjectForm] = useState({ name: "", priority: 1, audioReceivedDate: "" });
 
   const [characterId, setCharacterId] = useState("");
+  const [addingStage, setAddingStage] = useState(false);
+  const [stageForm, setStageForm] = useState({
+    stageTemplateId: "",
+    useCustomName: false,
+    customName: ""
+  });
 
   async function fetchData() {
     setLoading(true);
     try {
-      const [projectRes, usersRes, charsRes, departmentsRes] = await Promise.all([
+      const [projectRes, usersRes, charsRes, departmentsRes, stageTemplatesRes] = await Promise.all([
         api.get(`/projects/${id}`),
         api.get("/users"),
         api.get("/characters"),
-        api.get("/departments")
+        api.get("/departments"),
+        api.get("/stage-templates")
       ]);
       setProject(projectRes.data);
       setUsers(usersRes.data.filter((user) => user.role === "EMPLOYEE"));
       setCharacters(charsRes.data);
       setDepartments(departmentsRes.data);
+      setStageTemplates(stageTemplatesRes.data?.templates || []);
       setProjectForm({
         name: projectRes.data.name,
         priority: projectRes.data.priority,
@@ -70,6 +79,10 @@ export default function ProjectDetailPage() {
   }, [id]);
 
   const linkedCharacterIds = useMemo(() => new Set((project?.projectCharacters || []).map((item) => item.character.id)), [project]);
+  const orderedStages = useMemo(
+    () => (project?.stages || []).filter((stage) => stage.isActive !== false).sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
+    [project]
+  );
   const overallBadge = useMemo(() => {
     if (!project) return { label: "On Track", tone: "bg-emerald-50 text-emerald-700" };
     if (Number(project.progressPercent) === 100) return { label: "Complete", tone: "bg-sky-50 text-sky-700" };
@@ -253,6 +266,87 @@ export default function ProjectDetailPage() {
     }
   };
 
+  const addStageToProject = async () => {
+    const customName = stageForm.customName.trim();
+    if (stageForm.useCustomName && !customName) {
+      showToast("error", "Custom stage name is required");
+      return;
+    }
+    if (!stageForm.useCustomName && !stageForm.stageTemplateId) {
+      showToast("error", "Select a stage template");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const payload = {
+        order: orderedStages.length + 1,
+        isActive: true,
+        status: "NOT_STARTED"
+      };
+      if (stageForm.useCustomName) {
+        payload.stageName = "CUSTOM";
+        payload.customName = customName;
+      } else {
+        const template = stageTemplates.find((item) => item.id === stageForm.stageTemplateId);
+        payload.stageTemplateId = stageForm.stageTemplateId;
+        payload.stageName = template?.legacyStageName || "CUSTOM";
+        payload.customName = payload.stageName === "CUSTOM" ? template?.name : null;
+      }
+      await api.post(`/projects/${id}/stages`, payload);
+      showToast("success", "Stage added to project");
+      setAddingStage(false);
+      setStageForm({
+        stageTemplateId: "",
+        useCustomName: false,
+        customName: ""
+      });
+      await fetchData();
+    } catch (error) {
+      showToast("error", error.userMessage || error.response?.data?.message || "Unable to add stage");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deactivateStage = async (stage) => {
+    const confirmed = window.confirm(`Remove ${getStageDisplayName(stage)} from this project's active pipeline?`);
+    if (!confirmed) return;
+    setSaving(true);
+    try {
+      await api.delete(`/project-stages/${stage.id}`);
+      showToast("success", "Stage removed from active pipeline");
+      await fetchData();
+    } catch (error) {
+      showToast("error", error.userMessage || error.response?.data?.message || "Unable to remove stage");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const moveStage = async (stageId, direction) => {
+    const index = orderedStages.findIndex((stage) => stage.id === stageId);
+    if (index < 0) return;
+    const swapIndex = direction === "up" ? index - 1 : index + 1;
+    if (swapIndex < 0 || swapIndex >= orderedStages.length) return;
+
+    const current = orderedStages[index];
+    const target = orderedStages[swapIndex];
+
+    setSaving(true);
+    try {
+      await Promise.all([
+        api.patch(`/project-stages/${current.id}`, { order: target.order }),
+        api.patch(`/project-stages/${target.id}`, { order: current.order })
+      ]);
+      await fetchData();
+    } catch (error) {
+      showToast("error", error.userMessage || error.response?.data?.message || "Unable to reorder stages");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const removeDepartmentFromStage = async (stageId, departmentId) => {
     const confirmed = window.confirm("Remove this department and its members from the stage?");
     if (!confirmed) return;
@@ -298,7 +392,17 @@ export default function ProjectDetailPage() {
       </section>
 
       <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
-        {project.stages.map((stage) => {
+        <div className="flex items-center justify-between">
+          <h4 className="text-lg font-bold text-slate-900">Pipeline Stages</h4>
+          <button
+            onClick={() => setAddingStage(true)}
+            className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+          >
+            Add Stage
+          </button>
+        </div>
+
+        {orderedStages.map((stage, stageIndex) => {
           const assignedUsers = stage.assignments || [];
           const assignedDepartments = stage.departmentAssignments || [];
           const availableUsers = users.filter((user) => !assignedUsers.some((assignment) => assignment.userId === user.id));
@@ -311,10 +415,34 @@ export default function ProjectDetailPage() {
             <div key={stage.id} className="rounded-xl border border-slate-200 p-4">
               <div className="mb-3 flex items-center justify-between gap-4">
                 <div>
-                  <p className="text-sm font-semibold uppercase tracking-wide text-slate-800">{labelize(stage.stageName)}</p>
+                  <p className="text-sm font-semibold uppercase tracking-wide text-slate-800">{getStageDisplayName(stage)}</p>
                   <p className="text-xs text-slate-500">{stage.departmentName || "Department not set"}</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => moveStage(stage.id, "up")}
+                    disabled={stageIndex === 0 || saving}
+                    className="rounded border border-slate-300 px-1.5 py-0.5 text-xs disabled:opacity-50"
+                    title="Move stage up"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    onClick={() => moveStage(stage.id, "down")}
+                    disabled={stageIndex === orderedStages.length - 1 || saving}
+                    className="rounded border border-slate-300 px-1.5 py-0.5 text-xs disabled:opacity-50"
+                    title="Move stage down"
+                  >
+                    ↓
+                  </button>
+                  <button
+                    onClick={() => deactivateStage(stage)}
+                    disabled={saving}
+                    className="rounded border border-red-300 px-1.5 py-0.5 text-xs text-red-600 hover:bg-red-50"
+                    title="Remove stage"
+                  >
+                    Remove
+                  </button>
                   <StatusBadge status={stage.status} />
                   <select
                     value={stage.status}
@@ -556,7 +684,7 @@ export default function ProjectDetailPage() {
               {project.issueLogs.map((issue) => (
                 <details key={issue.id} className="rounded-xl border border-slate-200 p-3">
                   <summary className="cursor-pointer text-sm font-semibold text-slate-800">
-                    {labelize(issue.issueType)} · {labelize(issue.stageName)}
+                    {labelize(issue.issueType)} · {issue.stageDisplayName || labelize(issue.stageName)}
                   </summary>
                   <div className="mt-2 space-y-1 text-xs text-slate-600">
                     <p>{issue.description}</p>
@@ -727,6 +855,65 @@ export default function ProjectDetailPage() {
             </button>
             <button onClick={saveProject} className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white" disabled={saving}>
               Save
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={addingStage} onClose={() => setAddingStage(false)} title="Add Stage To Project" size="max-w-md">
+        <div className="space-y-4">
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={stageForm.useCustomName}
+              onChange={(event) =>
+                setStageForm((prev) => ({
+                  ...prev,
+                  useCustomName: event.target.checked
+                }))
+              }
+            />
+            Use a custom stage name
+          </label>
+
+          {stageForm.useCustomName ? (
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-slate-700">Custom Stage Name</label>
+              <input
+                value={stageForm.customName}
+                onChange={(event) => setStageForm((prev) => ({ ...prev, customName: event.target.value }))}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                placeholder="Example: Final QC"
+              />
+            </div>
+          ) : (
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-slate-700">Stage Template</label>
+              <select
+                value={stageForm.stageTemplateId}
+                onChange={(event) => setStageForm((prev) => ({ ...prev, stageTemplateId: event.target.value }))}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              >
+                <option value="">Select stage template</option>
+                {stageTemplates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setAddingStage(false)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700">
+              Cancel
+            </button>
+            <button
+              onClick={addStageToProject}
+              className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              disabled={saving}
+            >
+              Add Stage
             </button>
           </div>
         </div>

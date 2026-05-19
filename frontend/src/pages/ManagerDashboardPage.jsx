@@ -10,7 +10,7 @@ import { formatDate, initials } from "../utils/format";
 
 function nearestDeadline(stages) {
   const valid = (stages || [])
-    .filter((stage) => stage.deadline)
+    .filter((stage) => stage.isActive !== false && stage.deadline)
     .map((stage) => new Date(stage.deadline))
     .sort((a, b) => a.getTime() - b.getTime());
   return valid[0] || null;
