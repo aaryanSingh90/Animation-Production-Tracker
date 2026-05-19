@@ -134,7 +134,7 @@ const assignUserSchema = z.object({
 const createProjectStageSchema = z.object({
   stageTemplateId: z.string().min(1).optional().nullable(),
   stageName: z.string().min(1).max(255).optional(),
-  customName: z.string().min(1).max(255).optional(),
+  customName: z.string().min(1).max(255).optional().nullable(),
   order: z.coerce.number().int().min(0).optional(),
   status: stageStatusEnum.optional(),
   deadline: isoDate.nullable().optional(),

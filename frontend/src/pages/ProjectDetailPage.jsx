@@ -341,7 +341,9 @@ export default function ProjectDetailPage() {
         const template = stageTemplates.find((item) => item.id === stageForm.stageTemplateId);
         payload.stageTemplateId = stageForm.stageTemplateId;
         payload.stageName = template?.legacyStageName || "CUSTOM";
-        payload.customName = payload.stageName === "CUSTOM" ? template?.name : null;
+        if (payload.stageName === "CUSTOM" && template?.name) {
+          payload.customName = template.name;
+        }
       }
       await api.post(`/projects/${id}/stages`, payload);
       showToast("success", "Stage added to project");
