@@ -5,51 +5,51 @@ const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
 const PROJECT_STAGES = [
-  "Audio",
-  "Animatics",
-  "Character Modelling",
-  "Blendshapes",
-  "BG Modelling",
-  "Rigging",
-  "Texturing",
-  "Animation",
-  "Lighting",
-  "Rendering",
-  "Comping",
-  "Editing"
+  "AUDIO",
+  "ANIMATICS",
+  "CHARACTER_MODELLING",
+  "BLENDSHAPES",
+  "BG_MODELLING",
+  "RIGGING",
+  "TEXTURING",
+  "ANIMATION",
+  "LIGHTING",
+  "RENDER",
+  "COMPOSITING",
+  "EDITING"
 ];
 
 const STAGE_DEFAULTS = {
-  Audio: "Audio Department",
-  Animatics: "Animatics Department",
-  "Character Modelling": "Character Modelling Department",
-  Blendshapes: "Blendshapes Department",
-  "BG Modelling": "BG Modelling Department",
-  Rigging: "Rigging Department",
-  Texturing: "Texturing Department",
-  Animation: "Animation Department",
-  Lighting: "Lighting Department",
-  Rendering: "Render Department",
-  Comping: "Compositing Department",
-  Editing: "Editing Department"
+  AUDIO: "Audio Department",
+  ANIMATICS: "Animatics Department",
+  CHARACTER_MODELLING: "Character Modelling Department",
+  BLENDSHAPES: "Blendshapes Department",
+  BG_MODELLING: "BG Modelling Department",
+  RIGGING: "Rigging Department",
+  TEXTURING: "Texturing Department",
+  ANIMATION: "Animation Department",
+  LIGHTING: "Lighting Department",
+  RENDER: "Render Department",
+  COMPOSITING: "Compositing Department",
+  EDITING: "Editing Department"
 };
 
 const DEFAULT_STAGE_TEMPLATES = [
-  { name: "Audio", legacyStageName: "Audio", color: "#6366F1" },
-  { name: "Animatics", legacyStageName: "Animatics", color: "#8B5CF6" },
-  { name: "Character Modelling", legacyStageName: "Character Modelling", color: "#EC4899" },
-  { name: "Blendshapes", legacyStageName: "Blendshapes", color: "#D946EF" },
-  { name: "BG Modelling", legacyStageName: "BG Modelling", color: "#10B981" },
-  { name: "Rigging", legacyStageName: "Rigging", color: "#F59E0B" },
-  { name: "Texturing", legacyStageName: "Texturing", color: "#EF4444" },
-  { name: "Animation", legacyStageName: "Animation", color: "#3B82F6" },
-  { name: "Lighting", legacyStageName: "Lighting", color: "#F97316" },
-  { name: "Rendering", legacyStageName: "Rendering", color: "#14B8A6" },
-  { name: "Comping", legacyStageName: "Comping", color: "#84CC16" },
-  { name: "Editing", legacyStageName: "Editing", color: "#06B6D4" },
+  { name: "Audio", legacyStageName: "AUDIO", color: "#6366F1" },
+  { name: "Animatics", legacyStageName: "ANIMATICS", color: "#8B5CF6" },
+  { name: "Character Modelling", legacyStageName: "CHARACTER_MODELLING", color: "#EC4899" },
+  { name: "Blendshapes", legacyStageName: "BLENDSHAPES", color: "#D946EF" },
+  { name: "BG Modelling", legacyStageName: "BG_MODELLING", color: "#10B981" },
+  { name: "Rigging", legacyStageName: "RIGGING", color: "#F59E0B" },
+  { name: "Texturing", legacyStageName: "TEXTURING", color: "#EF4444" },
+  { name: "Animation", legacyStageName: "ANIMATION", color: "#3B82F6" },
+  { name: "Lighting", legacyStageName: "LIGHTING", color: "#F97316" },
+  { name: "Rendering", legacyStageName: "RENDER", color: "#14B8A6" },
+  { name: "Comping", legacyStageName: "COMPOSITING", color: "#84CC16" },
+  { name: "Editing", legacyStageName: "EDITING", color: "#06B6D4" },
   {
     name: "Character Modelling & Blendshapes",
-    legacyStageName: "Character Modelling & Blendshapes",
+    legacyStageName: "CHARACTER_MODELLING_BLENDSHAPES",
     color: "#EC4899"
   }
 ];
@@ -430,14 +430,14 @@ async function main() {
       }
 
       const extraArtistIds = [];
-      if (stageName === "Character Modelling" || stageName === "Blendshapes" || stageName === "Character Modelling & Blendshapes") {
+      if (stageName === "CHARACTER_MODELLING" || stageName === "BLENDSHAPES" || stageName === "CHARACTER_MODELLING_BLENDSHAPES") {
         extraArtistIds.push(artistIds[(projectIndex + stageIndex + 1) % artistIds.length]);
       }
-      if (stageName === "Animation") {
+      if (stageName === "ANIMATION") {
         extraArtistIds.push(artistIds[(projectIndex + stageIndex + 1) % artistIds.length]);
         extraArtistIds.push(artistIds[(projectIndex + stageIndex + 2) % artistIds.length]);
       }
-      if (stageName === "Rigging" && projectIndex % 2 === 0) {
+      if (stageName === "RIGGING" && projectIndex % 2 === 0) {
         extraArtistIds.push(artistIds[(projectIndex + stageIndex + 3) % artistIds.length]);
       }
 
@@ -475,7 +475,7 @@ async function main() {
   const lakdiStage = await prisma.projectStage.findFirst({
     where: {
       project: { name: "Lakdi Ki Kathi" },
-      stageName: "Lighting"
+      stageName: "LIGHTING"
     }
   });
 

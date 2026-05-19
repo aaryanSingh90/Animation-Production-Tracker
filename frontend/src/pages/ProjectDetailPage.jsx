@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import api from "../lib/api";
 import Loader from "../components/Loader";
 import StatusBadge from "../components/StatusBadge";
@@ -12,6 +12,16 @@ import { formatDate, formatDateInput, getDepartmentLabel, getStageDisplayName, l
 import { STAGE_STATUSES } from "../utils/constants";
 import { useToastStore } from "../store/toastStore";
 import { useAuthStore } from "../store/authStore";
+import { stageSlugFromCode } from "../utils/stageRouting";
+
+function resolveStageCode(stage) {
+  const fromDefinition = stage?.stageDefinition?.code;
+  if (fromDefinition) return String(fromDefinition).toUpperCase();
+
+  const stageName = String(stage?.stageName || "").toUpperCase();
+  if (stageName === "RENDER") return "RENDERING";
+  return stageName || null;
+}
 
 export default function ProjectDetailPage() {
   const { projectId } = useParams();
@@ -23,6 +33,7 @@ export default function ProjectDetailPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [project, setProject] = useState(null);
+  const [overview, setOverview] = useState(null);
   const [users, setUsers] = useState([]);
   const [characters, setCharacters] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -55,14 +66,16 @@ export default function ProjectDetailPage() {
   async function fetchData() {
     setLoading(true);
     try {
-      const [projectRes, usersRes, charsRes, departmentsRes, stageTemplatesRes] = await Promise.all([
+      const [projectRes, overviewRes, usersRes, charsRes, departmentsRes, stageTemplatesRes] = await Promise.all([
         api.get(`/projects/${id}`),
+        api.get(`/projects/${id}/overview`),
         api.get("/users"),
         api.get("/characters"),
         api.get("/departments"),
         api.get("/stage-templates")
       ]);
       setProject(projectRes.data);
+      setOverview(overviewRes.data);
       setStageCommentCounts(
         Object.fromEntries((projectRes.data.stages || []).map((stage) => [stage.id, stage._count?.comments || 0]))
       );
@@ -111,6 +124,24 @@ export default function ProjectDetailPage() {
     if (delayed) return { label: "Delayed", tone: "bg-red-50 text-red-700" };
     return { label: "On Track", tone: "bg-emerald-50 text-emerald-700" };
   }, [project]);
+
+  const stageWorkspaceSummaries = useMemo(() => {
+    return (overview?.stageSummaries || [])
+      .map((summary) => {
+        const stageCode = String(summary.stageCode || "").toUpperCase();
+        const stageSlug = stageSlugFromCode(stageCode);
+        return {
+          ...summary,
+          stageCode,
+          stageSlug
+        };
+      })
+      .sort((a, b) => {
+        const nameA = String(a.stageName || "");
+        const nameB = String(b.stageName || "");
+        return nameA.localeCompare(nameB);
+      });
+  }, [overview]);
 
   const updateStage = async (stageId, payload, successMessage = "Stage updated") => {
     setSaving(true);
@@ -410,6 +441,51 @@ export default function ProjectDetailPage() {
         </div>
       </section>
 
+      <section className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <h4 className="text-lg font-bold text-slate-900">Pipeline Workspaces</h4>
+          <p className="text-xs text-slate-500">Project / Shot / Asset tracking</p>
+        </div>
+        {!stageWorkspaceSummaries.length ? (
+          <p className="text-sm text-slate-500">No active stage summaries yet.</p>
+        ) : (
+          <div className="grid grid-cols-2 gap-3 xl:grid-cols-3">
+            {stageWorkspaceSummaries.map((summary) => {
+              const completion = Number(summary.completionPercent || 0);
+              const card = (
+                <div className="rounded-xl border border-slate-200 p-3 hover:border-emerald-300 hover:shadow-sm">
+                  <div className="mb-2 flex items-start justify-between gap-2">
+                    <p className="text-sm font-semibold text-slate-900">{summary.stageName}</p>
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                      {summary.trackingMode}
+                    </span>
+                  </div>
+                  <p className="mb-2 text-xs text-slate-500">
+                    {summary.approved}/{summary.total} approved
+                  </p>
+                  <div className="h-2 rounded-full bg-slate-200">
+                    <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, completion)}%` }} />
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    {completion}% complete {summary.delayed ? `· ${summary.delayed} delayed` : ""}
+                  </p>
+                </div>
+              );
+
+              if (!summary.stageSlug) {
+                return <div key={summary.stageCode}>{card}</div>;
+              }
+
+              return (
+                <Link key={summary.stageCode} to={`/projects/${project.id}/${summary.stageSlug}`}>
+                  {card}
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
       <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
         <div className="flex items-center justify-between">
           <h4 className="text-lg font-bold text-slate-900">Pipeline Stages</h4>
@@ -431,15 +507,32 @@ export default function ProjectDetailPage() {
           );
           const commentCount = stageCommentCounts[stage.id] ?? stage._count?.comments ?? 0;
           const commentsOpen = Boolean(openCommentsByStage[stage.id]);
+          const stageCode = resolveStageCode(stage);
+          const stageSlug = stageCode ? stageSlugFromCode(stageCode) : null;
+          const stageWorkspaceHref = stageSlug ? `/projects/${project.id}/${stageSlug}` : null;
 
           return (
             <div key={stage.id} className="rounded-xl border border-slate-200 p-4">
               <div className="mb-3 flex items-center justify-between gap-4">
                 <div>
-                  <p className="text-sm font-semibold uppercase tracking-wide text-slate-800">{getStageDisplayName(stage)}</p>
+                  {stageWorkspaceHref ? (
+                    <Link to={stageWorkspaceHref} className="text-sm font-semibold uppercase tracking-wide text-slate-800 hover:text-emerald-600">
+                      {getStageDisplayName(stage)}
+                    </Link>
+                  ) : (
+                    <p className="text-sm font-semibold uppercase tracking-wide text-slate-800">{getStageDisplayName(stage)}</p>
+                  )}
                   <p className="text-xs text-slate-500">{stage.departmentName || "Department not set"}</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                  {stageWorkspaceHref && (
+                    <Link
+                      to={stageWorkspaceHref}
+                      className="rounded border border-emerald-300 px-2 py-0.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+                    >
+                      Open Workspace
+                    </Link>
+                  )}
                   <button
                     onClick={() => moveStage(stage.id, "up")}
                     disabled={stageIndex === 0 || saving}

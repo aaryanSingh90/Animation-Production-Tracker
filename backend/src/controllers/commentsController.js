@@ -67,6 +67,76 @@ async function getManagerIds() {
   return managers.map((manager) => manager.id);
 }
 
+function getTrackingStageLabel(stageDefinitionName) {
+  return String(stageDefinitionName || "Stage");
+}
+
+async function loadShotStageForAccess(stageId) {
+  return prisma.shotStage.findUnique({
+    where: { id: stageId },
+    include: {
+      shot: {
+        include: {
+          project: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        }
+      },
+      stageDefinition: {
+        select: {
+          id: true,
+          code: true,
+          name: true
+        }
+      }
+    }
+  });
+}
+
+async function loadAssetStageForAccess(stageId) {
+  return prisma.assetStage.findUnique({
+    where: { id: stageId },
+    include: {
+      asset: {
+        include: {
+          project: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        }
+      },
+      stageDefinition: {
+        select: {
+          id: true,
+          code: true,
+          name: true
+        }
+      }
+    }
+  });
+}
+
+function assertShotStageAccess(stage, user) {
+  if (!stage) throw new AppError("Shot stage not found", 404);
+  if (isManagerRole(user.role)) return;
+  if (stage.assignedUserId !== user.id) {
+    throw new AppError("Forbidden", 403);
+  }
+}
+
+function assertAssetStageAccess(stage, user) {
+  if (!stage) throw new AppError("Asset stage not found", 404);
+  if (isManagerRole(user.role)) return;
+  if (stage.assignedUserId !== user.id) {
+    throw new AppError("Forbidden", 403);
+  }
+}
+
 const getStageComments = asyncHandler(async (req, res) => {
   const stageId = Number(req.params.stageId);
   const stage = await loadStageForAccess(stageId);
@@ -392,9 +462,329 @@ const getProjectComments = asyncHandler(async (req, res) => {
   );
 });
 
+const getShotStageComments = asyncHandler(async (req, res) => {
+  const stageId = String(req.params.stageId);
+  const stage = await loadShotStageForAccess(stageId);
+  assertShotStageAccess(stage, req.user);
+
+  const comments = await prisma.shotStageComment.findMany({
+    where: {
+      shotStageId: stageId,
+      parentId: null
+    },
+    include: {
+      author: {
+        select: {
+          id: true,
+          name: true,
+          role: true,
+          employmentType: true
+        }
+      },
+      replies: {
+        include: {
+          author: {
+            select: {
+              id: true,
+              name: true,
+              role: true,
+              employmentType: true
+            }
+          }
+        },
+        orderBy: {
+          createdAt: "asc"
+        }
+      }
+    },
+    orderBy: {
+      createdAt: "asc"
+    }
+  });
+
+  return res.json(comments);
+});
+
+const postShotStageComment = asyncHandler(async (req, res) => {
+  const stageId = String(req.params.stageId);
+  const { body, type = "NOTE", parentId } = req.body;
+
+  const stage = await loadShotStageForAccess(stageId);
+  assertShotStageAccess(stage, req.user);
+
+  const normalizedBody = String(body || "").trim();
+  if (!normalizedBody) throw new AppError("Comment body is required", 400);
+  if (normalizedBody.length > 2000) throw new AppError("Comment too long (max 2000 characters)", 400);
+  if (!isManagerRole(req.user.role) && type === "APPROVAL_NOTE") {
+    throw new AppError("Only managers can use approval note comments", 403);
+  }
+
+  if (parentId) {
+    const parent = await prisma.shotStageComment.findUnique({
+      where: { id: parentId },
+      select: { id: true, shotStageId: true }
+    });
+    if (!parent || parent.shotStageId !== stageId) {
+      throw new AppError("Parent comment not found for this stage", 400);
+    }
+  }
+
+  const comment = await prisma.shotStageComment.create({
+    data: {
+      shotStageId: stageId,
+      authorId: req.user.id,
+      body: normalizedBody,
+      type,
+      parentId: parentId || null
+    },
+    include: {
+      author: {
+        select: {
+          id: true,
+          name: true,
+          role: true,
+          employmentType: true
+        }
+      },
+      replies: {
+        include: {
+          author: {
+            select: {
+              id: true,
+              name: true,
+              role: true,
+              employmentType: true
+            }
+          }
+        },
+        orderBy: {
+          createdAt: "asc"
+        }
+      }
+    }
+  });
+
+  const stageLabel = getTrackingStageLabel(stage.stageDefinition?.name);
+  const projectName = stage.shot.project.name;
+  const recipientIds = new Set();
+
+  if (isManagerRole(req.user.role)) {
+    if (stage.assignedUserId && stage.assignedUserId !== req.user.id) {
+      recipientIds.add(stage.assignedUserId);
+    }
+  } else {
+    const managerIds = await getManagerIds();
+    for (const id of managerIds) {
+      if (id !== req.user.id) recipientIds.add(id);
+    }
+  }
+
+  let replyToAuthorId = null;
+  if (parentId) {
+    const parent = await prisma.shotStageComment.findUnique({
+      where: { id: parentId },
+      select: { authorId: true }
+    });
+    if (parent?.authorId && parent.authorId !== req.user.id) {
+      replyToAuthorId = parent.authorId;
+      recipientIds.delete(parent.authorId);
+    }
+  }
+
+  const managerCommentAction = type === "FEEDBACK" ? "left feedback on" : "commented on";
+  const artistCommentAction = type === "QUESTION" ? "asked a question on" : "commented on";
+  const message = isManagerRole(req.user.role)
+    ? `${req.user.name} ${managerCommentAction} ${stageLabel} - ${projectName}`
+    : `${req.user.name} ${artistCommentAction} ${stageLabel} - ${projectName}`;
+
+  await Promise.all(
+    Array.from(recipientIds).map((userId) =>
+      createNotification({
+        userId,
+        message,
+        type: "COMMENT",
+        relatedProjectId: stage.shot.project.id
+      })
+    )
+  );
+
+  if (replyToAuthorId) {
+    await createNotification({
+      userId: replyToAuthorId,
+      message: `${req.user.name} replied to your comment on ${stageLabel} - ${projectName}`,
+      type: "COMMENT",
+      relatedProjectId: stage.shot.project.id
+    });
+  }
+
+  return res.status(201).json(comment);
+});
+
+const getAssetStageComments = asyncHandler(async (req, res) => {
+  const stageId = String(req.params.stageId);
+  const stage = await loadAssetStageForAccess(stageId);
+  assertAssetStageAccess(stage, req.user);
+
+  const comments = await prisma.assetStageComment.findMany({
+    where: {
+      assetStageId: stageId,
+      parentId: null
+    },
+    include: {
+      author: {
+        select: {
+          id: true,
+          name: true,
+          role: true,
+          employmentType: true
+        }
+      },
+      replies: {
+        include: {
+          author: {
+            select: {
+              id: true,
+              name: true,
+              role: true,
+              employmentType: true
+            }
+          }
+        },
+        orderBy: {
+          createdAt: "asc"
+        }
+      }
+    },
+    orderBy: {
+      createdAt: "asc"
+    }
+  });
+
+  return res.json(comments);
+});
+
+const postAssetStageComment = asyncHandler(async (req, res) => {
+  const stageId = String(req.params.stageId);
+  const { body, type = "NOTE", parentId } = req.body;
+
+  const stage = await loadAssetStageForAccess(stageId);
+  assertAssetStageAccess(stage, req.user);
+
+  const normalizedBody = String(body || "").trim();
+  if (!normalizedBody) throw new AppError("Comment body is required", 400);
+  if (normalizedBody.length > 2000) throw new AppError("Comment too long (max 2000 characters)", 400);
+  if (!isManagerRole(req.user.role) && type === "APPROVAL_NOTE") {
+    throw new AppError("Only managers can use approval note comments", 403);
+  }
+
+  if (parentId) {
+    const parent = await prisma.assetStageComment.findUnique({
+      where: { id: parentId },
+      select: { id: true, assetStageId: true }
+    });
+    if (!parent || parent.assetStageId !== stageId) {
+      throw new AppError("Parent comment not found for this stage", 400);
+    }
+  }
+
+  const comment = await prisma.assetStageComment.create({
+    data: {
+      assetStageId: stageId,
+      authorId: req.user.id,
+      body: normalizedBody,
+      type,
+      parentId: parentId || null
+    },
+    include: {
+      author: {
+        select: {
+          id: true,
+          name: true,
+          role: true,
+          employmentType: true
+        }
+      },
+      replies: {
+        include: {
+          author: {
+            select: {
+              id: true,
+              name: true,
+              role: true,
+              employmentType: true
+            }
+          }
+        },
+        orderBy: {
+          createdAt: "asc"
+        }
+      }
+    }
+  });
+
+  const stageLabel = getTrackingStageLabel(stage.stageDefinition?.name);
+  const projectName = stage.asset.project.name;
+  const recipientIds = new Set();
+
+  if (isManagerRole(req.user.role)) {
+    if (stage.assignedUserId && stage.assignedUserId !== req.user.id) {
+      recipientIds.add(stage.assignedUserId);
+    }
+  } else {
+    const managerIds = await getManagerIds();
+    for (const id of managerIds) {
+      if (id !== req.user.id) recipientIds.add(id);
+    }
+  }
+
+  let replyToAuthorId = null;
+  if (parentId) {
+    const parent = await prisma.assetStageComment.findUnique({
+      where: { id: parentId },
+      select: { authorId: true }
+    });
+    if (parent?.authorId && parent.authorId !== req.user.id) {
+      replyToAuthorId = parent.authorId;
+      recipientIds.delete(parent.authorId);
+    }
+  }
+
+  const managerCommentAction = type === "FEEDBACK" ? "left feedback on" : "commented on";
+  const artistCommentAction = type === "QUESTION" ? "asked a question on" : "commented on";
+  const message = isManagerRole(req.user.role)
+    ? `${req.user.name} ${managerCommentAction} ${stageLabel} - ${projectName}`
+    : `${req.user.name} ${artistCommentAction} ${stageLabel} - ${projectName}`;
+
+  await Promise.all(
+    Array.from(recipientIds).map((userId) =>
+      createNotification({
+        userId,
+        message,
+        type: "COMMENT",
+        relatedProjectId: stage.asset.project.id
+      })
+    )
+  );
+
+  if (replyToAuthorId) {
+    await createNotification({
+      userId: replyToAuthorId,
+      message: `${req.user.name} replied to your comment on ${stageLabel} - ${projectName}`,
+      type: "COMMENT",
+      relatedProjectId: stage.asset.project.id
+    });
+  }
+
+  return res.status(201).json(comment);
+});
+
 module.exports = {
   getStageComments,
   postStageComment,
+  getShotStageComments,
+  postShotStageComment,
+  getAssetStageComments,
+  postAssetStageComment,
   editComment,
   deleteComment,
   getProjectComments

@@ -40,5 +40,6 @@ export function getStageDisplayName(stage) {
   if (!stage) return "Stage";
   if (stage.customName) return stage.customName;
   if (stage.stageTemplate?.name) return stage.stageTemplate.name;
+  if (stage.stageDefinition?.name) return stage.stageDefinition.name;
   return labelize(stage.stageName || "Stage");
 }

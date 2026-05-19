@@ -258,6 +258,28 @@ const getUserById = asyncHandler(async (req, res) => {
         },
         orderBy: { deadline: "asc" }
       },
+      assignedShotStages: {
+        include: {
+          shot: {
+            include: {
+              project: { select: { id: true, name: true } }
+            }
+          },
+          stageDefinition: true
+        },
+        orderBy: { deadline: "asc" }
+      },
+      assignedAssetStages: {
+        include: {
+          asset: {
+            include: {
+              project: { select: { id: true, name: true } }
+            }
+          },
+          stageDefinition: true
+        },
+        orderBy: { deadline: "asc" }
+      },
       stageAssignments: {
         include: {
           projectStage: {
@@ -299,10 +321,34 @@ const getUserById = asyncHandler(async (req, res) => {
 
   const approvalRate = submittedCount === 0 ? 0 : Number(((approvedCount / submittedCount) * 100).toFixed(2));
 
+  const shotStageAssignments = (user.assignedShotStages || []).map((item) => ({
+    id: item.id,
+    trackingType: "SHOT",
+    status: item.status,
+    deadline: item.deadline,
+    submittedAt: item.submittedAt,
+    approvedAt: item.approvedAt,
+    stageName: item.stageDefinition?.name || item.stageDefinition?.code || "Shot Stage",
+    project: item.shot?.project
+  }));
+
+  const assetStageAssignments = (user.assignedAssetStages || []).map((item) => ({
+    id: item.id,
+    trackingType: "ASSET",
+    status: item.status,
+    deadline: item.deadline,
+    submittedAt: item.submittedAt,
+    approvedAt: item.approvedAt,
+    stageName: item.stageDefinition?.name || item.stageDefinition?.code || "Asset Stage",
+    project: item.asset?.project
+  }));
+
   return res.json({
     ...presentUser(user),
     team: user.team || null,
     assignedProjectStages: mergedStages,
+    assignedShotStages: shotStageAssignments,
+    assignedAssetStages: assetStageAssignments,
     stageAssignments: undefined,
     stats: {
       submittedCount,
@@ -310,8 +356,14 @@ const getUserById = asyncHandler(async (req, res) => {
       rejectedCount,
       delayedCount,
       approvalRate,
-      activeStages: mergedStages.filter((stage) => stage.status !== "APPROVED").length,
-      completedStages: mergedStages.filter((stage) => stage.status === "APPROVED").length,
+      activeStages:
+        mergedStages.filter((stage) => stage.status !== "APPROVED").length +
+        shotStageAssignments.filter((stage) => stage.status !== "APPROVED").length +
+        assetStageAssignments.filter((stage) => stage.status !== "APPROVED").length,
+      completedStages:
+        mergedStages.filter((stage) => stage.status === "APPROVED").length +
+        shotStageAssignments.filter((stage) => stage.status === "APPROVED").length +
+        assetStageAssignments.filter((stage) => stage.status === "APPROVED").length,
       productivityScore: Math.max(0, Math.min(100, Math.round(approvalRate - delayedCount * 3 + 10)))
     }
   });
@@ -496,7 +548,38 @@ const getWorkload = asyncHandler(async (req, res) => {
     orderBy: [{ status: "asc" }, { deadline: "asc" }]
   });
 
-  return res.json(stages);
+  const [shotStages, assetStages] = await Promise.all([
+    prisma.shotStage.findMany({
+      where: { assignedUserId: userId },
+      include: {
+        shot: {
+          include: {
+            project: { select: { id: true, name: true, priority: true } }
+          }
+        },
+        stageDefinition: true
+      },
+      orderBy: [{ status: "asc" }, { deadline: "asc" }]
+    }),
+    prisma.assetStage.findMany({
+      where: { assignedUserId: userId },
+      include: {
+        asset: {
+          include: {
+            project: { select: { id: true, name: true, priority: true } }
+          }
+        },
+        stageDefinition: true
+      },
+      orderBy: [{ status: "asc" }, { deadline: "asc" }]
+    })
+  ]);
+
+  return res.json({
+    projectStages: stages,
+    shotStages,
+    assetStages
+  });
 });
 
 const assignUserToStage = asyncHandler(async (req, res) => {

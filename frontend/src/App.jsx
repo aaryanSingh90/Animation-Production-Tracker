@@ -12,6 +12,7 @@ const LoginPage = lazy(() => import("./pages/LoginPage"));
 const ManagerDashboardPage = lazy(() => import("./pages/ManagerDashboardPage"));
 const ProjectsPage = lazy(() => import("./pages/ProjectsPage"));
 const ProjectDetailPage = lazy(() => import("./pages/ProjectDetailPage"));
+const ProjectStageWorkspacePage = lazy(() => import("./pages/ProjectStageWorkspacePage"));
 const CharactersPage = lazy(() => import("./pages/CharactersPage"));
 const CharacterDetailPage = lazy(() => import("./pages/CharacterDetailPage"));
 const ApprovalsPage = lazy(() => import("./pages/ApprovalsPage"));
@@ -86,6 +87,14 @@ export default function App() {
             element={
               <ManagerLayout>
                 <ProjectDetailPage />
+              </ManagerLayout>
+            }
+          />
+          <Route
+            path="/projects/:projectId/:stageSlug"
+            element={
+              <ManagerLayout>
+                <ProjectStageWorkspacePage />
               </ManagerLayout>
             }
           />

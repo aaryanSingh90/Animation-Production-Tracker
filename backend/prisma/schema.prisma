@@ -26,12 +26,25 @@ enum AvailabilityStatus {
   OVERLOADED
 }
 
+enum TrackingMode {
+  PROJECT
+  SHOT
+  ASSET
+}
+
+enum AssetType {
+  CHARACTER
+  PROP
+  ENVIRONMENT
+}
+
 enum StageStatus {
   NOT_STARTED
   IN_PROGRESS
   SUBMITTED
   APPROVED
   REJECTED
+  REVISION_REQUIRED
   ISSUE
   EXTENDED
 }
@@ -101,7 +114,11 @@ model User {
   assignedProjectStages   ProjectStage[]     @relation("UserProjectStages")
   stageAssignments        StageAssignment[]
   assignedCharacterStages CharacterStage[]   @relation("UserCharacterStages")
+  assignedShotStages      ShotStage[]        @relation("UserShotStages")
+  assignedAssetStages     AssetStage[]       @relation("UserAssetStages")
   teamProjectAssignments  TeamProject[]      @relation("TeamProjectAssigner")
+  shotStageComments       ShotStageComment[]
+  assetStageComments      AssetStageComment[]
   loggedIssues            IssueLog[]
   notifications           Notification[]
   activityLogs            ActivityLog[]
@@ -111,14 +128,23 @@ model User {
 model Project {
   id                Int                @id @default(autoincrement())
   name              String             @unique
+  client            String?
   description       String?
   priority          Int
   audioReceivedDate DateTime
+  startDate         DateTime?
+  dueDate           DateTime?
+  totalShots        Int                @default(0)
+  activeStageCodes  String[]           @default([])
+  lightingMode      TrackingMode       @default(PROJECT)
+  renderingMode     TrackingMode       @default(PROJECT)
   overallStatus     OverallStatus      @default(ON_TRACK)
   progressPercent   Float              @default(0)
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   stages            ProjectStage[]
+  shots             Shot[]
+  assets            Asset[]
   projectCharacters ProjectCharacter[]
   teamProjects      TeamProject[]
   notifications     Notification[]
@@ -129,8 +155,11 @@ model ProjectStage {
   id                    Int                         @id @default(autoincrement())
   projectId             Int
   stageName             String
+  trackingMode          TrackingMode                @default(PROJECT)
   stageTemplateId       String?
   stageTemplate         StageTemplate?              @relation(fields: [stageTemplateId], references: [id], onDelete: SetNull)
+  stageDefinitionId     String?
+  stageDefinition       StageDefinition?            @relation(fields: [stageDefinitionId], references: [id], onDelete: SetNull)
   customName            String?
   order                 Int                         @default(0)
   departmentName        String?
@@ -158,6 +187,7 @@ model ProjectStage {
   @@unique([projectId, stageName, customName])
   @@index([projectId, order])
   @@index([projectId, isActive])
+  @@index([stageDefinitionId])
 }
 
 model Character {
@@ -310,6 +340,146 @@ model StageTemplate {
   color           String?
   createdAt       DateTime       @default(now())
   projectStages   ProjectStage[]
+}
+
+model StageDefinition {
+  id               String       @id @default(cuid())
+  name             String
+  code             String       @unique
+  trackingMode     TrackingMode
+  isHybrid         Boolean      @default(false)
+  requiresApproval Boolean      @default(true)
+  order            Int
+  color            String?
+  icon             String?
+  isActive         Boolean      @default(true)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  projectStages    ProjectStage[]
+  shotStages       ShotStage[]
+  assetStages      AssetStage[]
+
+  @@index([trackingMode, order])
+}
+
+model Shot {
+  id          String      @id @default(cuid())
+  projectId   Int
+  shotNumber  Int
+  name        String?
+  description String?
+  duration    Float?
+  order       Int
+  status      StageStatus @default(NOT_STARTED)
+  project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  stages      ShotStage[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@unique([projectId, shotNumber])
+  @@index([projectId, order])
+}
+
+model ShotStage {
+  id                String          @id @default(cuid())
+  shotId            String
+  stageDefinitionId String
+  assignedUserId    Int?
+  status            StageStatus     @default(NOT_STARTED)
+  deadline          DateTime?
+  submittedAt       DateTime?
+  approvedAt        DateTime?
+  notes             String?
+  feedback          String?
+  shot              Shot            @relation(fields: [shotId], references: [id], onDelete: Cascade)
+  stageDefinition   StageDefinition @relation(fields: [stageDefinitionId], references: [id], onDelete: Cascade)
+  assignedUser      User?           @relation("UserShotStages", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  comments          ShotStageComment[]
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@unique([shotId, stageDefinitionId])
+  @@index([assignedUserId])
+  @@index([stageDefinitionId, status])
+}
+
+model Asset {
+  id                String      @id @default(cuid())
+  projectId         Int
+  name              String
+  type              AssetType
+  description       String?
+  referenceImageUrl String?
+  status            StageStatus @default(NOT_STARTED)
+  project           Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  stages            AssetStage[]
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  @@index([projectId, type])
+}
+
+model AssetStage {
+  id                String          @id @default(cuid())
+  assetId           String
+  stageDefinitionId String
+  assignedUserId    Int?
+  status            StageStatus     @default(NOT_STARTED)
+  deadline          DateTime?
+  submittedAt       DateTime?
+  approvedAt        DateTime?
+  notes             String?
+  feedback          String?
+  asset             Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  stageDefinition   StageDefinition @relation(fields: [stageDefinitionId], references: [id], onDelete: Cascade)
+  assignedUser      User?           @relation("UserAssetStages", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  comments          AssetStageComment[]
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@unique([assetId, stageDefinitionId])
+  @@index([assignedUserId])
+  @@index([stageDefinitionId, status])
+}
+
+model ShotStageComment {
+  id         String             @id @default(cuid())
+  shotStageId String
+  shotStage  ShotStage          @relation(fields: [shotStageId], references: [id], onDelete: Cascade)
+  authorId   Int
+  author     User               @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  body       String
+  type       CommentType        @default(NOTE)
+  parentId   String?
+  parent     ShotStageComment?  @relation("ShotCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies    ShotStageComment[] @relation("ShotCommentReplies")
+  isEdited   Boolean            @default(false)
+  isInternal Boolean            @default(false)
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+
+  @@index([shotStageId, createdAt])
+  @@index([authorId])
+}
+
+model AssetStageComment {
+  id          String              @id @default(cuid())
+  assetStageId String
+  assetStage  AssetStage          @relation(fields: [assetStageId], references: [id], onDelete: Cascade)
+  authorId    Int
+  author      User                @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  body        String
+  type        CommentType         @default(NOTE)
+  parentId    String?
+  parent      AssetStageComment?  @relation("AssetCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies     AssetStageComment[] @relation("AssetCommentReplies")
+  isEdited    Boolean             @default(false)
+  isInternal  Boolean             @default(false)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([assetStageId, createdAt])
+  @@index([authorId])
 }
 
 model StageComment {

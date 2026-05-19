@@ -2,17 +2,30 @@ const prisma = require("../utils/prisma");
 const { asyncHandler } = require("../utils/http");
 const { PIPELINE_TEMPLATES } = require("../utils/constants");
 const { ensureDefaultStageTemplates } = require("../utils/stageTemplates");
+const { ensureDefaultStageDefinitions, TRACKING_GROUPS } = require("../utils/stageDefinitions");
 
 const listStageTemplates = asyncHandler(async (req, res) => {
-  await ensureDefaultStageTemplates(prisma);
+  const [templates, stageDefinitions] = await Promise.all([
+    ensureDefaultStageTemplates(prisma),
+    ensureDefaultStageDefinitions(prisma)
+  ]);
 
-  const templates = await prisma.stageTemplate.findMany({
-    orderBy: [{ createdAt: "asc" }, { name: "asc" }]
-  });
+  const stageDefinitionsByCode = Object.fromEntries(stageDefinitions.map((definition) => [definition.code, definition]));
+  const defaultCodes = stageDefinitions.map((definition) => definition.code);
 
   return res.json({
     templates,
-    pipelineTemplates: PIPELINE_TEMPLATES
+    stageDefinitions,
+    trackingGroups: TRACKING_GROUPS,
+    pipelineTemplates: PIPELINE_TEMPLATES,
+    projectCreationDefaults: {
+      activeStageCodes: defaultCodes,
+      lightingMode: "PROJECT",
+      renderingMode: "PROJECT",
+      hybridCodes: TRACKING_GROUPS.HYBRID,
+      hasLighting: Boolean(stageDefinitionsByCode.LIGHTING),
+      hasRendering: Boolean(stageDefinitionsByCode.RENDERING)
+    }
   });
 });
 

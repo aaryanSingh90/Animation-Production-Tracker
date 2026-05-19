@@ -4,6 +4,13 @@ const { STAGE_DEFAULTS, MANAGER_ROLES } = require("../utils/constants");
 const { recalculateProjectProgress } = require("../utils/progress");
 const { logActivity } = require("../utils/activities");
 const { ensureDefaultStageTemplates, resolveLegacyStageNameFromTemplateName } = require("../utils/stageTemplates");
+const {
+  ensureDefaultStageDefinitions,
+  TRACKING_GROUPS,
+  normalizeStageCode,
+  getLegacyStageNameFromCode,
+  getStageCodeFromLegacyStageName
+} = require("../utils/stageDefinitions");
 
 function isManager(role) {
   return MANAGER_ROLES.includes(role);
@@ -12,6 +19,26 @@ function isManager(role) {
 function normalizeStageName(rawStageName) {
   if (!rawStageName) return null;
   return String(rawStageName).trim().toUpperCase();
+}
+
+function usesAdvancedTrackingConfig(payload = {}) {
+  return (
+    Array.isArray(payload.activeStageCodes) ||
+    Object.prototype.hasOwnProperty.call(payload, "totalShots") ||
+    Object.prototype.hasOwnProperty.call(payload, "lightingMode") ||
+    Object.prototype.hasOwnProperty.call(payload, "renderingMode") ||
+    Object.prototype.hasOwnProperty.call(payload, "client") ||
+    Object.prototype.hasOwnProperty.call(payload, "startDate") ||
+    Object.prototype.hasOwnProperty.call(payload, "dueDate")
+  );
+}
+
+function buildDepartmentLookup() {
+  const map = new Map();
+  for (const item of STAGE_DEFAULTS) {
+    map.set(item.stageName, item.departmentName);
+  }
+  return map;
 }
 
 async function buildStageRecordsFromInput(stageInputs = []) {
@@ -74,6 +101,124 @@ async function buildStageRecordsFromInput(stageInputs = []) {
   return resolved;
 }
 
+async function initializeDynamicTracking({
+  projectId,
+  totalShots = 0,
+  lightingMode = "PROJECT",
+  renderingMode = "PROJECT",
+  activeStageCodes = []
+}) {
+  const [stageDefinitions, stageTemplates] = await Promise.all([
+    ensureDefaultStageDefinitions(prisma),
+    ensureDefaultStageTemplates(prisma)
+  ]);
+
+  const templateByLegacy = new Map(
+    stageTemplates.filter((template) => template.legacyStageName).map((template) => [template.legacyStageName, template])
+  );
+  const definitionsByCode = new Map(stageDefinitions.map((definition) => [normalizeStageCode(definition.code), definition]));
+  const departmentLookup = buildDepartmentLookup();
+
+  const requestedCodes = new Set(
+    (activeStageCodes.length ? activeStageCodes : stageDefinitions.map((definition) => definition.code)).map((code) =>
+      normalizeStageCode(code)
+    )
+  );
+
+  const filteredDefinitions = stageDefinitions
+    .filter((definition) => definition.isActive && requestedCodes.has(normalizeStageCode(definition.code)))
+    .sort((a, b) => a.order - b.order);
+
+  const createProjectStagesForCodes = [];
+  const createShotStagesForCodes = [];
+  const createAssetStagesForCodes = [];
+
+  for (const definition of filteredDefinitions) {
+    const code = normalizeStageCode(definition.code);
+
+    if (definition.isHybrid) {
+      if (code === "LIGHTING") {
+        if (lightingMode === "SHOT") createShotStagesForCodes.push(code);
+        else createProjectStagesForCodes.push(code);
+      } else if (code === "RENDERING") {
+        if (renderingMode === "SHOT") createShotStagesForCodes.push(code);
+        else createProjectStagesForCodes.push(code);
+      }
+      continue;
+    }
+
+    if (definition.trackingMode === "PROJECT") createProjectStagesForCodes.push(code);
+    if (definition.trackingMode === "SHOT") createShotStagesForCodes.push(code);
+    if (definition.trackingMode === "ASSET") createAssetStagesForCodes.push(code);
+  }
+
+  const projectStageRows = createProjectStagesForCodes.map((code, index) => {
+    const definition = definitionsByCode.get(code);
+    const legacyStageName = getLegacyStageNameFromCode(code);
+    const stageTemplate = templateByLegacy.get(legacyStageName) || null;
+
+    return {
+      projectId,
+      stageName: legacyStageName,
+      trackingMode: "PROJECT",
+      stageDefinitionId: definition?.id || null,
+      stageTemplateId: stageTemplate?.id || null,
+      customName: null,
+      order: index + 1,
+      departmentName: departmentLookup.get(legacyStageName) || `${definition?.name || "General"} Department`,
+      status: "NOT_STARTED",
+      isActive: true
+    };
+  });
+
+  if (projectStageRows.length) {
+    await prisma.projectStage.createMany({ data: projectStageRows });
+  }
+
+  const shotsToCreate = Math.max(0, Number(totalShots) || 0);
+  const createdShots = [];
+
+  if (shotsToCreate > 0) {
+    for (let index = 0; index < shotsToCreate; index += 1) {
+      const shot = await prisma.shot.create({
+        data: {
+          projectId,
+          shotNumber: index + 1,
+          name: `Shot ${String(index + 1).padStart(3, "0")}`,
+          order: index + 1,
+          status: "NOT_STARTED"
+        }
+      });
+      createdShots.push(shot);
+    }
+  }
+
+  if (createdShots.length && createShotStagesForCodes.length) {
+    const shotStageRows = [];
+    for (const shot of createdShots) {
+      for (const code of createShotStagesForCodes) {
+        const definition = definitionsByCode.get(code);
+        if (!definition) continue;
+        shotStageRows.push({
+          shotId: shot.id,
+          stageDefinitionId: definition.id,
+          status: "NOT_STARTED"
+        });
+      }
+    }
+    if (shotStageRows.length) {
+      await prisma.shotStage.createMany({ data: shotStageRows });
+    }
+  }
+
+  return {
+    createdProjectStageCodes: createProjectStagesForCodes,
+    createdShotStageCodes: createShotStagesForCodes,
+    createdAssetStageCodes: createAssetStagesForCodes,
+    shotCount: shotsToCreate
+  };
+}
+
 const listProjects = asyncHandler(async (req, res) => {
   const { search, sortBy = "priority", sortOrder = "asc", artistId, filterStatus } = req.query;
 
@@ -111,6 +256,7 @@ const listProjects = asyncHandler(async (req, res) => {
         where: { isActive: true },
         include: {
           stageTemplate: true,
+          stageDefinition: true,
           _count: {
             select: { comments: true }
           },
@@ -136,9 +282,63 @@ const listProjects = asyncHandler(async (req, res) => {
         },
         orderBy: [{ order: "asc" }, { createdAt: "asc" }]
       },
+      shots: {
+        include: {
+          stages: {
+            include: {
+              stageDefinition: true,
+              assignedUser: {
+                select: {
+                  id: true,
+                  name: true,
+                  departmentId: true,
+                  departmentName: true,
+                  department: {
+                    select: { id: true, name: true, color: true }
+                  }
+                }
+              }
+            },
+            orderBy: {
+              createdAt: "asc"
+            }
+          }
+        },
+        orderBy: [{ order: "asc" }, { shotNumber: "asc" }]
+      },
+      assets: {
+        include: {
+          stages: {
+            include: {
+              stageDefinition: true,
+              assignedUser: {
+                select: {
+                  id: true,
+                  name: true,
+                  departmentId: true,
+                  departmentName: true,
+                  department: {
+                    select: { id: true, name: true, color: true }
+                  }
+                }
+              }
+            },
+            orderBy: {
+              createdAt: "asc"
+            }
+          }
+        },
+        orderBy: { createdAt: "asc" }
+      },
       projectCharacters: {
         include: {
           character: true
+        }
+      },
+      _count: {
+        select: {
+          shots: true,
+          assets: true
         }
       }
     }
@@ -189,36 +389,103 @@ function getNearestDeadline(stages) {
 }
 
 const createProject = asyncHandler(async (req, res) => {
-  const { name, priority, audioReceivedDate, description, stages } = req.body;
+  const {
+    name,
+    client,
+    priority,
+    audioReceivedDate,
+    description,
+    stages,
+    activeStageCodes = [],
+    totalShots = 0,
+    lightingMode = "PROJECT",
+    renderingMode = "PROJECT",
+    startDate,
+    dueDate
+  } = req.body;
   if (!name || !priority) {
     throw new AppError("name and priority are required", 400);
   }
 
-  const requestedStages = Array.isArray(stages) && stages.length
-    ? stages
-    : STAGE_DEFAULTS.map((stage, index) => ({
-        stageName: stage.stageName,
-        order: index + 1
-      }));
+  const advancedTracking = usesAdvancedTrackingConfig(req.body);
+  let project;
 
-  const stageRecords = await buildStageRecordsFromInput(requestedStages);
+  if (advancedTracking) {
+    const safeLightingMode = lightingMode === "SHOT" ? "SHOT" : "PROJECT";
+    const safeRenderingMode = renderingMode === "SHOT" ? "SHOT" : "PROJECT";
+    const normalizedActiveCodes = Array.from(
+      new Set((activeStageCodes || []).map((code) => normalizeStageCode(code)).filter(Boolean))
+    );
 
-  const project = await prisma.project.create({
-    data: {
-      name,
-      description: description || null,
-      priority: Number(priority),
-      audioReceivedDate: audioReceivedDate ? new Date(audioReceivedDate) : new Date(),
-      overallStatus: "ON_TRACK",
-      stages: {
-        createMany: { data: stageRecords }
+    project = await prisma.project.create({
+      data: {
+        name,
+        client: client || null,
+        description: description || null,
+        priority: Number(priority),
+        audioReceivedDate: audioReceivedDate ? new Date(audioReceivedDate) : new Date(),
+        startDate: startDate ? new Date(startDate) : null,
+        dueDate: dueDate ? new Date(dueDate) : null,
+        totalShots: Math.max(0, Number(totalShots) || 0),
+        activeStageCodes: normalizedActiveCodes,
+        lightingMode: safeLightingMode,
+        renderingMode: safeRenderingMode,
+        overallStatus: "ON_TRACK"
       }
-    },
+    });
+
+    await initializeDynamicTracking({
+      projectId: project.id,
+      totalShots: project.totalShots,
+      lightingMode: safeLightingMode,
+      renderingMode: safeRenderingMode,
+      activeStageCodes: normalizedActiveCodes
+    });
+  } else {
+    const requestedStages = Array.isArray(stages) && stages.length
+      ? stages
+      : STAGE_DEFAULTS.map((stage, index) => ({
+          stageName: stage.stageName,
+          order: index + 1
+        }));
+
+    const stageRecords = await buildStageRecordsFromInput(requestedStages);
+
+    project = await prisma.project.create({
+      data: {
+        name,
+        client: client || null,
+        description: description || null,
+        priority: Number(priority),
+        audioReceivedDate: audioReceivedDate ? new Date(audioReceivedDate) : new Date(),
+        startDate: startDate ? new Date(startDate) : null,
+        dueDate: dueDate ? new Date(dueDate) : null,
+        totalShots: Math.max(0, Number(totalShots) || 0),
+        activeStageCodes: Array.from(
+          new Set(
+            requestedStages
+              .map((item) => normalizeStageCode(getStageCodeFromLegacyStageName(item.stageName) || item.stageName))
+              .filter(Boolean)
+          )
+        ),
+        lightingMode: lightingMode === "SHOT" ? "SHOT" : "PROJECT",
+        renderingMode: renderingMode === "SHOT" ? "SHOT" : "PROJECT",
+        overallStatus: "ON_TRACK",
+        stages: {
+          createMany: { data: stageRecords }
+        }
+      }
+    });
+  }
+
+  const hydratedProject = await prisma.project.findUnique({
+    where: { id: project.id },
     include: {
       stages: {
         where: { isActive: true },
         include: {
           stageTemplate: true,
+          stageDefinition: true,
           _count: {
             select: { comments: true }
           },
@@ -227,6 +494,12 @@ const createProject = asyncHandler(async (req, res) => {
           }
         },
         orderBy: [{ order: "asc" }, { createdAt: "asc" }]
+      },
+      shots: {
+        orderBy: [{ order: "asc" }, { shotNumber: "asc" }]
+      },
+      assets: {
+        orderBy: { createdAt: "asc" }
       }
     }
   });
@@ -240,7 +513,7 @@ const createProject = asyncHandler(async (req, res) => {
     message: `${req.user.name} created project ${project.name}.`
   });
 
-  return res.status(201).json(project);
+  return res.status(201).json(hydratedProject);
 });
 
 const getProjectById = asyncHandler(async (req, res) => {
@@ -253,6 +526,7 @@ const getProjectById = asyncHandler(async (req, res) => {
         where: { isActive: true },
         include: {
           stageTemplate: true,
+          stageDefinition: true,
           _count: {
             select: { comments: true }
           },
@@ -303,6 +577,56 @@ const getProjectById = asyncHandler(async (req, res) => {
         },
         orderBy: [{ order: "asc" }, { createdAt: "asc" }]
       },
+      shots: {
+        include: {
+          stages: {
+            include: {
+              stageDefinition: true,
+              assignedUser: {
+                select: {
+                  id: true,
+                  name: true,
+                  role: true,
+                  departmentId: true,
+                  departmentName: true,
+                  department: {
+                    select: { id: true, name: true, color: true }
+                  }
+                }
+              }
+            },
+            orderBy: {
+              createdAt: "asc"
+            }
+          }
+        },
+        orderBy: [{ order: "asc" }, { shotNumber: "asc" }]
+      },
+      assets: {
+        include: {
+          stages: {
+            include: {
+              stageDefinition: true,
+              assignedUser: {
+                select: {
+                  id: true,
+                  name: true,
+                  role: true,
+                  departmentId: true,
+                  departmentName: true,
+                  department: {
+                    select: { id: true, name: true, color: true }
+                  }
+                }
+              }
+            },
+            orderBy: {
+              createdAt: "asc"
+            }
+          }
+        },
+        orderBy: { createdAt: "asc" }
+      },
       projectCharacters: {
         include: {
           character: {
@@ -335,10 +659,19 @@ const getProjectById = asyncHandler(async (req, res) => {
   }
 
   if (!isManager(req.user.role)) {
-    const assigned = project.stages.some(
+    const projectStageAssigned = project.stages.some(
       (stage) => stage.assignedUserId === req.user.id || stage.assignments?.some((assignment) => assignment.userId === req.user.id)
     );
-    if (!assigned) {
+
+    const shotStageAssigned = (project.shots || []).some((shot) =>
+      (shot.stages || []).some((stage) => stage.assignedUserId === req.user.id)
+    );
+
+    const assetStageAssigned = (project.assets || []).some((asset) =>
+      (asset.stages || []).some((stage) => stage.assignedUserId === req.user.id)
+    );
+
+    if (!projectStageAssigned && !shotStageAssigned && !assetStageAssigned) {
       throw new AppError("Forbidden", 403);
     }
   }
@@ -361,7 +694,19 @@ const getProjectById = asyncHandler(async (req, res) => {
 const updateProject = asyncHandler(async (req, res) => {
   const id = Number(req.params.id);
   const payload = {};
-  const fields = ["name", "priority", "audioReceivedDate", "description"];
+  const fields = [
+    "name",
+    "client",
+    "priority",
+    "audioReceivedDate",
+    "description",
+    "startDate",
+    "dueDate",
+    "totalShots",
+    "activeStageCodes",
+    "lightingMode",
+    "renderingMode"
+  ];
 
   for (const field of fields) {
     if (Object.prototype.hasOwnProperty.call(req.body, field)) {
@@ -375,6 +720,26 @@ const updateProject = asyncHandler(async (req, res) => {
 
   if (payload.audioReceivedDate) {
     payload.audioReceivedDate = new Date(payload.audioReceivedDate);
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "startDate")) {
+    payload.startDate = payload.startDate ? new Date(payload.startDate) : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "dueDate")) {
+    payload.dueDate = payload.dueDate ? new Date(payload.dueDate) : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "totalShots")) {
+    payload.totalShots = Math.max(0, Number(payload.totalShots) || 0);
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "activeStageCodes")) {
+    payload.activeStageCodes = Array.from(
+      new Set((payload.activeStageCodes || []).map((code) => normalizeStageCode(code)).filter(Boolean))
+    );
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "lightingMode")) {
+    payload.lightingMode = payload.lightingMode === "SHOT" ? "SHOT" : "PROJECT";
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "renderingMode")) {
+    payload.renderingMode = payload.renderingMode === "SHOT" ? "SHOT" : "PROJECT";
   }
 
   const project = await prisma.project.update({
@@ -406,6 +771,13 @@ const addProjectStage = asyncHandler(async (req, res) => {
   }
 
   const [record] = await buildStageRecordsFromInput([req.body]);
+  const stageCode = getStageCodeFromLegacyStageName(record.stageName);
+  const stageDefinition = stageCode
+    ? await prisma.stageDefinition.findUnique({
+        where: { code: stageCode },
+        select: { id: true }
+      })
+    : null;
 
   if (record.stageName !== "CUSTOM") {
     const duplicateStage = await prisma.projectStage.findFirst({
@@ -443,10 +815,13 @@ const addProjectStage = asyncHandler(async (req, res) => {
     data: {
       projectId,
       ...record,
+      trackingMode: "PROJECT",
+      stageDefinitionId: stageDefinition?.id || null,
       order: Number.isInteger(req.body.order) ? req.body.order : (maxOrder._max.order || 0) + 1
     },
     include: {
       stageTemplate: true,
+      stageDefinition: true,
       _count: {
         select: { comments: true }
       },
@@ -478,21 +853,47 @@ const addProjectStage = asyncHandler(async (req, res) => {
 const getMyProjects = asyncHandler(async (req, res) => {
   const projects = await prisma.project.findMany({
     where: {
-      stages: {
-        some: {
-          isActive: true,
-          OR: [
-            { assignedUserId: req.user.id },
-            {
-              assignments: {
+      OR: [
+        {
+          stages: {
+            some: {
+              isActive: true,
+              OR: [
+                { assignedUserId: req.user.id },
+                {
+                  assignments: {
+                    some: {
+                      userId: req.user.id
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          shots: {
+            some: {
+              stages: {
                 some: {
-                  userId: req.user.id
+                  assignedUserId: req.user.id
                 }
               }
             }
-          ]
+          }
+        },
+        {
+          assets: {
+            some: {
+              stages: {
+                some: {
+                  assignedUserId: req.user.id
+                }
+              }
+            }
+          }
         }
-      }
+      ]
     },
     include: {
       stages: {
@@ -535,6 +936,46 @@ const getMyProjects = asyncHandler(async (req, res) => {
           }
         },
         orderBy: [{ order: "asc" }, { deadline: "asc" }]
+      },
+      shots: {
+        where: {
+          stages: {
+            some: {
+              assignedUserId: req.user.id
+            }
+          }
+        },
+        include: {
+          stages: {
+            where: {
+              assignedUserId: req.user.id
+            },
+            include: {
+              stageDefinition: true
+            }
+          }
+        },
+        orderBy: [{ order: "asc" }, { shotNumber: "asc" }]
+      },
+      assets: {
+        where: {
+          stages: {
+            some: {
+              assignedUserId: req.user.id
+            }
+          }
+        },
+        include: {
+          stages: {
+            where: {
+              assignedUserId: req.user.id
+            },
+            include: {
+              stageDefinition: true
+            }
+          }
+        },
+        orderBy: { createdAt: "asc" }
       }
     },
     orderBy: { priority: "asc" }

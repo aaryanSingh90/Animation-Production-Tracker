@@ -62,6 +62,10 @@ async function ensureDefaultStageTemplates(prisma) {
       })
     )
   );
+
+  return prisma.stageTemplate.findMany({
+    orderBy: [{ createdAt: "asc" }, { name: "asc" }]
+  });
 }
 
 module.exports = {

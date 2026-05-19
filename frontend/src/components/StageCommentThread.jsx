@@ -21,7 +21,13 @@ function commentTypeBadgeTone(type) {
   return "bg-slate-100 text-slate-600 border-slate-200";
 }
 
-function CommentBubble({ comment, currentUserId, isManager, onDelete, onReply }) {
+function buildCommentsPath(resource, stageId) {
+  if (resource === "shot") return `/shot-stages/${stageId}/comments`;
+  if (resource === "asset") return `/asset-stages/${stageId}/comments`;
+  return `/stages/${stageId}/comments`;
+}
+
+function CommentBubble({ comment, currentUserId, isManager, allowDelete, onDelete, onReply }) {
   const isOwn = comment.authorId === currentUserId;
   const isSystem = comment.isSystemGenerated;
 
@@ -65,7 +71,7 @@ function CommentBubble({ comment, currentUserId, isManager, onDelete, onReply })
               Reply
             </button>
           )}
-          {(isOwn || isManager) && !isSystem && (
+          {allowDelete && (isOwn || isManager) && !isSystem && (
             <button onClick={() => onDelete(comment.id)} className="text-slate-500 hover:text-red-600">
               Delete
             </button>
@@ -80,6 +86,7 @@ function CommentBubble({ comment, currentUserId, isManager, onDelete, onReply })
                 comment={reply}
                 currentUserId={currentUserId}
                 isManager={isManager}
+                allowDelete={allowDelete}
                 onDelete={onDelete}
                 onReply={onReply}
               />
@@ -91,7 +98,7 @@ function CommentBubble({ comment, currentUserId, isManager, onDelete, onReply })
   );
 }
 
-export default function StageCommentThread({ stageId, currentUser, isManager, onCountChange }) {
+export default function StageCommentThread({ stageId, currentUser, isManager, onCountChange, resource = "project" }) {
   const showToast = useToastStore((state) => state.showToast);
 
   const [loading, setLoading] = useState(true);
@@ -101,6 +108,8 @@ export default function StageCommentThread({ stageId, currentUser, isManager, on
   const [replyTo, setReplyTo] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const bottomRef = useRef(null);
+  const allowDelete = resource === "project";
+  const commentsPath = useMemo(() => buildCommentsPath(resource, stageId), [resource, stageId]);
 
   const allowedTypes = useMemo(() => {
     if (isManager) return BASE_COMMENT_TYPES;
@@ -115,7 +124,7 @@ export default function StageCommentThread({ stageId, currentUser, isManager, on
 
   const loadComments = async () => {
     try {
-      const { data } = await api.get(`/stages/${stageId}/comments`);
+      const { data } = await api.get(commentsPath);
       setComments(data);
       syncCount(data);
     } catch (error) {
@@ -131,7 +140,7 @@ export default function StageCommentThread({ stageId, currentUser, isManager, on
     async function run() {
       setLoading(true);
       try {
-        const { data } = await api.get(`/stages/${stageId}/comments`);
+        const { data } = await api.get(commentsPath);
         if (!cancelled) {
           setComments(data);
           syncCount(data);
@@ -152,7 +161,7 @@ export default function StageCommentThread({ stageId, currentUser, isManager, on
     return () => {
       cancelled = true;
     };
-  }, [stageId]);
+  }, [commentsPath]);
 
   const handleSubmit = async () => {
     const text = body.trim();
@@ -160,7 +169,7 @@ export default function StageCommentThread({ stageId, currentUser, isManager, on
 
     setSubmitting(true);
     try {
-      await api.post(`/stages/${stageId}/comments`, {
+      await api.post(commentsPath, {
         body: text,
         type,
         parentId: replyTo?.id || null
@@ -177,6 +186,7 @@ export default function StageCommentThread({ stageId, currentUser, isManager, on
   };
 
   const handleDelete = async (commentId) => {
+    if (!allowDelete) return;
     const confirmed = window.confirm("Delete this comment?");
     if (!confirmed) return;
 
@@ -212,6 +222,7 @@ export default function StageCommentThread({ stageId, currentUser, isManager, on
               comment={comment}
               currentUserId={currentUser?.id}
               isManager={isManager}
+              allowDelete={allowDelete}
               onDelete={handleDelete}
               onReply={setReplyTo}
             />

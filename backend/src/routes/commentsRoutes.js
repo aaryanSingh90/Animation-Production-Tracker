@@ -5,6 +5,7 @@ const validate = require("../middleware/validate");
 const commentsController = require("../controllers/commentsController");
 const {
   stageCommentParamSchema,
+  stringStageCommentParamSchema,
   projectCommentParamSchema,
   commentIdParamSchema,
   createCommentSchema,
@@ -25,6 +26,30 @@ router.post(
   "/stages/:stageId/comments",
   validate({ params: stageCommentParamSchema, body: createCommentSchema }),
   commentsController.postStageComment
+);
+
+router.get(
+  "/shot-stages/:stageId/comments",
+  validate({ params: stringStageCommentParamSchema }),
+  commentsController.getShotStageComments
+);
+
+router.post(
+  "/shot-stages/:stageId/comments",
+  validate({ params: stringStageCommentParamSchema, body: createCommentSchema }),
+  commentsController.postShotStageComment
+);
+
+router.get(
+  "/asset-stages/:stageId/comments",
+  validate({ params: stringStageCommentParamSchema }),
+  commentsController.getAssetStageComments
+);
+
+router.post(
+  "/asset-stages/:stageId/comments",
+  validate({ params: stringStageCommentParamSchema, body: createCommentSchema }),
+  commentsController.postAssetStageComment
 );
 
 router.put(

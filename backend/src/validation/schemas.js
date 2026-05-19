@@ -1,9 +1,25 @@
 const { z } = require("zod");
 
 const isoDate = z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/));
+const stageStatusEnum = z.enum([
+  "NOT_STARTED",
+  "IN_PROGRESS",
+  "SUBMITTED",
+  "APPROVED",
+  "REJECTED",
+  "REVISION_REQUIRED",
+  "ISSUE",
+  "EXTENDED"
+]);
+const trackingModeEnum = z.enum(["PROJECT", "SHOT", "ASSET"]);
+const hybridStageModeEnum = z.enum(["PROJECT", "SHOT"]);
 
 const idParamSchema = z.object({
   id: z.coerce.number().int().positive()
+});
+
+const stringIdParamSchema = z.object({
+  id: z.string().min(1)
 });
 
 const departmentIdParamSchema = z.object({
@@ -48,12 +64,21 @@ const stageCommentParamSchema = z.object({
   stageId: z.coerce.number().int().positive()
 });
 
+const stringStageCommentParamSchema = z.object({
+  stageId: z.string().min(1)
+});
+
 const projectCommentParamSchema = z.object({
   projectId: z.coerce.number().int().positive()
 });
 
 const assignmentRecommendationParamSchema = z.object({
   stageId: z.coerce.number().int().positive()
+});
+
+const projectStageWorkspaceParamSchema = z.object({
+  id: z.coerce.number().int().positive(),
+  stageCode: z.string().min(1)
 });
 
 const commentIdParamSchema = z.object({
@@ -111,7 +136,7 @@ const createProjectStageSchema = z.object({
   stageName: z.string().min(1).max(255).optional(),
   customName: z.string().min(1).max(255).optional(),
   order: z.coerce.number().int().min(0).optional(),
-  status: z.enum(["NOT_STARTED", "IN_PROGRESS", "SUBMITTED", "APPROVED", "REJECTED", "ISSUE", "EXTENDED"]).optional(),
+  status: stageStatusEnum.optional(),
   deadline: isoDate.nullable().optional(),
   assignedUserId: z.coerce.number().int().positive().nullable().optional(),
   notes: z.string().max(5000).optional(),
@@ -129,8 +154,15 @@ const createProjectStageSchema = z.object({
 
 const createProjectSchema = z.object({
   name: z.string().min(2),
+  client: z.string().max(255).optional().or(z.literal("")),
   priority: z.coerce.number().int().min(1).max(20),
   audioReceivedDate: isoDate.optional(),
+  totalShots: z.coerce.number().int().min(0).max(5000).optional(),
+  startDate: isoDate.optional(),
+  dueDate: isoDate.optional(),
+  lightingMode: hybridStageModeEnum.optional(),
+  renderingMode: hybridStageModeEnum.optional(),
+  activeStageCodes: z.array(z.string().min(1).max(80)).optional(),
   description: z.string().max(5000).optional().or(z.literal("")),
   stages: z.array(createProjectStageSchema).optional()
 });
@@ -138,18 +170,26 @@ const createProjectSchema = z.object({
 const updateProjectSchema = z
   .object({
     name: z.string().min(2).optional(),
+    client: z.string().max(255).optional().or(z.literal("")),
     priority: z.coerce.number().int().min(1).max(20).optional(),
     audioReceivedDate: isoDate.optional(),
+    totalShots: z.coerce.number().int().min(0).max(5000).optional(),
+    startDate: isoDate.optional(),
+    dueDate: isoDate.optional(),
+    lightingMode: hybridStageModeEnum.optional(),
+    renderingMode: hybridStageModeEnum.optional(),
+    activeStageCodes: z.array(z.string().min(1).max(80)).optional(),
     description: z.string().max(5000).optional().or(z.literal(""))
   })
   .refine((value) => Object.keys(value).length > 0, "At least one field is required");
 
 const updateStageSchema = z
   .object({
-    status: z.enum(["NOT_STARTED", "IN_PROGRESS", "SUBMITTED", "APPROVED", "REJECTED", "ISSUE", "EXTENDED"]).optional(),
+    status: stageStatusEnum.optional(),
     deadline: isoDate.nullable().optional(),
     assignedUserId: z.coerce.number().int().positive().nullable().optional(),
     notes: z.string().max(5000).optional(),
+    feedback: z.string().max(5000).optional().nullable(),
     order: z.coerce.number().int().min(0).optional(),
     isActive: z.boolean().optional(),
     customName: z.string().max(255).optional().nullable(),
@@ -250,6 +290,53 @@ const teamLeadSchema = z.object({
   leadId: z.coerce.number().int().positive().nullable()
 });
 
+const createShotSchema = z.object({
+  shotNumber: z.coerce.number().int().min(1).optional(),
+  name: z.string().max(255).optional().or(z.literal("")),
+  description: z.string().max(2000).optional().or(z.literal("")),
+  duration: z.coerce.number().positive().optional(),
+  order: z.coerce.number().int().min(1).optional(),
+  status: stageStatusEnum.optional()
+});
+
+const updateShotSchema = z
+  .object({
+    shotNumber: z.coerce.number().int().min(1).optional(),
+    name: z.string().max(255).optional().or(z.literal("")),
+    description: z.string().max(2000).optional().or(z.literal("")),
+    duration: z.coerce.number().positive().optional().nullable(),
+    order: z.coerce.number().int().min(1).optional(),
+    status: stageStatusEnum.optional()
+  })
+  .refine((value) => Object.keys(value).length > 0, "At least one field is required");
+
+const createAssetSchema = z.object({
+  name: z.string().min(1).max(255),
+  type: z.enum(["CHARACTER", "PROP", "ENVIRONMENT"]),
+  description: z.string().max(2000).optional().or(z.literal("")),
+  referenceImageUrl: z.string().url().optional().or(z.literal("")),
+  status: stageStatusEnum.optional()
+});
+
+const updateAssetSchema = z
+  .object({
+    name: z.string().min(1).max(255).optional(),
+    type: z.enum(["CHARACTER", "PROP", "ENVIRONMENT"]).optional(),
+    description: z.string().max(2000).optional().or(z.literal("")),
+    referenceImageUrl: z.string().url().optional().or(z.literal("")),
+    status: stageStatusEnum.optional()
+  })
+  .refine((value) => Object.keys(value).length > 0, "At least one field is required");
+
+const stageWorkspaceQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).optional(),
+  pageSize: z.coerce.number().int().min(1).max(200).optional(),
+  status: stageStatusEnum.optional(),
+  artistId: z.coerce.number().int().positive().optional(),
+  search: z.string().max(255).optional(),
+  type: z.enum(["CHARACTER", "PROP", "ENVIRONMENT"]).optional()
+});
+
 const smartAssignSchema = z
   .object({
     projectStageId: z.coerce.number().int().positive(),
@@ -282,6 +369,7 @@ const linkCharacterSchema = z.object({
 
 module.exports = {
   idParamSchema,
+  stringIdParamSchema,
   departmentIdParamSchema,
   departmentMemberParamSchema,
   teamIdParamSchema,
@@ -291,8 +379,10 @@ module.exports = {
   stageArtistParamSchema,
   stageDepartmentParamSchema,
   stageCommentParamSchema,
+  stringStageCommentParamSchema,
   projectCommentParamSchema,
   assignmentRecommendationParamSchema,
+  projectStageWorkspaceParamSchema,
   commentIdParamSchema,
   loginSchema,
   registerSchema,
@@ -316,6 +406,11 @@ module.exports = {
   teamMemberSchema,
   teamProjectSchema,
   teamLeadSchema,
+  createShotSchema,
+  updateShotSchema,
+  createAssetSchema,
+  updateAssetSchema,
+  stageWorkspaceQuerySchema,
   smartAssignSchema,
   createCommentSchema,
   updateCommentSchema,

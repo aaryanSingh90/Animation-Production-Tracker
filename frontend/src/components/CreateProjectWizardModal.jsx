@@ -84,6 +84,14 @@ function normalizeKey(value) {
     .replace(/[^a-z0-9]+/g, "");
 }
 
+function resolveStageCode(stageTemplate) {
+  const raw = stageTemplate?.legacyStageName || stageTemplate?.name || "";
+  const normalized = String(raw).trim().toUpperCase().replace(/\s+/g, "_");
+  if (normalized === "RENDER") return "RENDERING";
+  if (normalized === "COMPING") return "COMPOSITING";
+  return normalized;
+}
+
 function estimateComplexity(count) {
   if (count >= 9) return { label: "High", tone: "bg-rose-100 text-rose-700" };
   if (count >= 6) return { label: "Medium", tone: "bg-amber-100 text-amber-700" };
@@ -249,10 +257,15 @@ export default function CreateProjectWizardModal({
   const [step, setStep] = useState(1);
   const [details, setDetails] = useState({
     name: "",
+    client: "",
     description: "",
     priority: 1,
     audioReceivedDate: "",
-    targetDeadline: "",
+    totalShots: 0,
+    startDate: "",
+    dueDate: "",
+    lightingMode: "PROJECT",
+    renderingMode: "PROJECT",
     colorTag: COLOR_TAGS[0],
     thumbnailUrl: ""
   });
@@ -323,10 +336,15 @@ export default function CreateProjectWizardModal({
     setStep(1);
     setDetails({
       name: "",
+      client: "",
       description: "",
       priority: 1,
       audioReceivedDate: "",
-      targetDeadline: "",
+      totalShots: 0,
+      startDate: "",
+      dueDate: "",
+      lightingMode: "PROJECT",
+      renderingMode: "PROJECT",
       colorTag: COLOR_TAGS[0],
       thumbnailUrl: ""
     });
@@ -388,14 +406,21 @@ export default function CreateProjectWizardModal({
   const canContinueStep3 = selectedStages.length > 0;
 
   async function handleCreate() {
+    const activeStageCodes = Array.from(new Set(selectedStages.map((stage) => resolveStageCode(stage)).filter(Boolean)));
+
     const payload = {
       name: details.name.trim(),
+      client: details.client?.trim() || "",
       description: details.description,
       priority: Number(details.priority),
+      totalShots: Number(details.totalShots) || 0,
+      lightingMode: details.lightingMode === "SHOT" ? "SHOT" : "PROJECT",
+      renderingMode: details.renderingMode === "SHOT" ? "SHOT" : "PROJECT",
+      activeStageCodes,
       stages: selectedStages.map((stage, index) => {
         const stagePayload = {
           stageTemplateId: stage.id,
-          stageName: stage.legacyStageName || "CUSTOM",
+          stageName: stage.legacyStageName || resolveStageCode(stage) || "CUSTOM",
           order: index + 1,
           isActive: true
         };
@@ -410,6 +435,12 @@ export default function CreateProjectWizardModal({
 
     if (details.audioReceivedDate) {
       payload.audioReceivedDate = details.audioReceivedDate;
+    }
+    if (details.startDate) {
+      payload.startDate = details.startDate;
+    }
+    if (details.dueDate) {
+      payload.dueDate = details.dueDate;
     }
 
     await onCreate(payload);
@@ -479,6 +510,30 @@ export default function CreateProjectWizardModal({
                     </div>
 
                     <div>
+                      <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">Client</label>
+                      <input
+                        value={details.client}
+                        onChange={(event) => setDetails((prev) => ({ ...prev, client: event.target.value }))}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm focus:border-slate-900 focus:outline-none"
+                        placeholder="Studio / OTT / YouTube Channel"
+                        aria-label="Client"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">Total Shots</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="5000"
+                        value={details.totalShots}
+                        onChange={(event) => setDetails((prev) => ({ ...prev, totalShots: Math.max(0, Number(event.target.value) || 0) }))}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm focus:border-slate-900 focus:outline-none"
+                        aria-label="Total Shots"
+                      />
+                    </div>
+
+                    <div>
                       <label className="mb-1 flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate-600"><Flag size={13} /> Priority</label>
                       <input
                         type="number"
@@ -503,13 +558,24 @@ export default function CreateProjectWizardModal({
                     </div>
 
                     <div>
-                      <label className="mb-1 flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate-600"><Clock3 size={13} /> Target Deadline</label>
+                      <label className="mb-1 flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate-600"><CalendarDays size={13} /> Start Date</label>
                       <input
                         type="date"
-                        value={details.targetDeadline}
-                        onChange={(event) => setDetails((prev) => ({ ...prev, targetDeadline: event.target.value }))}
+                        value={details.startDate}
+                        onChange={(event) => setDetails((prev) => ({ ...prev, startDate: event.target.value }))}
                         className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm focus:border-slate-900 focus:outline-none"
-                        aria-label="Target Deadline"
+                        aria-label="Start Date"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1 flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate-600"><Clock3 size={13} /> Due Date</label>
+                      <input
+                        type="date"
+                        value={details.dueDate}
+                        onChange={(event) => setDetails((prev) => ({ ...prev, dueDate: event.target.value }))}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm focus:border-slate-900 focus:outline-none"
+                        aria-label="Due Date"
                       />
                     </div>
 
@@ -606,6 +672,31 @@ export default function CreateProjectWizardModal({
                         Start with your own stage combination and order.
                       </p>
                     </button>
+                  </div>
+
+                  <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">Lighting Mode</label>
+                      <select
+                        value={details.lightingMode}
+                        onChange={(event) => setDetails((prev) => ({ ...prev, lightingMode: event.target.value }))}
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                      >
+                        <option value="PROJECT">Project-level</option>
+                        <option value="SHOT">Shot-level</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">Rendering Mode</label>
+                      <select
+                        value={details.renderingMode}
+                        onChange={(event) => setDetails((prev) => ({ ...prev, renderingMode: event.target.value }))}
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                      >
+                        <option value="PROJECT">Project-level</option>
+                        <option value="SHOT">Shot-level</option>
+                      </select>
+                    </div>
                   </div>
                 </div>
               )}
@@ -709,8 +800,13 @@ export default function CreateProjectWizardModal({
                     <p className="mb-3 text-sm text-slate-600">{details.description || "No description provided."}</p>
 
                     <div className="grid gap-3 text-xs text-slate-600 md:grid-cols-3">
+                      <p><span className="font-semibold text-slate-700">Client:</span> {details.client || "-"}</p>
                       <p><span className="font-semibold text-slate-700">Audio Received:</span> {details.audioReceivedDate || "-"}</p>
-                      <p><span className="font-semibold text-slate-700">Target Deadline:</span> {details.targetDeadline || "-"}</p>
+                      <p><span className="font-semibold text-slate-700">Start Date:</span> {details.startDate || "-"}</p>
+                      <p><span className="font-semibold text-slate-700">Due Date:</span> {details.dueDate || "-"}</p>
+                      <p><span className="font-semibold text-slate-700">Total Shots:</span> {details.totalShots}</p>
+                      <p><span className="font-semibold text-slate-700">Lighting:</span> {details.lightingMode}</p>
+                      <p><span className="font-semibold text-slate-700">Rendering:</span> {details.renderingMode}</p>
                       <p><span className="font-semibold text-slate-700">Thumbnail:</span> {details.thumbnailUrl ? "Provided" : "Not set"}</p>
                     </div>
                   </div>

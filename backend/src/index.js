@@ -33,6 +33,9 @@ const commentsRoutes = require("./routes/commentsRoutes");
 const teamsRoutes = require("./routes/teamsRoutes");
 const workforceRoutes = require("./routes/workforceRoutes");
 const assignmentsRoutes = require("./routes/assignmentsRoutes");
+const shotsRoutes = require("./routes/shotsRoutes");
+const assetsRoutes = require("./routes/assetsRoutes");
+const trackingRoutes = require("./routes/trackingRoutes");
 
 const app = express();
 const server = http.createServer(app);
@@ -120,6 +123,9 @@ app.use("/api/project-stages", projectStagesRoutes);
 app.use("/api/teams", teamsRoutes);
 app.use("/api/workforce", workforceRoutes);
 app.use("/api/assignments", assignmentsRoutes);
+app.use("/api", shotsRoutes);
+app.use("/api", assetsRoutes);
+app.use("/api", trackingRoutes);
 app.use("/api", commentsRoutes);
 
 app.use("*", (req, res) => {
