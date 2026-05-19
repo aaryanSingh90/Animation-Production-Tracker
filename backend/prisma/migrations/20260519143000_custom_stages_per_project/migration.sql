@@ -1,13 +1,15 @@
--- Additive enum updates for dynamic/custom stages
-ALTER TYPE "StageName" ADD VALUE IF NOT EXISTS 'CHARACTER_MODELLING';
-ALTER TYPE "StageName" ADD VALUE IF NOT EXISTS 'BLENDSHAPES';
-ALTER TYPE "StageName" ADD VALUE IF NOT EXISTS 'CUSTOM';
+-- Dynamic stages migration using plain text stage names (no enum dependency)
 
--- Stage template catalog
+-- ProjectStage stageName must be string-based for custom/dynamic pipelines.
+ALTER TABLE "ProjectStage"
+  ALTER COLUMN "stageName" TYPE TEXT
+  USING "stageName"::TEXT;
+
+-- Stage template catalog (string-backed)
 CREATE TABLE IF NOT EXISTS "StageTemplate" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
-    "legacyStageName" "StageName",
+    "legacyStageName" TEXT,
     "color" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "StageTemplate_pkey" PRIMARY KEY ("id")

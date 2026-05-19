@@ -74,24 +74,7 @@ const assignUserSchema = z.object({
 
 const createProjectStageSchema = z.object({
   stageTemplateId: z.string().min(1).optional().nullable(),
-  stageName: z
-    .enum([
-      "AUDIO",
-      "ANIMATICS",
-      "CHARACTER_MODELLING",
-      "BLENDSHAPES",
-      "CHARACTER_MODELLING_BLENDSHAPES",
-      "BG_MODELLING",
-      "RIGGING",
-      "TEXTURING",
-      "ANIMATION",
-      "LIGHTING",
-      "RENDER",
-      "COMPOSITING",
-      "EDITING",
-      "CUSTOM"
-    ])
-    .optional(),
+  stageName: z.string().min(1).max(255).optional(),
   customName: z.string().min(1).max(255).optional(),
   order: z.coerce.number().int().min(0).optional(),
   status: z.enum(["NOT_STARTED", "IN_PROGRESS", "SUBMITTED", "APPROVED", "REJECTED", "ISSUE", "EXTENDED"]).optional(),

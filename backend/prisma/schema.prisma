@@ -19,23 +19,6 @@ enum EmploymentType {
   FREELANCE
 }
 
-enum StageName {
-  AUDIO
-  ANIMATICS
-  CHARACTER_MODELLING
-  BLENDSHAPES
-  CHARACTER_MODELLING_BLENDSHAPES
-  BG_MODELLING
-  RIGGING
-  TEXTURING
-  ANIMATION
-  LIGHTING
-  RENDER
-  COMPOSITING
-  EDITING
-  CUSTOM
-}
-
 enum StageStatus {
   NOT_STARTED
   IN_PROGRESS
@@ -120,7 +103,7 @@ model Project {
 model ProjectStage {
   id                    Int                         @id @default(autoincrement())
   projectId             Int
-  stageName             StageName
+  stageName             String
   stageTemplateId       String?
   stageTemplate         StageTemplate?              @relation(fields: [stageTemplateId], references: [id], onDelete: SetNull)
   customName            String?
@@ -263,7 +246,7 @@ model StageDepartmentAssignment {
 model StageTemplate {
   id              String         @id @default(cuid())
   name            String         @unique
-  legacyStageName StageName?
+  legacyStageName String?
   color           String?
   createdAt       DateTime       @default(now())
   projectStages   ProjectStage[]
