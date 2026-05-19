@@ -73,6 +73,13 @@ const DEFAULT_DEPARTMENTS = [
   { name: "Pipeline", color: "#1D4ED8" }
 ];
 
+const DEFAULT_TEAMS = [
+  { name: "Animation Team Alpha", department: "Animation Department", color: "#3B82F6" },
+  { name: "Rigging Squad A", department: "Rigging Department", color: "#F59E0B" },
+  { name: "Lighting Unit East", department: "Lighting Department", color: "#F97316" },
+  { name: "Compositing Crew", department: "Compositing Department", color: "#84CC16" }
+];
+
 const CHARACTER_STAGES = ["REFERENCE", "MODELLING", "BLENDSHAPES", "TEXTURING", "RIGGING"];
 
 const projectsSeed = [
@@ -175,6 +182,8 @@ async function main() {
   await prisma.character.deleteMany();
   await prisma.projectStage.deleteMany();
   await prisma.project.deleteMany();
+  await prisma.teamProject.deleteMany();
+  await prisma.team.deleteMany();
   await prisma.stageTemplate.deleteMany();
   await prisma.user.deleteMany();
   await prisma.department.deleteMany();
@@ -298,6 +307,77 @@ async function main() {
   const artists = users.filter((u) => u.role === "EMPLOYEE");
   const artistIds = artists.map((u) => u.id);
 
+  const createdTeams = new Map();
+  for (const teamSeed of DEFAULT_TEAMS) {
+    const record = await prisma.team.create({
+      data: {
+        name: teamSeed.name,
+        color: teamSeed.color,
+        departmentId: departments.get(teamSeed.department)?.id || null
+      }
+    });
+    createdTeams.set(teamSeed.name, record);
+  }
+
+  if (artists[0]) {
+    await prisma.user.update({
+      where: { id: artists[0].id },
+      data: {
+        teamId: createdTeams.get("Animation Team Alpha")?.id || null,
+        availabilityStatus: "BUSY"
+      }
+    });
+  }
+  if (artists[1]) {
+    await prisma.user.update({
+      where: { id: artists[1].id },
+      data: {
+        teamId: createdTeams.get("Rigging Squad A")?.id || null,
+        availabilityStatus: "AVAILABLE"
+      }
+    });
+  }
+  if (artists[2]) {
+    await prisma.user.update({
+      where: { id: artists[2].id },
+      data: {
+        teamId: createdTeams.get("Animation Team Alpha")?.id || null,
+        availabilityStatus: "OVERLOADED"
+      }
+    });
+  }
+  if (artists[3]) {
+    await prisma.user.update({
+      where: { id: artists[3].id },
+      data: {
+        teamId: createdTeams.get("Compositing Crew")?.id || null,
+        availabilityStatus: "BUSY"
+      }
+    });
+  }
+  if (artists[4]) {
+    await prisma.user.update({
+      where: { id: artists[4].id },
+      data: {
+        teamId: createdTeams.get("Lighting Unit East")?.id || null,
+        availabilityStatus: "AVAILABLE"
+      }
+    });
+  }
+
+  if (artists[0]) {
+    await prisma.team.update({
+      where: { id: createdTeams.get("Animation Team Alpha").id },
+      data: { leadId: artists[0].id }
+    });
+  }
+  if (artists[1]) {
+    await prisma.team.update({
+      where: { id: createdTeams.get("Rigging Squad A").id },
+      data: { leadId: artists[1].id }
+    });
+  }
+
   const createdProjects = [];
 
   for (let projectIndex = 0; projectIndex < projectsSeed.length; projectIndex += 1) {
@@ -373,6 +453,23 @@ async function main() {
 
     createdProjects.push(project);
     await recalcProgress(project.id);
+
+    if (projectIndex % 2 === 0) {
+      await prisma.teamProject.upsert({
+        where: {
+          teamId_projectId: {
+            teamId: createdTeams.get("Animation Team Alpha").id,
+            projectId: project.id
+          }
+        },
+        create: {
+          teamId: createdTeams.get("Animation Team Alpha").id,
+          projectId: project.id,
+          assignedById: managerIds[1]
+        },
+        update: {}
+      });
+    }
   }
 
   const lakdiStage = await prisma.projectStage.findFirst({

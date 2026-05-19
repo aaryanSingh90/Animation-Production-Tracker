@@ -1,9 +1,29 @@
 import { useState } from "react";
-import { Bell } from "lucide-react";
+import {
+  Bell,
+  MessageCircle,
+  CheckCircle2,
+  XCircle,
+  Clock3,
+  AlertTriangle,
+  UserPlus,
+  Bug
+} from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import api from "../lib/api";
 import { useNotificationStore } from "../store/notificationStore";
 import { formatRelative } from "../utils/format";
+
+const notificationIconByType = {
+  APPROVAL_NEEDED: Clock3,
+  APPROVED: CheckCircle2,
+  REJECTED: XCircle,
+  DEADLINE_WARNING: AlertTriangle,
+  DEADLINE_MISSED: AlertTriangle,
+  ISSUE_LOGGED: Bug,
+  ASSIGNED: UserPlus,
+  COMMENT: MessageCircle
+};
 
 export default function NotificationBell() {
   const navigate = useNavigate();
@@ -67,8 +87,16 @@ export default function NotificationBell() {
                   notification.isRead ? "bg-white" : "bg-sky-50"
                 }`}
               >
-                <p className="text-sm text-slate-800">{notification.message}</p>
-                <p className="mt-1 text-xs text-slate-500">{formatRelative(notification.createdAt)}</p>
+                <div className="flex items-start gap-2">
+                  {(() => {
+                    const Icon = notificationIconByType[notification.type] || Bell;
+                    return <Icon size={14} className="mt-0.5 flex-shrink-0 text-slate-500" />;
+                  })()}
+                  <div>
+                    <p className="text-sm text-slate-800">{notification.message}</p>
+                    <p className="mt-1 text-xs text-slate-500">{formatRelative(notification.createdAt)}</p>
+                  </div>
+                </div>
               </button>
             ))}
             {!notifications.length && <p className="px-4 py-6 text-sm text-slate-500">No notifications yet.</p>}

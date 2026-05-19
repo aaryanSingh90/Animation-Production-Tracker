@@ -106,6 +106,11 @@ const getProjectStages = asyncHandler(async (req, res) => {
     where,
     include: {
       stageTemplate: true,
+      _count: {
+        select: {
+          comments: true
+        }
+      },
       assignedUser: {
         select: {
           id: true,
@@ -443,6 +448,16 @@ const approveStage = asyncHandler(async (req, res) => {
     }
   });
 
+  await prisma.stageComment.create({
+    data: {
+      projectStageId: updated.id,
+      authorId: req.user.id,
+      body: `Stage approved by ${req.user.name} on ${new Date().toLocaleDateString("en-GB")}.`,
+      type: "APPROVAL_NOTE",
+      isSystemGenerated: true
+    }
+  });
+
   const assignedUserIds = getStageAssignedUserIds(updated);
   await Promise.all(
     assignedUserIds.map((userId) =>
@@ -491,6 +506,16 @@ const rejectStage = asyncHandler(async (req, res) => {
         select: { id: true, name: true }
       },
       assignments: true
+    }
+  });
+
+  await prisma.stageComment.create({
+    data: {
+      projectStageId: updated.id,
+      authorId: req.user.id,
+      body: feedback || "Stage rejected. Please revise and resubmit.",
+      type: "FEEDBACK",
+      isSystemGenerated: false
     }
   });
 

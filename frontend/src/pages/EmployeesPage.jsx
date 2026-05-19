@@ -97,8 +97,30 @@ export default function EmployeesPage() {
 
   async function addEmployee(event) {
     event.preventDefault();
+    const name = addForm.name.trim();
+    const email = addForm.email.trim().toLowerCase();
+    const password = addForm.password;
+
+    if (!name || !email || !password) {
+      showToast("error", "Name, email, and password are required");
+      return;
+    }
+
+    if (password.length < 8) {
+      showToast("error", "Password must be at least 8 characters");
+      return;
+    }
+
+    const payload = {
+      ...addForm,
+      name,
+      email,
+      password,
+      departmentId: addForm.departmentId || ""
+    };
+
     try {
-      await api.post("/users", addForm);
+      await api.post("/users", payload);
       showToast("success", "Employee created");
       setAddOpen(false);
       setAddForm({ name: "", email: "", password: "", role: "EMPLOYEE", departmentId: "", employmentType: "INHOUSE" });
@@ -380,7 +402,14 @@ export default function EmployeesPage() {
         <form className="space-y-4" onSubmit={addEmployee}>
           <Input label="Full Name" value={addForm.name} onChange={(value) => setAddForm((prev) => ({ ...prev, name: value }))} required />
           <Input label="Email Address" type="email" value={addForm.email} onChange={(value) => setAddForm((prev) => ({ ...prev, email: value }))} required />
-          <Input label="Password" type="password" value={addForm.password} onChange={(value) => setAddForm((prev) => ({ ...prev, password: value }))} required />
+          <Input
+            label="Password"
+            type="password"
+            value={addForm.password}
+            onChange={(value) => setAddForm((prev) => ({ ...prev, password: value }))}
+            required
+            minLength={8}
+          />
           <div>
             <label className="mb-1 block text-sm font-semibold text-slate-700">Role</label>
             <select
@@ -486,6 +515,7 @@ export default function EmployeesPage() {
             type="password"
             value={editForm.password}
             onChange={(value) => setEditForm((prev) => ({ ...prev, password: value }))}
+            minLength={8}
           />
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => setEditOpen(false)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700">
@@ -501,13 +531,14 @@ export default function EmployeesPage() {
   );
 }
 
-function Input({ label, value, onChange, type = "text", required = false }) {
+function Input({ label, value, onChange, type = "text", required = false, minLength }) {
   return (
     <div>
       <label className="mb-1 block text-sm font-semibold text-slate-700">{label}</label>
       <input
         type={type}
         required={required}
+        minLength={minLength}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"

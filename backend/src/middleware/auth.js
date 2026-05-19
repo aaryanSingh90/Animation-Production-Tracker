@@ -25,10 +25,22 @@ const authMiddleware = asyncHandler(async (req, res, next) => {
       name: true,
       email: true,
       role: true,
+      phone: true,
+      joinedAt: true,
       departmentId: true,
       departmentName: true,
+      teamId: true,
       employmentType: true,
+      availabilityStatus: true,
+      skills: true,
       isActive: true,
+      team: {
+        select: {
+          id: true,
+          name: true,
+          color: true
+        }
+      },
       department: {
         select: {
           id: true,

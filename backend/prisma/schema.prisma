@@ -19,6 +19,13 @@ enum EmploymentType {
   FREELANCE
 }
 
+enum AvailabilityStatus {
+  AVAILABLE
+  BUSY
+  ON_LEAVE
+  OVERLOADED
+}
+
 enum StageStatus {
   NOT_STARTED
   IN_PROGRESS
@@ -54,6 +61,14 @@ enum NotificationType {
   DEADLINE_MISSED
   ISSUE_LOGGED
   ASSIGNED
+  COMMENT
+}
+
+enum CommentType {
+  NOTE
+  QUESTION
+  FEEDBACK
+  APPROVAL_NOTE
 }
 
 enum OverallStatus {
@@ -64,24 +79,33 @@ enum OverallStatus {
 }
 
 model User {
-  id                      Int               @id @default(autoincrement())
+  id                      Int                @id @default(autoincrement())
   name                    String
-  email                   String            @unique
+  email                   String             @unique
   password                String
+  phone                   String?
+  joinedAt                DateTime           @default(now())
   role                    Role
   departmentId            String?
-  department              Department?       @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  department              Department?        @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   departmentName          String?
-  employmentType          EmploymentType    @default(INHOUSE)
-  isActive                Boolean           @default(true)
-  createdAt               DateTime          @default(now())
-  updatedAt               DateTime          @updatedAt
-  assignedProjectStages   ProjectStage[]    @relation("UserProjectStages")
+  teamId                  String?
+  team                    Team?              @relation("TeamMembers", fields: [teamId], references: [id], onDelete: SetNull)
+  leadTeams               Team[]             @relation("TeamLead")
+  employmentType          EmploymentType     @default(INHOUSE)
+  availabilityStatus      AvailabilityStatus @default(AVAILABLE)
+  skills                  String[]           @default([])
+  isActive                Boolean            @default(true)
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+  assignedProjectStages   ProjectStage[]     @relation("UserProjectStages")
   stageAssignments        StageAssignment[]
-  assignedCharacterStages CharacterStage[]  @relation("UserCharacterStages")
+  assignedCharacterStages CharacterStage[]   @relation("UserCharacterStages")
+  teamProjectAssignments  TeamProject[]      @relation("TeamProjectAssigner")
   loggedIssues            IssueLog[]
   notifications           Notification[]
   activityLogs            ActivityLog[]
+  stageComments           StageComment[]     @relation("CommentAuthor")
 }
 
 model Project {
@@ -96,6 +120,7 @@ model Project {
   updatedAt         DateTime           @updatedAt
   stages            ProjectStage[]
   projectCharacters ProjectCharacter[]
+  teamProjects      TeamProject[]
   notifications     Notification[]
   activityLogs      ActivityLog[]
 }
@@ -128,6 +153,7 @@ model ProjectStage {
   issueLogs             IssueLog[]
   notifications         Notification[]
   activityLogs          ActivityLog[]
+  comments              StageComment[]
 
   @@unique([projectId, stageName, customName])
   @@index([projectId, order])
@@ -229,7 +255,41 @@ model Department {
   createdAt        DateTime                    @default(now())
   updatedAt        DateTime                    @updatedAt
   employees        User[]
+  teams            Team[]
   stageAssignments StageDepartmentAssignment[]
+}
+
+model Team {
+  id           String        @id @default(cuid())
+  name         String        @unique
+  description  String?
+  color        String?       @default("#3B82F6")
+  departmentId String?
+  department   Department?   @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  leadId       Int?
+  lead         User?         @relation("TeamLead", fields: [leadId], references: [id], onDelete: SetNull)
+  isArchived   Boolean       @default(false)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  members      User[]        @relation("TeamMembers")
+  projects     TeamProject[]
+
+  @@index([departmentId])
+  @@index([leadId])
+}
+
+model TeamProject {
+  id           String   @id @default(cuid())
+  teamId       String
+  team         Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  projectId    Int
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignedById Int?
+  assignedBy   User?    @relation("TeamProjectAssigner", fields: [assignedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+
+  @@unique([teamId, projectId])
+  @@index([projectId])
 }
 
 model StageDepartmentAssignment {
@@ -250,4 +310,25 @@ model StageTemplate {
   color           String?
   createdAt       DateTime       @default(now())
   projectStages   ProjectStage[]
+}
+
+model StageComment {
+  id                String         @id @default(cuid())
+  projectStageId    Int
+  projectStage      ProjectStage   @relation(fields: [projectStageId], references: [id], onDelete: Cascade)
+  authorId          Int
+  author            User           @relation("CommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  body              String
+  type              CommentType    @default(NOTE)
+  parentId          String?
+  parent            StageComment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies           StageComment[] @relation("CommentReplies")
+  isEdited          Boolean        @default(false)
+  isSystemGenerated Boolean        @default(false)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@index([projectStageId, createdAt])
+  @@index([authorId])
+  @@index([parentId])
 }

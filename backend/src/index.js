@@ -29,6 +29,10 @@ const issuesRoutes = require("./routes/issuesRoutes");
 const departmentsRoutes = require("./routes/departmentsRoutes");
 const stageTemplatesRoutes = require("./routes/stageTemplatesRoutes");
 const projectStagesRoutes = require("./routes/projectStagesRoutes");
+const commentsRoutes = require("./routes/commentsRoutes");
+const teamsRoutes = require("./routes/teamsRoutes");
+const workforceRoutes = require("./routes/workforceRoutes");
+const assignmentsRoutes = require("./routes/assignmentsRoutes");
 
 const app = express();
 const server = http.createServer(app);
@@ -113,6 +117,10 @@ app.use("/api/issues", issuesRoutes);
 app.use("/api/departments", departmentsRoutes);
 app.use("/api/stage-templates", stageTemplatesRoutes);
 app.use("/api/project-stages", projectStagesRoutes);
+app.use("/api/teams", teamsRoutes);
+app.use("/api/workforce", workforceRoutes);
+app.use("/api/assignments", assignmentsRoutes);
+app.use("/api", commentsRoutes);
 
 app.use("*", (req, res) => {
   res.status(404).json({

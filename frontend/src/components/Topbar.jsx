@@ -7,8 +7,12 @@ const titleByPath = {
   "/projects": "Projects",
   "/characters": "Character Tracker",
   "/approvals": "Approval Queue",
+  "/workforce": "Workforce",
+  "/teams": "Teams",
   "/employees": "Employee Management",
   "/departments": "Departments",
+  "/assignments": "Assignments",
+  "/analytics": "Analytics",
   "/reports": "Reports",
   "/my-tasks": "My Tasks"
 };

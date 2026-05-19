@@ -7,15 +7,18 @@ import EmptyState from "../components/EmptyState";
 import IssueModal from "../components/IssueModal";
 import Modal from "../components/Modal";
 import ProgressBar from "../components/ProgressBar";
+import StageCommentThread from "../components/StageCommentThread";
 import { formatDate, formatDateInput, getDepartmentLabel, getStageDisplayName, labelize } from "../utils/format";
 import { STAGE_STATUSES } from "../utils/constants";
 import { useToastStore } from "../store/toastStore";
+import { useAuthStore } from "../store/authStore";
 
 export default function ProjectDetailPage() {
   const { projectId } = useParams();
   const id = projectId;
   const navigate = useNavigate();
   const showToast = useToastStore((state) => state.showToast);
+  const currentUser = useAuthStore((state) => state.user);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -35,6 +38,8 @@ export default function ProjectDetailPage() {
   const [artistToAdd, setArtistToAdd] = useState("");
   const [departmentPickerStageId, setDepartmentPickerStageId] = useState(null);
   const [departmentToAssign, setDepartmentToAssign] = useState("");
+  const [openCommentsByStage, setOpenCommentsByStage] = useState({});
+  const [stageCommentCounts, setStageCommentCounts] = useState({});
 
   const [editingProject, setEditingProject] = useState(false);
   const [projectForm, setProjectForm] = useState({ name: "", priority: 1, audioReceivedDate: "" });
@@ -58,6 +63,20 @@ export default function ProjectDetailPage() {
         api.get("/stage-templates")
       ]);
       setProject(projectRes.data);
+      setStageCommentCounts(
+        Object.fromEntries((projectRes.data.stages || []).map((stage) => [stage.id, stage._count?.comments || 0]))
+      );
+      setOpenCommentsByStage((prev) => {
+        const next = {};
+        for (const stage of projectRes.data.stages || []) {
+          if (Object.prototype.hasOwnProperty.call(prev, stage.id)) {
+            next[stage.id] = prev[stage.id];
+          } else {
+            next[stage.id] = stage.status === "REJECTED";
+          }
+        }
+        return next;
+      });
       setUsers(usersRes.data.filter((user) => user.role === "EMPLOYEE"));
       setCharacters(charsRes.data);
       setDepartments(departmentsRes.data);
@@ -410,6 +429,8 @@ export default function ProjectDetailPage() {
             (department) =>
               !assignedDepartments.some((assignment) => (assignment.departmentId || assignment.department?.id) === department.id)
           );
+          const commentCount = stageCommentCounts[stage.id] ?? stage._count?.comments ?? 0;
+          const commentsOpen = Boolean(openCommentsByStage[stage.id]);
 
           return (
             <div key={stage.id} className="rounded-xl border border-slate-200 p-4">
@@ -463,6 +484,21 @@ export default function ProjectDetailPage() {
                       stage.isDeadlineMissed ? "border-red-400 bg-red-50 text-red-700" : "border-slate-300"
                     }`}
                   />
+                  <button
+                    onClick={() =>
+                      setOpenCommentsByStage((prev) => ({
+                        ...prev,
+                        [stage.id]: !prev[stage.id]
+                      }))
+                    }
+                    className={`rounded-full border px-2 py-1 text-xs font-semibold ${
+                      commentsOpen
+                        ? "border-sky-300 bg-sky-50 text-sky-700"
+                        : "border-slate-300 text-slate-600 hover:border-slate-400"
+                    }`}
+                  >
+                    {commentCount > 0 ? `${commentCount} comment${commentCount > 1 ? "s" : ""}` : "Comment"}
+                  </button>
                 </div>
               </div>
 
@@ -667,6 +703,20 @@ export default function ProjectDetailPage() {
                   </button>
                 </div>
               </div>
+
+              {commentsOpen && (
+                <StageCommentThread
+                  stageId={stage.id}
+                  currentUser={currentUser}
+                  isManager
+                  onCountChange={(count) =>
+                    setStageCommentCounts((prev) => ({
+                      ...prev,
+                      [stage.id]: count
+                    }))
+                  }
+                />
+              )}
             </div>
           );
         })}

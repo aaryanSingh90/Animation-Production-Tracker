@@ -10,6 +10,52 @@ function isManager(role) {
   return MANAGER_ROLES.includes(role);
 }
 
+async function resolveDepartmentInfo({ departmentId, departmentName }) {
+  if (!departmentId) {
+    return {
+      departmentId: null,
+      departmentName: departmentName || null
+    };
+  }
+
+  const department = await prisma.department.findUnique({
+    where: { id: departmentId },
+    select: { id: true, name: true }
+  });
+
+  if (!department) {
+    throw new AppError("Department not found", 404);
+  }
+
+  return {
+    departmentId: department.id,
+    departmentName: department.name
+  };
+}
+
+async function resolveTeam(teamId) {
+  if (!teamId) return null;
+
+  const team = await prisma.team.findUnique({
+    where: { id: teamId },
+    select: {
+      id: true,
+      name: true,
+      isArchived: true,
+      departmentId: true,
+      department: {
+        select: { id: true, name: true }
+      }
+    }
+  });
+
+  if (!team || team.isArchived) {
+    throw new AppError("Team not found", 404);
+  }
+
+  return team;
+}
+
 const listUsers = asyncHandler(async (req, res) => {
   const users = await prisma.user.findMany({
     orderBy: { createdAt: "desc" },
@@ -18,11 +64,23 @@ const listUsers = asyncHandler(async (req, res) => {
       name: true,
       email: true,
       role: true,
+      phone: true,
+      joinedAt: true,
       departmentId: true,
       departmentName: true,
+      teamId: true,
+      availabilityStatus: true,
+      skills: true,
       employmentType: true,
       isActive: true,
       createdAt: true,
+      team: {
+        select: {
+          id: true,
+          name: true,
+          color: true
+        }
+      },
       department: {
         select: {
           id: true,
@@ -38,7 +96,12 @@ const listUsers = asyncHandler(async (req, res) => {
     }
   });
 
-  return res.json(users.map((user) => presentUser(user)));
+  return res.json(
+    users.map((user) => ({
+      ...presentUser(user),
+      team: user.team || null
+    }))
+  );
 });
 
 const createUser = asyncHandler(async (req, res) => {
@@ -47,10 +110,14 @@ const createUser = asyncHandler(async (req, res) => {
     email,
     password,
     role,
+    phone,
+    teamId: rawTeamId,
     departmentId: rawDepartmentId,
     departmentName: rawDepartmentName,
     department: legacyDepartment,
-    employmentType = "INHOUSE"
+    employmentType = "INHOUSE",
+    availabilityStatus = "AVAILABLE",
+    skills
   } = req.body;
 
   if (!name || !email || !password || !role) {
@@ -72,18 +139,22 @@ const createUser = asyncHandler(async (req, res) => {
 
   let departmentId = rawDepartmentId || null;
   if (departmentId === "") departmentId = null;
+
+  let teamId = rawTeamId || null;
+  if (teamId === "") teamId = null;
+
   let departmentName = rawDepartmentName || legacyDepartment || null;
 
-  if (departmentId) {
-    const department = await prisma.department.findUnique({
-      where: { id: departmentId },
-      select: { id: true, name: true }
-    });
-    if (!department) {
-      throw new AppError("Department not found", 404);
-    }
-    departmentName = department.name;
+  const team = await resolveTeam(teamId);
+  if (team?.departmentId && !departmentId) {
+    departmentId = team.departmentId;
+    departmentName = team.department?.name || departmentName;
   }
+
+  const department = await resolveDepartmentInfo({
+    departmentId,
+    departmentName
+  });
 
   const user = await prisma.user.create({
     data: {
@@ -91,19 +162,35 @@ const createUser = asyncHandler(async (req, res) => {
       email: email.toLowerCase(),
       password: hashed,
       role,
-      departmentId,
-      departmentName,
-      employmentType
+      phone: phone || null,
+      departmentId: department.departmentId,
+      departmentName: department.departmentName,
+      teamId,
+      employmentType,
+      availabilityStatus,
+      skills: Array.isArray(skills) ? skills.filter(Boolean) : []
     },
     select: {
       id: true,
       name: true,
       email: true,
       role: true,
+      phone: true,
+      joinedAt: true,
       departmentId: true,
       departmentName: true,
+      teamId: true,
+      availabilityStatus: true,
+      skills: true,
       employmentType: true,
       isActive: true,
+      team: {
+        select: {
+          id: true,
+          name: true,
+          color: true
+        }
+      },
       department: {
         select: {
           id: true,
@@ -114,7 +201,10 @@ const createUser = asyncHandler(async (req, res) => {
     }
   });
 
-  return res.status(201).json(presentUser(user));
+  return res.status(201).json({
+    ...presentUser(user),
+    team: user.team || null
+  });
 });
 
 const getUserById = asyncHandler(async (req, res) => {
@@ -130,8 +220,27 @@ const getUserById = asyncHandler(async (req, res) => {
       name: true,
       email: true,
       role: true,
+      phone: true,
+      joinedAt: true,
       departmentId: true,
       departmentName: true,
+      teamId: true,
+      availabilityStatus: true,
+      skills: true,
+      team: {
+        select: {
+          id: true,
+          name: true,
+          color: true,
+          leadId: true,
+          lead: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        }
+      },
       department: {
         select: {
           id: true,
@@ -183,17 +292,27 @@ const getUserById = asyncHandler(async (req, res) => {
 
   const submittedCount = mergedStages.filter((stage) => stage.submittedAt).length;
   const approvedCount = mergedStages.filter((stage) => stage.status === "APPROVED").length;
+  const rejectedCount = mergedStages.filter((stage) => stage.status === "REJECTED").length;
+  const delayedCount = mergedStages.filter(
+    (stage) => stage.deadline && new Date(stage.deadline) < new Date() && stage.status !== "APPROVED"
+  ).length;
+
   const approvalRate = submittedCount === 0 ? 0 : Number(((approvedCount / submittedCount) * 100).toFixed(2));
 
   return res.json({
     ...presentUser(user),
+    team: user.team || null,
     assignedProjectStages: mergedStages,
     stageAssignments: undefined,
     stats: {
       submittedCount,
       approvedCount,
+      rejectedCount,
+      delayedCount,
       approvalRate,
-      activeStages: mergedStages.filter((stage) => stage.status !== "APPROVED").length
+      activeStages: mergedStages.filter((stage) => stage.status !== "APPROVED").length,
+      completedStages: mergedStages.filter((stage) => stage.status === "APPROVED").length,
+      productivityScore: Math.max(0, Math.min(100, Math.round(approvalRate - delayedCount * 3 + 10)))
     }
   });
 });
@@ -210,8 +329,21 @@ const updateUser = asyncHandler(async (req, res) => {
   }
 
   const payload = {};
-  const allowedForSelf = ["name", "departmentId", "departmentName"];
-  const allowedForManager = ["name", "email", "role", "departmentId", "departmentName", "employmentType", "isActive", "password"];
+  const allowedForSelf = ["name", "departmentId", "departmentName", "teamId", "availabilityStatus", "phone"];
+  const allowedForManager = [
+    "name",
+    "email",
+    "role",
+    "departmentId",
+    "departmentName",
+    "teamId",
+    "employmentType",
+    "availabilityStatus",
+    "skills",
+    "phone",
+    "isActive",
+    "password"
+  ];
   const allowed = isManager(req.user.role) ? allowedForManager : allowedForSelf;
 
   for (const key of allowed) {
@@ -224,26 +356,40 @@ const updateUser = asyncHandler(async (req, res) => {
     payload.email = String(payload.email).toLowerCase();
   }
 
+  if (Object.prototype.hasOwnProperty.call(payload, "teamId")) {
+    if (payload.teamId === "") payload.teamId = null;
+    const team = await resolveTeam(payload.teamId);
+    if (team?.departmentId && !Object.prototype.hasOwnProperty.call(payload, "departmentId")) {
+      payload.departmentId = team.departmentId;
+      payload.departmentName = team.department?.name || payload.departmentName || null;
+    }
+  }
+
   if (Object.prototype.hasOwnProperty.call(payload, "departmentId")) {
     if (payload.departmentId === "") payload.departmentId = null;
 
-    if (payload.departmentId) {
-      const department = await prisma.department.findUnique({
-        where: { id: payload.departmentId },
-        select: { id: true, name: true }
-      });
+    const department = await resolveDepartmentInfo({
+      departmentId: payload.departmentId,
+      departmentName: payload.departmentName
+    });
 
-      if (!department) {
-        throw new AppError("Department not found", 404);
-      }
-      payload.departmentName = department.name;
-    } else if (!Object.prototype.hasOwnProperty.call(payload, "departmentName")) {
-      payload.departmentName = null;
-    }
+    payload.departmentId = department.departmentId;
+    payload.departmentName = department.departmentName;
   }
 
   if (payload.employmentType && !["INHOUSE", "FREELANCE"].includes(payload.employmentType)) {
     throw new AppError("Invalid employmentType", 400);
+  }
+
+  if (payload.availabilityStatus && !["AVAILABLE", "BUSY", "ON_LEAVE", "OVERLOADED"].includes(payload.availabilityStatus)) {
+    throw new AppError("Invalid availabilityStatus", 400);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "skills")) {
+    if (!Array.isArray(payload.skills)) {
+      throw new AppError("skills must be an array", 400);
+    }
+    payload.skills = payload.skills.filter(Boolean);
   }
 
   if (payload.password) {
@@ -261,10 +407,22 @@ const updateUser = asyncHandler(async (req, res) => {
       name: true,
       email: true,
       role: true,
+      phone: true,
+      joinedAt: true,
       departmentId: true,
       departmentName: true,
+      teamId: true,
+      availabilityStatus: true,
+      skills: true,
       employmentType: true,
       isActive: true,
+      team: {
+        select: {
+          id: true,
+          name: true,
+          color: true
+        }
+      },
       department: {
         select: {
           id: true,
@@ -275,7 +433,10 @@ const updateUser = asyncHandler(async (req, res) => {
     }
   });
 
-  return res.json(presentUser(updated));
+  return res.json({
+    ...presentUser(updated),
+    team: updated.team || null
+  });
 });
 
 const deactivateUser = asyncHandler(async (req, res) => {

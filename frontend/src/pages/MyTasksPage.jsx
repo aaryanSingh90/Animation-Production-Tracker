@@ -4,6 +4,7 @@ import Loader from "../components/Loader";
 import EmptyState from "../components/EmptyState";
 import StatusBadge from "../components/StatusBadge";
 import IssueModal from "../components/IssueModal";
+import StageCommentThread from "../components/StageCommentThread";
 import { formatDate, getStageDisplayName, labelize } from "../utils/format";
 import { useToastStore } from "../store/toastStore";
 import { useAuthStore } from "../store/authStore";
@@ -16,12 +17,21 @@ export default function MyTasksPage() {
   const [projects, setProjects] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [issueStage, setIssueStage] = useState(null);
+  const [openCommentsByStage, setOpenCommentsByStage] = useState({});
+  const [stageCommentCounts, setStageCommentCounts] = useState({});
 
   async function fetchData() {
     setLoading(true);
     try {
       const [projectsRes, notificationsRes] = await Promise.all([api.get("/projects/my"), api.get("/notifications")]);
       setProjects(projectsRes.data);
+      const counts = {};
+      for (const project of projectsRes.data || []) {
+        for (const stage of project.stages || []) {
+          counts[stage.id] = stage._count?.comments || 0;
+        }
+      }
+      setStageCommentCounts(counts);
       setNotifications(notificationsRes.data.slice(0, 12));
     } catch (error) {
       showToast("error", error.userMessage || error.response?.data?.message || "Failed to load your tasks");
@@ -136,7 +146,34 @@ export default function MyTasksPage() {
                   >
                     Report Issue
                   </button>
+                  <button
+                    onClick={() =>
+                      setOpenCommentsByStage((prev) => ({
+                        ...prev,
+                        [task.id]: !prev[task.id]
+                      }))
+                    }
+                    className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-700"
+                  >
+                    {(stageCommentCounts[task.id] ?? task._count?.comments ?? 0) > 0
+                      ? `${stageCommentCounts[task.id] ?? task._count?.comments} comments`
+                      : "Comment"}
+                  </button>
                 </div>
+
+                {openCommentsByStage[task.id] && (
+                  <StageCommentThread
+                    stageId={task.id}
+                    currentUser={user}
+                    isManager={false}
+                    onCountChange={(count) =>
+                      setStageCommentCounts((prev) => ({
+                        ...prev,
+                        [task.id]: count
+                      }))
+                    }
+                  />
+                )}
               </div>
             ))}
           </div>

@@ -15,6 +15,20 @@ const departmentMemberParamSchema = z.object({
   userId: z.coerce.number().int().positive()
 });
 
+const teamIdParamSchema = z.object({
+  id: z.string().min(1)
+});
+
+const teamMemberParamSchema = z.object({
+  id: z.string().min(1),
+  userId: z.coerce.number().int().positive()
+});
+
+const teamProjectParamSchema = z.object({
+  id: z.string().min(1),
+  projectId: z.coerce.number().int().positive()
+});
+
 const characterStageParamSchema = z.object({
   id: z.coerce.number().int().positive(),
   stageName: z.string().min(1)
@@ -28,6 +42,22 @@ const stageArtistParamSchema = z.object({
 const stageDepartmentParamSchema = z.object({
   id: z.coerce.number().int().positive(),
   departmentId: z.string().min(1)
+});
+
+const stageCommentParamSchema = z.object({
+  stageId: z.coerce.number().int().positive()
+});
+
+const projectCommentParamSchema = z.object({
+  projectId: z.coerce.number().int().positive()
+});
+
+const assignmentRecommendationParamSchema = z.object({
+  stageId: z.coerce.number().int().positive()
+});
+
+const commentIdParamSchema = z.object({
+  commentId: z.string().min(1)
 });
 
 const loginSchema = z.object({
@@ -51,12 +81,16 @@ const changePasswordSchema = z.object({
 const createUserSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
-  password: z.string().min(8),
+  password: z.string().min(8, "Password must be at least 8 characters"),
   role: z.enum(["BOSS", "PRODUCTION_MANAGER", "COORDINATOR", "EMPLOYEE"]),
-  departmentId: z.string().min(1).optional().or(z.literal("")),
-  departmentName: z.string().min(2).optional().or(z.literal("")),
-  department: z.string().min(2).optional().or(z.literal("")),
-  employmentType: z.enum(["INHOUSE", "FREELANCE"]).optional()
+  departmentId: z.string().min(1).optional().nullable().or(z.literal("")),
+  teamId: z.string().min(1).optional().nullable().or(z.literal("")),
+  departmentName: z.string().min(2).optional().nullable().or(z.literal("")),
+  department: z.string().min(2).optional().nullable().or(z.literal("")),
+  employmentType: z.enum(["INHOUSE", "FREELANCE"]).optional(),
+  phone: z.string().max(40).optional().nullable().or(z.literal("")),
+  availabilityStatus: z.enum(["AVAILABLE", "BUSY", "ON_LEAVE", "OVERLOADED"]).optional(),
+  skills: z.array(z.string().min(1).max(80)).max(20).optional()
 });
 
 const assignUserSchema = z.object({
@@ -185,6 +219,63 @@ const assignDepartmentSchema = z.object({
   departmentId: z.string().min(1)
 });
 
+const createTeamSchema = z.object({
+  name: z.string().min(2).max(120),
+  description: z.string().max(1000).optional().or(z.literal("")),
+  color: z.string().regex(/^#([0-9A-Fa-f]{6})$/, "Color must be a valid hex code").optional(),
+  departmentId: z.string().min(1).optional().nullable().or(z.literal("")),
+  leadId: z.coerce.number().int().positive().optional().nullable()
+});
+
+const updateTeamSchema = z
+  .object({
+    name: z.string().min(2).max(120).optional(),
+    description: z.string().max(1000).optional().or(z.literal("")),
+    color: z.string().regex(/^#([0-9A-Fa-f]{6})$/, "Color must be a valid hex code").optional(),
+    departmentId: z.string().min(1).optional().nullable().or(z.literal("")),
+    leadId: z.coerce.number().int().positive().optional().nullable(),
+    isArchived: z.boolean().optional()
+  })
+  .refine((value) => Object.keys(value).length > 0, "At least one field is required");
+
+const teamMemberSchema = z.object({
+  userId: z.coerce.number().int().positive()
+});
+
+const teamProjectSchema = z.object({
+  projectId: z.coerce.number().int().positive()
+});
+
+const teamLeadSchema = z.object({
+  leadId: z.coerce.number().int().positive().nullable()
+});
+
+const smartAssignSchema = z
+  .object({
+    projectStageId: z.coerce.number().int().positive(),
+    userId: z.coerce.number().int().positive().optional(),
+    teamId: z.string().min(1).optional()
+  })
+  .superRefine((value, ctx) => {
+    if (!value.userId && !value.teamId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["userId"],
+        message: "userId or teamId is required"
+      });
+    }
+  });
+
+const createCommentSchema = z.object({
+  body: z.string().min(1).max(2000),
+  type: z.enum(["NOTE", "QUESTION", "FEEDBACK", "APPROVAL_NOTE"]).optional(),
+  parentId: z.string().min(1).optional().nullable()
+});
+
+const updateCommentSchema = z.object({
+  body: z.string().min(1).max(2000)
+});
+
 const linkCharacterSchema = z.object({
   characterId: z.coerce.number().int().positive()
 });
@@ -193,9 +284,16 @@ module.exports = {
   idParamSchema,
   departmentIdParamSchema,
   departmentMemberParamSchema,
+  teamIdParamSchema,
+  teamMemberParamSchema,
+  teamProjectParamSchema,
   characterStageParamSchema,
   stageArtistParamSchema,
   stageDepartmentParamSchema,
+  stageCommentParamSchema,
+  projectCommentParamSchema,
+  assignmentRecommendationParamSchema,
+  commentIdParamSchema,
   loginSchema,
   registerSchema,
   changePasswordSchema,
@@ -213,5 +311,13 @@ module.exports = {
   updateDepartmentSchema,
   departmentMemberSchema,
   assignDepartmentSchema,
+  createTeamSchema,
+  updateTeamSchema,
+  teamMemberSchema,
+  teamProjectSchema,
+  teamLeadSchema,
+  smartAssignSchema,
+  createCommentSchema,
+  updateCommentSchema,
   linkCharacterSchema
 };

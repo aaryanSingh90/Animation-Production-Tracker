@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import api from "../lib/api";
 import Loader from "../components/Loader";
 import EmptyState from "../components/EmptyState";
@@ -23,6 +24,7 @@ export default function DepartmentsPage() {
   const [selectedDepartmentId, setSelectedDepartmentId] = useState(searchParams.get("departmentId") || null);
   const [selectedDepartment, setSelectedDepartment] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [heatmap, setHeatmap] = useState({ departments: [], teams: [] });
 
   const [memberToAdd, setMemberToAdd] = useState("");
 
@@ -33,9 +35,14 @@ export default function DepartmentsPage() {
   async function fetchBaseData() {
     setLoading(true);
     try {
-      const [departmentsRes, usersRes] = await Promise.all([api.get("/departments"), api.get("/users")]);
+      const [departmentsRes, usersRes, heatmapRes] = await Promise.all([
+        api.get("/departments"),
+        api.get("/users"),
+        api.get("/workforce/heatmap")
+      ]);
       setDepartments(departmentsRes.data);
       setUsers(usersRes.data.filter((user) => user.role === "EMPLOYEE" || user.role === "COORDINATOR"));
+      setHeatmap(heatmapRes.data || { departments: [], teams: [] });
 
       const highlightedId = searchParams.get("departmentId") || selectedDepartmentId || departmentsRes.data[0]?.id || null;
       if (highlightedId) {
@@ -160,8 +167,44 @@ export default function DepartmentsPage() {
 
   if (loading) return <Loader label="Loading departments..." />;
 
+  const utilizationRows = heatmap.departments || [];
+  const overloadedDepartments = utilizationRows.filter((department) => department.health === "critical").length;
+  const averageUtilization = utilizationRows.length
+    ? Math.round(utilizationRows.reduce((sum, item) => sum + (item.utilizationPercent || 0), 0) / utilizationRows.length)
+    : 0;
+  const totalTeams = (heatmap.teams || []).length;
+
   return (
-    <div className="grid grid-cols-3 gap-6">
+    <div className="space-y-6">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard label="Departments" value={departments.length} helper="Active production units" tone="emerald" />
+        <MetricCard label="Overloaded Depts" value={overloadedDepartments} helper="Needs staffing support" tone="rose" />
+        <MetricCard label="Avg Utilization" value={`${averageUtilization}%`} helper="Workforce capacity trend" tone="amber" />
+        <MetricCard label="Active Teams" value={totalTeams} helper="Cross-functional squads" tone="blue" />
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4">
+        <h3 className="mb-3 text-lg font-bold text-slate-900">Department Workload Map</h3>
+        {!utilizationRows.length ? (
+          <EmptyState title="No workload heatmap" description="Department utilization data will appear after assignments." compact />
+        ) : (
+          <ResponsiveContainer width="100%" height={250}>
+            <BarChart data={utilizationRows}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="name" hide />
+              <YAxis domain={[0, 100]} />
+              <Tooltip />
+              <Bar dataKey="utilizationPercent" radius={[6, 6, 0, 0]}>
+                {utilizationRows.map((row) => (
+                  <Cell key={row.id} fill={row.health === "critical" ? "#EF4444" : row.health === "watch" ? "#F59E0B" : "#10B981"} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </section>
+
+      <div className="grid grid-cols-3 gap-6">
       <section className="col-span-2 rounded-2xl border border-slate-200 bg-white p-4">
         <div className="mb-4 flex items-center justify-between">
           <div>
@@ -315,9 +358,25 @@ export default function DepartmentsPage() {
                 {!selectedDepartment.assignedStages?.length && <p className="text-xs text-slate-500">No stages assigned yet.</p>}
               </div>
             </div>
+
+            <div className="rounded-xl border border-slate-200 p-3">
+              <h4 className="mb-2 text-sm font-bold text-slate-800">Active Teams</h4>
+              <div className="space-y-2">
+                {(selectedDepartment.teams || []).map((team) => (
+                  <div key={team.id} className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+                    <p className="text-xs font-semibold text-slate-800">{team.name}</p>
+                    <p className="text-[11px] text-slate-500">
+                      {team.memberCount} members · {team.projectCount} projects
+                    </p>
+                  </div>
+                ))}
+                {!selectedDepartment.teams?.length && <p className="text-xs text-slate-500">No active teams in this department.</p>}
+              </div>
+            </div>
           </div>
         )}
       </section>
+      </div>
 
       <Modal open={formOpen} onClose={() => setFormOpen(false)} title={editingDepartment ? "Edit Department" : "Create Department"}>
         <form className="space-y-4" onSubmit={submitDepartment}>
@@ -356,6 +415,23 @@ export default function DepartmentsPage() {
         </form>
       </Modal>
     </div>
+  );
+}
+
+function MetricCard({ label, value, helper, tone = "emerald" }) {
+  const toneClasses = {
+    emerald: "from-emerald-600 to-emerald-500",
+    rose: "from-rose-600 to-rose-500",
+    amber: "from-amber-600 to-amber-500",
+    blue: "from-blue-600 to-blue-500"
+  };
+
+  return (
+    <article className={`rounded-2xl bg-gradient-to-br ${toneClasses[tone]} p-4 text-white shadow-lg`}>
+      <p className="text-sm font-semibold text-white/85">{label}</p>
+      <p className="mt-2 text-2xl font-bold">{value}</p>
+      <p className="mt-1 text-xs text-white/80">{helper}</p>
+    </article>
   );
 }
 

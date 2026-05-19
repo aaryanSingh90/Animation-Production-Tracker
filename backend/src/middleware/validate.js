@@ -16,7 +16,9 @@ function validate({ body, query, params }) {
       next();
     } catch (error) {
       if (error instanceof z.ZodError) {
-        throw new AppError("Validation failed", 400, {
+        const firstIssue = error.issues?.[0];
+        const message = firstIssue?.message || "Validation failed";
+        throw new AppError(message, 400, {
           issues: error.issues
         });
       }

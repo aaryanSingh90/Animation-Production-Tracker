@@ -111,6 +111,9 @@ const listProjects = asyncHandler(async (req, res) => {
         where: { isActive: true },
         include: {
           stageTemplate: true,
+          _count: {
+            select: { comments: true }
+          },
           assignedUser: {
             select: { id: true, name: true }
           },
@@ -216,6 +219,9 @@ const createProject = asyncHandler(async (req, res) => {
         where: { isActive: true },
         include: {
           stageTemplate: true,
+          _count: {
+            select: { comments: true }
+          },
           assignedUser: {
             select: { id: true, name: true }
           }
@@ -247,6 +253,9 @@ const getProjectById = asyncHandler(async (req, res) => {
         where: { isActive: true },
         include: {
           stageTemplate: true,
+          _count: {
+            select: { comments: true }
+          },
           assignedUser: {
             select: {
               id: true,
@@ -438,6 +447,9 @@ const addProjectStage = asyncHandler(async (req, res) => {
     },
     include: {
       stageTemplate: true,
+      _count: {
+        select: { comments: true }
+      },
       assignedUser: {
         select: { id: true, name: true }
       },
@@ -499,6 +511,9 @@ const getMyProjects = asyncHandler(async (req, res) => {
         },
         include: {
           stageTemplate: true,
+          _count: {
+            select: { comments: true }
+          },
           assignedUser: {
             select: { id: true, name: true }
           },

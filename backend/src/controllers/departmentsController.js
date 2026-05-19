@@ -48,7 +48,8 @@ const listDepartments = asyncHandler(async (req, res) => {
       },
       _count: {
         select: {
-          stageAssignments: true
+          stageAssignments: true,
+          teams: true
         }
       }
     },
@@ -72,7 +73,8 @@ const listDepartments = asyncHandler(async (req, res) => {
         memberCount: department.employees.length,
         inhouseCount,
         freelanceCount,
-        assignedStageCount: department._count.stageAssignments
+        assignedStageCount: department._count.stageAssignments,
+        teamCount: department._count.teams
       };
     })
   );
@@ -165,6 +167,28 @@ const getDepartmentById = asyncHandler(async (req, res) => {
         orderBy: {
           assignedAt: "desc"
         }
+      },
+      teams: {
+        where: {
+          isArchived: false
+        },
+        include: {
+          lead: {
+            select: {
+              id: true,
+              name: true
+            }
+          },
+          _count: {
+            select: {
+              members: true,
+              projects: true
+            }
+          }
+        },
+        orderBy: {
+          createdAt: "desc"
+        }
       }
     }
   });
@@ -203,6 +227,14 @@ const getDepartmentById = asyncHandler(async (req, res) => {
       projectName: assignment.projectStage.project.name,
       stageId: assignment.projectStage.id,
       stageName: assignment.projectStage.stageName
+    })),
+    teams: department.teams.map((team) => ({
+      id: team.id,
+      name: team.name,
+      color: team.color,
+      lead: team.lead,
+      memberCount: team._count.members,
+      projectCount: team._count.projects
     }))
   });
 });

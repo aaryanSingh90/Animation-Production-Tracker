@@ -15,7 +15,10 @@ const ProjectDetailPage = lazy(() => import("./pages/ProjectDetailPage"));
 const CharactersPage = lazy(() => import("./pages/CharactersPage"));
 const CharacterDetailPage = lazy(() => import("./pages/CharacterDetailPage"));
 const ApprovalsPage = lazy(() => import("./pages/ApprovalsPage"));
-const EmployeesPage = lazy(() => import("./pages/EmployeesPage"));
+const WorkforcePage = lazy(() => import("./pages/WorkforcePage"));
+const TeamsPage = lazy(() => import("./pages/TeamsPage"));
+const AssignmentsPage = lazy(() => import("./pages/AssignmentsPage"));
+const AnalyticsPage = lazy(() => import("./pages/AnalyticsPage"));
 const DepartmentsPage = lazy(() => import("./pages/DepartmentsPage"));
 const ReportsPage = lazy(() => import("./pages/ReportsPage"));
 const MyTasksPage = lazy(() => import("./pages/MyTasksPage"));
@@ -114,7 +117,31 @@ export default function App() {
             path="/employees"
             element={
               <ManagerLayout>
-                <EmployeesPage />
+                <Navigate to="/workforce" replace />
+              </ManagerLayout>
+            }
+          />
+          <Route
+            path="/workforce"
+            element={
+              <ManagerLayout>
+                <WorkforcePage />
+              </ManagerLayout>
+            }
+          />
+          <Route
+            path="/teams"
+            element={
+              <ManagerLayout>
+                <TeamsPage />
+              </ManagerLayout>
+            }
+          />
+          <Route
+            path="/assignments"
+            element={
+              <ManagerLayout>
+                <AssignmentsPage />
               </ManagerLayout>
             }
           />
@@ -131,6 +158,14 @@ export default function App() {
             element={
               <ManagerLayout>
                 <ReportsPage />
+              </ManagerLayout>
+            }
+          />
+          <Route
+            path="/analytics"
+            element={
+              <ManagerLayout>
+                <AnalyticsPage />
               </ManagerLayout>
             }
           />

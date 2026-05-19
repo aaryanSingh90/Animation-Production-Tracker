@@ -14,6 +14,13 @@ const login = asyncHandler(async (req, res) => {
   const user = await prisma.user.findUnique({
     where: { email: email.toLowerCase() },
     include: {
+      team: {
+        select: {
+          id: true,
+          name: true,
+          color: true
+        }
+      },
       department: {
         select: {
           id: true,
@@ -43,11 +50,18 @@ const login = asyncHandler(async (req, res) => {
       name: normalizedUser.name,
       email: normalizedUser.email,
       role: normalizedUser.role,
+      phone: normalizedUser.phone,
+      joinedAt: normalizedUser.joinedAt,
       department: normalizedUser.department,
       departmentId: normalizedUser.departmentId,
       departmentName: normalizedUser.departmentName,
       departmentInfo: normalizedUser.departmentInfo,
-      employmentType: normalizedUser.employmentType
+      team: normalizedUser.team,
+      teamId: normalizedUser.teamId,
+      teamName: normalizedUser.teamName,
+      employmentType: normalizedUser.employmentType,
+      availabilityStatus: normalizedUser.availabilityStatus,
+      skills: normalizedUser.skills || []
     }
   });
 });
@@ -72,9 +86,17 @@ const register = asyncHandler(async (req, res) => {
       password: hashedPassword,
       role: "EMPLOYEE",
       departmentName: departmentName || null,
-      isActive: true
+      isActive: true,
+      availabilityStatus: "AVAILABLE"
     },
     include: {
+      team: {
+        select: {
+          id: true,
+          name: true,
+          color: true
+        }
+      },
       department: {
         select: {
           id: true,
@@ -95,11 +117,18 @@ const register = asyncHandler(async (req, res) => {
       name: normalizedUser.name,
       email: normalizedUser.email,
       role: normalizedUser.role,
+      phone: normalizedUser.phone,
+      joinedAt: normalizedUser.joinedAt,
       department: normalizedUser.department,
       departmentId: normalizedUser.departmentId,
       departmentName: normalizedUser.departmentName,
       departmentInfo: normalizedUser.departmentInfo,
-      employmentType: normalizedUser.employmentType
+      team: normalizedUser.team,
+      teamId: normalizedUser.teamId,
+      teamName: normalizedUser.teamName,
+      employmentType: normalizedUser.employmentType,
+      availabilityStatus: normalizedUser.availabilityStatus,
+      skills: normalizedUser.skills || []
     }
   });
 });
