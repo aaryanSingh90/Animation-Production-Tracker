@@ -128,9 +128,9 @@ SET "trackingMode" = CASE
   WHEN sd."trackingMode" = 'SHOT' THEN 'SHOT'::"TrackingMode"
   ELSE 'PROJECT'::"TrackingMode"
 END
-FROM "StageDefinition" sd
-JOIN "Project" p ON p."id" = ps."projectId"
-WHERE ps."stageDefinitionId" = sd."id";
+FROM "StageDefinition" sd, "Project" p
+WHERE ps."stageDefinitionId" = sd."id"
+  AND p."id" = ps."projectId";
 
 -- Backfill active stage codes from active project stages where currently empty.
 UPDATE "Project" p
