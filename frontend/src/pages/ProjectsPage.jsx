@@ -169,9 +169,11 @@ export default function ProjectsPage() {
       const payload = {
         name: form.name,
         priority: Number(form.priority),
-        audioReceivedDate: form.audioReceivedDate || null,
         description: form.description || ""
       };
+      if (form.audioReceivedDate) {
+        payload.audioReceivedDate = form.audioReceivedDate;
+      }
       await api.put(`/projects/${editingProject.id}`, payload);
       showToast("success", "Project updated successfully");
       setEditOpen(false);

@@ -392,15 +392,25 @@ export default function CreateProjectWizardModal({
       name: details.name.trim(),
       description: details.description,
       priority: Number(details.priority),
-      audioReceivedDate: details.audioReceivedDate || null,
-      stages: selectedStages.map((stage, index) => ({
-        stageTemplateId: stage.id,
-        stageName: stage.legacyStageName || "CUSTOM",
-        customName: stage.legacyStageName ? null : stage.name,
-        order: index + 1,
-        isActive: true
-      }))
+      stages: selectedStages.map((stage, index) => {
+        const stagePayload = {
+          stageTemplateId: stage.id,
+          stageName: stage.legacyStageName || "CUSTOM",
+          order: index + 1,
+          isActive: true
+        };
+
+        if (!stage.legacyStageName) {
+          stagePayload.customName = stage.name;
+        }
+
+        return stagePayload;
+      })
     };
+
+    if (details.audioReceivedDate) {
+      payload.audioReceivedDate = details.audioReceivedDate;
+    }
 
     await onCreate(payload);
   }
