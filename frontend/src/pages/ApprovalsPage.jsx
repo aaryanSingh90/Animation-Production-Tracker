@@ -18,25 +18,31 @@ export default function ApprovalsPage() {
   const [rejecting, setRejecting] = useState(null);
   const [feedback, setFeedback] = useState("");
 
-  async function fetchData() {
-    setLoading(true);
+  const rowKey = (row) => row.queueKey || `${row.resource || "project"}:${row.id}`;
+
+  async function fetchData({ silent = false } = {}) {
+    if (!silent) setLoading(true);
     try {
       const { data } = await api.get("/approvals");
       setRows(data);
     } catch (error) {
       showToast("error", error.userMessage || error.response?.data?.message || "Failed to fetch approval queue");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }
 
   useEffect(() => {
     fetchData();
+    const timer = setInterval(() => {
+      fetchData({ silent: true });
+    }, 15000);
+    return () => clearInterval(timer);
   }, []);
 
   const filtered = useMemo(() => {
     return rows.filter((row) => {
-      const byProject = !projectFilter || row.project.name.toLowerCase().includes(projectFilter.toLowerCase());
+      const byProject = !projectFilter || row.project?.name?.toLowerCase().includes(projectFilter.toLowerCase());
       const byArtist = !artistFilter || row.assignedUser?.name?.toLowerCase().includes(artistFilter.toLowerCase());
       const byStage =
         stageFilter === "ALL" ||
@@ -61,17 +67,23 @@ export default function ApprovalsPage() {
     return options.sort((a, b) => a.label.localeCompare(b.label));
   }, [rows]);
 
-  const removeRow = (stageId) => {
-    setRows((prev) => prev.filter((row) => row.id !== stageId));
+  const removeRow = (target) => {
+    setRows((prev) => prev.filter((row) => rowKey(row) !== rowKey(target)));
   };
 
   const approve = async (stage) => {
-    const confirmed = window.confirm(`Approve ${stage.stageDisplayName || getStageDisplayName(stage)} for ${stage.project.name}?`);
+    const confirmed = window.confirm(`Approve ${stage.stageDisplayName || getStageDisplayName(stage)} for ${stage.project?.name || "this project"}?`);
     if (!confirmed) return;
 
     try {
-      await api.post(`/stages/${stage.id}/approve`);
-      removeRow(stage.id);
+      if (stage.resource === "shot") {
+        await api.put(`/shot-stages/${stage.id}`, { status: "APPROVED" });
+      } else if (stage.resource === "asset") {
+        await api.put(`/asset-stages/${stage.id}`, { status: "APPROVED" });
+      } else {
+        await api.post(`/stages/${stage.id}/approve`);
+      }
+      removeRow(stage);
       showToast("success", "Stage approved");
     } catch (error) {
       showToast("error", error.userMessage || error.response?.data?.message || "Unable to approve");
@@ -81,8 +93,14 @@ export default function ApprovalsPage() {
   const reject = async () => {
     if (!rejecting) return;
     try {
-      await api.post(`/stages/${rejecting.id}/reject`, { feedback });
-      removeRow(rejecting.id);
+      if (rejecting.resource === "shot") {
+        await api.put(`/shot-stages/${rejecting.id}`, { status: "REJECTED", feedback });
+      } else if (rejecting.resource === "asset") {
+        await api.put(`/asset-stages/${rejecting.id}`, { status: "REJECTED", feedback });
+      } else {
+        await api.post(`/stages/${rejecting.id}/reject`, { feedback });
+      }
+      removeRow(rejecting);
       showToast("success", "Stage rejected");
       setRejecting(null);
       setFeedback("");
@@ -126,27 +144,50 @@ export default function ApprovalsPage() {
             <thead>
               <tr className="border-b border-slate-200 text-left text-slate-500">
                 <th className="py-2">Project</th>
+                <th className="py-2">Item</th>
                 <th className="py-2">Stage</th>
                 <th className="py-2">Submitted By</th>
+                <th className="py-2">Department</th>
                 <th className="py-2">Submitted Date</th>
                 <th className="py-2">Deadline</th>
+                <th className="py-2">Notes</th>
                 <th className="py-2">Actions</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((row) => {
                 const deadlineMissed = row.deadline && new Date(row.deadline) < new Date();
+                const itemLabel =
+                  row.trackingType === "SHOT"
+                    ? row.shot?.shotCode || row.shot?.name || "Shot"
+                    : row.trackingType === "ASSET"
+                      ? row.asset?.name || "Asset"
+                      : "Project Stage";
+                const departmentLabel = row.assignedUser?.department?.name || row.assignedUser?.departmentName || "-";
                 return (
-                  <tr key={row.id} className="border-b border-slate-100 transition-all">
+                  <tr key={rowKey(row)} className="border-b border-slate-100 transition-all">
                     <td className="py-3 font-semibold text-slate-900">
-                      <Link to={`/projects/${row.project.id}`} className="hover:text-emerald-600">
-                        {row.project.name}
-                      </Link>
+                      {row.project?.id ? (
+                        <Link to={`/projects/${row.project.id}`} className="hover:text-emerald-600">
+                          {row.project.name}
+                        </Link>
+                      ) : (
+                        <span>{row.project?.name || "Project"}</span>
+                      )}
+                    </td>
+                    <td className="py-3">
+                      <div className="space-y-1">
+                        <p>{itemLabel}</p>
+                        {row.shot?.sequence ? <p className="text-xs text-slate-500">Seq: {row.shot.sequence}</p> : null}
+                        {row.asset?.type ? <p className="text-xs text-slate-500">{row.asset.type}</p> : null}
+                      </div>
                     </td>
                     <td className="py-3">{row.stageDisplayName || getStageDisplayName(row)}</td>
                     <td className="py-3">{row.assignedUser?.name || "Unassigned"}</td>
+                    <td className="py-3">{departmentLabel}</td>
                     <td className="py-3">{formatDate(row.submittedAt)}</td>
                     <td className={`py-3 ${deadlineMissed ? "font-semibold text-red-600" : ""}`}>{formatDate(row.deadline)}</td>
+                    <td className="py-3 text-xs text-slate-600">{row.notes ? row.notes : "-"}</td>
                     <td className="py-3">
                       <div className="flex gap-2">
                         <button onClick={() => approve(row)} className="rounded-lg bg-emerald-500 px-2.5 py-1 text-xs font-semibold text-white">
