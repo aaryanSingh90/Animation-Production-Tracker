@@ -4,15 +4,12 @@ import api from "../lib/api";
 import Loader from "../components/Loader";
 import StatusBadge from "../components/StatusBadge";
 import EmptyState from "../components/EmptyState";
-import IssueModal from "../components/IssueModal";
 import Modal from "../components/Modal";
 import ProgressBar from "../components/ProgressBar";
-import StageCommentThread from "../components/StageCommentThread";
-import { formatDate, formatDateInput, getDepartmentLabel, getStageDisplayName, labelize } from "../utils/format";
-import { STAGE_STATUSES } from "../utils/constants";
+import { formatDate, formatDateInput, getStageDisplayName, labelize } from "../utils/format";
 import { useToastStore } from "../store/toastStore";
-import { useAuthStore } from "../store/authStore";
 import { stageSlugFromCode } from "../utils/stageRouting";
+import { stageDepartmentFromCode } from "../utils/stageDepartmentMap";
 
 const TRACKING_GROUP_ORDER = ["PROJECT", "SHOT", "ASSET"];
 const TRACKING_GROUP_LABEL = {
@@ -78,29 +75,21 @@ export default function ProjectDetailPage() {
   const id = projectId;
   const navigate = useNavigate();
   const showToast = useToastStore((state) => state.showToast);
-  const currentUser = useAuthStore((state) => state.user);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [project, setProject] = useState(null);
   const [overview, setOverview] = useState(null);
-  const [users, setUsers] = useState([]);
   const [characters, setCharacters] = useState([]);
-  const [departments, setDepartments] = useState([]);
   const [stageTemplates, setStageTemplates] = useState([]);
 
-  const [issueStage, setIssueStage] = useState(null);
-  const [rejectStage, setRejectStage] = useState(null);
-  const [rejectFeedback, setRejectFeedback] = useState("");
-  const [extendStage, setExtendStage] = useState(null);
-  const [extendDeadline, setExtendDeadline] = useState("");
-  const [extendReason, setExtendReason] = useState("");
-  const [artistPickerStageId, setArtistPickerStageId] = useState(null);
-  const [artistToAdd, setArtistToAdd] = useState("");
-  const [departmentPickerStageId, setDepartmentPickerStageId] = useState(null);
-  const [departmentToAssign, setDepartmentToAssign] = useState("");
-  const [openCommentsByStage, setOpenCommentsByStage] = useState({});
-  const [stageCommentCounts, setStageCommentCounts] = useState({});
+  const [workspaceDrawer, setWorkspaceDrawer] = useState({
+    open: false,
+    loading: false,
+    error: "",
+    summary: null,
+    items: []
+  });
 
   const [editingProject, setEditingProject] = useState(false);
   const [projectForm, setProjectForm] = useState({ name: "", priority: 1, audioReceivedDate: "" });
@@ -116,33 +105,15 @@ export default function ProjectDetailPage() {
   async function fetchData() {
     setLoading(true);
     try {
-      const [projectRes, overviewRes, usersRes, charsRes, departmentsRes, stageTemplatesRes] = await Promise.all([
+      const [projectRes, overviewRes, charsRes, stageTemplatesRes] = await Promise.all([
         api.get(`/projects/${id}`),
         api.get(`/projects/${id}/overview`),
-        api.get("/users"),
         api.get("/characters"),
-        api.get("/departments"),
         api.get("/stage-templates")
       ]);
       setProject(projectRes.data);
       setOverview(overviewRes.data);
-      setStageCommentCounts(
-        Object.fromEntries((projectRes.data.stages || []).map((stage) => [stage.id, stage._count?.comments || 0]))
-      );
-      setOpenCommentsByStage((prev) => {
-        const next = {};
-        for (const stage of projectRes.data.stages || []) {
-          if (Object.prototype.hasOwnProperty.call(prev, stage.id)) {
-            next[stage.id] = prev[stage.id];
-          } else {
-            next[stage.id] = stage.status === "REJECTED";
-          }
-        }
-        return next;
-      });
-      setUsers(usersRes.data.filter((user) => user.role === "EMPLOYEE"));
       setCharacters(charsRes.data);
-      setDepartments(departmentsRes.data);
       setStageTemplates(stageTemplatesRes.data?.templates || []);
       setProjectForm({
         name: projectRes.data.name,
@@ -204,11 +175,6 @@ export default function ProjectDetailPage() {
     return map;
   }, [stageWorkspaceSummaries]);
 
-  const orderedStageIndexById = useMemo(
-    () => new Map(orderedStages.map((stage, index) => [stage.id, index])),
-    [orderedStages]
-  );
-
   const groupedSummaries = useMemo(() => {
     const groups = {
       PROJECT: [],
@@ -247,83 +213,139 @@ export default function ProjectDetailPage() {
     return groups;
   }, [orderedStages, trackingModeByCode, stageGroupByCode]);
 
-  const updateStage = async (stageId, payload, successMessage = "Stage updated") => {
-    setSaving(true);
-    try {
-      await api.put(`/stages/${stageId}`, payload);
-      showToast("success", successMessage);
-      await fetchData();
-    } catch (error) {
-      showToast("error", error.userMessage || error.response?.data?.message || "Unable to update stage");
-    } finally {
-      setSaving(false);
+  const stageInsightsByCode = useMemo(() => {
+    const insights = new Map();
+    const ensure = (code) => {
+      const normalizedCode = String(code || "").toUpperCase();
+      if (!normalizedCode) return null;
+      if (!insights.has(normalizedCode)) {
+        insights.set(normalizedCode, {
+          assignedUserIds: new Set(),
+          nearestDeadline: null,
+          overdueCount: 0
+        });
+      }
+      return insights.get(normalizedCode);
+    };
+
+    const registerDeadline = (bucket, deadline, status) => {
+      if (!deadline) return;
+      const date = new Date(deadline);
+      if (Number.isNaN(date.getTime())) return;
+      if (!bucket.nearestDeadline || date.getTime() < bucket.nearestDeadline.getTime()) {
+        bucket.nearestDeadline = date;
+      }
+      if (date < new Date() && status !== "APPROVED") {
+        bucket.overdueCount += 1;
+      }
+    };
+
+    for (const stage of project?.stages || []) {
+      const code = resolveStageCode(stage);
+      const bucket = ensure(code);
+      if (!bucket) continue;
+      if (stage.assignedUserId) bucket.assignedUserIds.add(stage.assignedUserId);
+      for (const assignment of stage.assignments || []) {
+        if (assignment.userId) bucket.assignedUserIds.add(assignment.userId);
+      }
+      registerDeadline(bucket, stage.deadline, stage.status);
     }
-  };
 
-  const approveStage = async (stageId) => {
-    setSaving(true);
-    try {
-      await api.post(`/stages/${stageId}/approve`);
-      showToast("success", "Stage approved");
-      await fetchData();
-    } catch (error) {
-      showToast("error", error.userMessage || error.response?.data?.message || "Unable to approve stage");
-    } finally {
-      setSaving(false);
+    for (const shot of project?.shots || []) {
+      for (const stage of shot.stages || []) {
+        const code = resolveStageCode(stage);
+        const bucket = ensure(code);
+        if (!bucket) continue;
+        if (stage.assignedUserId) bucket.assignedUserIds.add(stage.assignedUserId);
+        registerDeadline(bucket, stage.deadline, stage.status);
+      }
     }
-  };
 
-  const submitRejection = async () => {
-    if (!rejectStage) return;
-
-    setSaving(true);
-    try {
-      await api.post(`/stages/${rejectStage.id}/reject`, { feedback: rejectFeedback });
-      setRejectStage(null);
-      setRejectFeedback("");
-      showToast("success", "Stage rejected");
-      await fetchData();
-    } catch (error) {
-      showToast("error", error.userMessage || error.response?.data?.message || "Unable to reject stage");
-    } finally {
-      setSaving(false);
+    for (const asset of project?.assets || []) {
+      for (const stage of asset.stages || []) {
+        const code = resolveStageCode(stage);
+        const bucket = ensure(code);
+        if (!bucket) continue;
+        if (stage.assignedUserId) bucket.assignedUserIds.add(stage.assignedUserId);
+        registerDeadline(bucket, stage.deadline, stage.status);
+      }
     }
-  };
 
-  const submitIssue = async (payload) => {
-    if (!issueStage) return;
-    setSaving(true);
+    return insights;
+  }, [project]);
+
+  const openWorkspaceDrawer = async (summary) => {
+    if (!summary?.stageCode) return;
+
+    setWorkspaceDrawer({
+      open: true,
+      loading: true,
+      error: "",
+      summary,
+      items: []
+    });
+
     try {
-      await api.post(`/stages/${issueStage.id}/issue`, payload);
-      showToast("success", "Issue logged");
-      setIssueStage(null);
-      await fetchData();
-    } catch (error) {
-      showToast("error", error.userMessage || error.response?.data?.message || "Unable to log issue");
-    } finally {
-      setSaving(false);
-    }
-  };
+      const params = summary.trackingMode === "PROJECT" ? undefined : { page: 1, pageSize: 12 };
+      const endpoint =
+        summary.trackingMode === "SHOT"
+          ? `/projects/${id}/stages/${summary.stageCode}/shots`
+          : summary.trackingMode === "ASSET"
+            ? `/projects/${id}/stages/${summary.stageCode}/assets`
+            : `/projects/${id}/stages/${summary.stageCode}/project`;
 
-  const submitExtension = async () => {
-    if (!extendStage) return;
+      const { data } = await api.get(endpoint, { params });
+      const normalizedItems =
+        summary.trackingMode === "SHOT"
+          ? (data.items || []).map((item) => ({
+              id: item.id,
+              title: item.shot?.name || `Shot ${item.shot?.shotNumber || "-"}`,
+              subtitle: `Shot #${item.shot?.shotNumber || "-"}`,
+              status: item.status,
+              deadline: item.deadline,
+              assignedUser: item.assignedUser?.name || "Unassigned"
+            }))
+          : summary.trackingMode === "ASSET"
+            ? (data.items || []).map((item) => ({
+                id: item.id,
+                title: item.asset?.name || "Asset",
+                subtitle: labelize(item.asset?.type || "ASSET"),
+                status: item.status,
+                deadline: item.deadline,
+                assignedUser: item.assignedUser?.name || "Unassigned"
+              }))
+            : (data.items || []).map((item) => ({
+                id: item.id,
+                title: getStageDisplayName(item),
+                subtitle: project?.name || "Project Stage",
+                status: item.status,
+                deadline: item.deadline,
+                assignedUser: item.assignedUser?.name || "Unassigned"
+              }));
 
-    setSaving(true);
-    try {
-      await api.post(`/stages/${extendStage.id}/extend-deadline`, {
-        newDeadline: extendDeadline,
-        reason: extendReason
+      setWorkspaceDrawer({
+        open: true,
+        loading: false,
+        error: "",
+        summary,
+        items: normalizedItems
       });
-      showToast("success", "Deadline extended");
-      setExtendStage(null);
-      setExtendDeadline("");
-      setExtendReason("");
-      await fetchData();
     } catch (error) {
-      showToast("error", error.userMessage || error.response?.data?.message || "Unable to extend deadline");
-    } finally {
-      setSaving(false);
+      setWorkspaceDrawer({
+        open: true,
+        loading: false,
+        error: error.userMessage || error.response?.data?.message || "Failed to load workspace preview",
+        summary,
+        items: []
+      });
     }
+  };
+
+  const closeWorkspaceDrawer = () => {
+    setWorkspaceDrawer((prev) => ({
+      ...prev,
+      open: false
+    }));
   };
 
   const saveProject = async () => {
@@ -368,53 +390,6 @@ export default function ProjectDetailPage() {
       await fetchData();
     } catch (error) {
       showToast("error", error.userMessage || error.response?.data?.message || "Unable to link character");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const assignArtistToStage = async (stageId) => {
-    if (!artistToAdd) return;
-    setSaving(true);
-    try {
-      await api.post(`/stages/${stageId}/assign-artist`, { userId: Number(artistToAdd) });
-      showToast("success", "Artist assigned");
-      setArtistPickerStageId(null);
-      setArtistToAdd("");
-      await fetchData();
-    } catch (error) {
-      showToast("error", error.userMessage || error.response?.data?.message || "Unable to assign artist");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const removeArtistFromStage = async (stageId, userId) => {
-    const confirmed = window.confirm("Remove this artist from this stage?");
-    if (!confirmed) return;
-    setSaving(true);
-    try {
-      await api.delete(`/stages/${stageId}/assign-artist/${userId}`);
-      showToast("success", "Artist removed");
-      await fetchData();
-    } catch (error) {
-      showToast("error", error.userMessage || error.response?.data?.message || "Unable to remove artist");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const assignDepartmentToStage = async (stageId) => {
-    if (!departmentToAssign) return;
-    setSaving(true);
-    try {
-      const { data } = await api.post(`/stages/${stageId}/assign-department`, { departmentId: departmentToAssign });
-      showToast("success", `${data.department} (${data.assigned} artists) assigned`);
-      setDepartmentPickerStageId(null);
-      setDepartmentToAssign("");
-      await fetchData();
-    } catch (error) {
-      showToast("error", error.userMessage || error.response?.data?.message || "Unable to assign department");
     } finally {
       setSaving(false);
     }
@@ -465,75 +440,22 @@ export default function ProjectDetailPage() {
     }
   };
 
-  const deactivateStage = async (stage) => {
-    const confirmed = window.confirm(`Remove ${getStageDisplayName(stage)} from this project's active pipeline?`);
-    if (!confirmed) return;
-    setSaving(true);
-    try {
-      await api.delete(`/project-stages/${stage.id}`);
-      showToast("success", "Stage removed from active pipeline");
-      await fetchData();
-    } catch (error) {
-      showToast("error", error.userMessage || error.response?.data?.message || "Unable to remove stage");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const moveStage = async (stageId, direction) => {
-    const index = orderedStages.findIndex((stage) => stage.id === stageId);
-    if (index < 0) return;
-    const swapIndex = direction === "up" ? index - 1 : index + 1;
-    if (swapIndex < 0 || swapIndex >= orderedStages.length) return;
-
-    const current = orderedStages[index];
-    const target = orderedStages[swapIndex];
-
-    setSaving(true);
-    try {
-      await Promise.all([
-        api.patch(`/project-stages/${current.id}`, { order: target.order }),
-        api.patch(`/project-stages/${target.id}`, { order: current.order })
-      ]);
-      await fetchData();
-    } catch (error) {
-      showToast("error", error.userMessage || error.response?.data?.message || "Unable to reorder stages");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const removeDepartmentFromStage = async (stageId, departmentId) => {
-    const confirmed = window.confirm("Remove this department and its members from the stage?");
-    if (!confirmed) return;
-    setSaving(true);
-    try {
-      await api.delete(`/stages/${stageId}/assign-department/${departmentId}`);
-      showToast("success", "Department removed from stage");
-      await fetchData();
-    } catch (error) {
-      showToast("error", error.userMessage || error.response?.data?.message || "Unable to remove department");
-    } finally {
-      setSaving(false);
-    }
-  };
-
   if (loading) return <Loader label="Loading project detail..." />;
   if (!project) return <EmptyState title="Project not found" description="This project may have been deleted." />;
 
   return (
     <div className="space-y-6">
-      <section className="rounded-2xl border border-slate-200 bg-white p-5">
-        <div className="flex items-start justify-between gap-6">
+      <section className="sticky top-3 z-20 rounded-2xl border border-slate-200/80 bg-white/95 p-4 shadow-sm backdrop-blur">
+        <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="space-y-2">
-            <h3 className="text-2xl font-bold text-slate-900">{project.name}</h3>
-            <div className="flex items-center gap-3 text-sm text-slate-600">
+            <h3 className="text-2xl font-bold tracking-tight text-slate-900">{project.name}</h3>
+            <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
               <span className="rounded-full bg-slate-100 px-2.5 py-1 font-semibold">Priority {project.priority}</span>
-              <span>Audio received: {formatDate(project.audioReceivedDate)}</span>
+              <span>Audio: {formatDate(project.audioReceivedDate)}</span>
               <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${overallBadge.tone}`}>{overallBadge.label}</span>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button onClick={() => setEditingProject(true)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
               Edit Project
             </button>
@@ -542,8 +464,48 @@ export default function ProjectDetailPage() {
             </button>
           </div>
         </div>
-        <div className="mt-4 max-w-lg">
+
+        <div className="mt-3">
           <ProgressBar value={project.progressPercent} />
+        </div>
+
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-wide text-slate-500">Overall</p>
+            <p className="text-sm font-semibold text-slate-900">{project.progressPercent}% complete</p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-wide text-slate-500">Shots</p>
+            <p className="text-sm font-semibold text-slate-900">{overview?.project?.totalShots || 0}</p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-wide text-slate-500">Assets</p>
+            <p className="text-sm font-semibold text-slate-900">{overview?.project?.totalAssets || 0}</p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-wide text-slate-500">Pending Approvals</p>
+            <p className="text-sm font-semibold text-slate-900">{overview?.pendingApprovalsCount || 0}</p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-wide text-slate-500">Delayed Tasks</p>
+            <p className="text-sm font-semibold text-rose-700">{overview?.delayedTasksCount || 0}</p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-wide text-slate-500">Due Date</p>
+            <p className="text-sm font-semibold text-slate-900">{formatDate(project.dueDate)}</p>
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700">
+            Project: {overview?.progress?.projectStageProgress || 0}%
+          </span>
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700">
+            Shot: {overview?.progress?.shotStageProgress || 0}%
+          </span>
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700">
+            Asset: {overview?.progress?.assetStageProgress || 0}%
+          </span>
         </div>
       </section>
 
@@ -555,11 +517,11 @@ export default function ProjectDetailPage() {
         {!stageWorkspaceSummaries.length ? (
           <p className="text-sm text-slate-500">No active stage summaries yet.</p>
         ) : (
-          <div className="grid grid-cols-2 gap-3 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
             {stageWorkspaceSummaries.map((summary) => {
               const completion = Number(summary.completionPercent || 0);
               const card = (
-                <div className="rounded-xl border border-slate-200 p-3 hover:border-emerald-300 hover:shadow-sm">
+                <div className="rounded-xl border border-slate-200 p-3 transition hover:border-emerald-300 hover:shadow-sm">
                   <div className="mb-2 flex items-start justify-between gap-2">
                     <p className="text-sm font-semibold text-slate-900">{summary.stageName}</p>
                     <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
@@ -604,388 +566,81 @@ export default function ProjectDetailPage() {
           </button>
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-3">
+        <div className="grid gap-4 lg:grid-cols-3">
           {TRACKING_GROUP_ORDER.map((groupKey) => {
             const summaries = groupedSummaries[groupKey] || [];
             const detailedStages = groupedDetailedStages[groupKey] || [];
 
             return (
-              <div key={groupKey} className="rounded-xl border border-slate-200 bg-slate-50/40 p-3">
-                <div className="mb-2 flex items-center justify-between">
+              <div key={groupKey} className="rounded-xl border border-slate-200 bg-slate-50/50 p-3">
+                <div className="mb-3 flex items-center justify-between">
                   <h5 className="text-sm font-bold text-slate-800">{TRACKING_GROUP_LABEL[groupKey] || groupKey}</h5>
                   <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
                     {summaries.length} stages
                   </span>
                 </div>
 
-                <div className="space-y-2">
+                <div className="max-h-[520px] space-y-3 overflow-y-auto pr-1">
                   {summaries.map((summary) => {
+                    const insights = stageInsightsByCode.get(summary.stageCode);
+                    const assignedCount = insights?.assignedUserIds?.size || 0;
+                    const nearestDeadline = insights?.nearestDeadline;
+                    const overdueCount = insights?.overdueCount || 0;
                     const stageHref = summary.stageSlug ? `/projects/${project.id}/${summary.stageSlug}` : null;
                     const completion = Number(summary.completionPercent || 0);
-                    const detailRowsForSummary = detailedStages.filter(
-                      (item) => resolveStageCode(item) === summary.stageCode
-                    );
+                    const relatedRows = detailedStages.filter((item) => resolveStageCode(item) === summary.stageCode);
+                    const stageDepartment = stageDepartmentFromCode(summary.stageCode);
 
                     return (
-                      <div key={`${groupKey}-${summary.stageCode}`} className="rounded-lg border border-slate-200 bg-white p-2.5">
+                      <div key={`${groupKey}-${summary.stageCode}`} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
                         <div className="mb-2 flex items-start justify-between gap-2">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-800">{summary.stageName}</p>
+                          <div>
+                            <p className="text-sm font-semibold text-slate-900">{summary.stageName}</p>
+                            <p className="text-[11px] text-slate-500">{stageDepartment || "Cross-functional"}</p>
+                          </div>
                           <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
                             {summary.trackingMode}
                           </span>
                         </div>
-                        <p className="mb-1 text-[11px] text-slate-500">
-                          {summary.approved}/{summary.total} approved
-                        </p>
-                        <div className="h-1.5 rounded-full bg-slate-200">
+
+                        <div className="mb-2 grid grid-cols-2 gap-2 text-[11px] text-slate-600">
+                          <span>{summary.approved}/{summary.total} approved</span>
+                          <span className="text-right">{assignedCount} artists</span>
+                          <span>{summary.submitted || 0} submitted</span>
+                          <span className={`text-right ${overdueCount ? "font-semibold text-rose-600" : ""}`}>
+                            {overdueCount ? `${overdueCount} overdue` : "On schedule"}
+                          </span>
+                        </div>
+
+                        <div className="h-2 rounded-full bg-slate-200">
                           <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, completion)}%` }} />
                         </div>
-                        <div className="mt-2 flex flex-wrap gap-1.5">
+                        <p className="mt-1 text-[11px] text-slate-500">
+                          {completion}% complete
+                          {nearestDeadline ? ` · Due ${formatDate(nearestDeadline)}` : " · No deadline"}
+                        </p>
+
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          <button
+                            onClick={() => openWorkspaceDrawer(summary)}
+                            className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:border-slate-400"
+                          >
+                            Preview
+                          </button>
                           {stageHref && (
                             <Link
                               to={stageHref}
-                              className="rounded border border-emerald-300 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-50"
+                              className="rounded-md bg-slate-900 px-2 py-1 text-[11px] font-semibold text-white hover:bg-slate-800"
                             >
                               Open Workspace
                             </Link>
                           )}
-                          {summary.delayed > 0 && (
-                            <span className="rounded border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-600">
-                              {summary.delayed} delayed
-                            </span>
-                          )}
-                          {summary.submitted > 0 && (
-                            <span className="rounded border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-600">
-                              {summary.submitted} submitted
+                          {!!relatedRows.length && (
+                            <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
+                              {relatedRows.length} project row{relatedRows.length > 1 ? "s" : ""}
                             </span>
                           )}
                         </div>
-
-                        {detailRowsForSummary.map((stage) => {
-                          const stageIndex = orderedStageIndexById.get(stage.id) ?? 0;
-                          const assignedUsers = stage.assignments || [];
-                          const assignedDepartments = stage.departmentAssignments || [];
-                          const availableUsers = users.filter((user) => !assignedUsers.some((assignment) => assignment.userId === user.id));
-                          const availableDepartments = departments.filter(
-                            (department) =>
-                              !assignedDepartments.some((assignment) => (assignment.departmentId || assignment.department?.id) === department.id)
-                          );
-                          const commentCount = stageCommentCounts[stage.id] ?? stage._count?.comments ?? 0;
-                          const commentsOpen = Boolean(openCommentsByStage[stage.id]);
-                          const stageCode = resolveStageCode(stage);
-                          const stageSlug = stageCode ? stageSlugFromCode(stageCode) : null;
-                          const stageWorkspaceHref = stageSlug ? `/projects/${project.id}/${stageSlug}` : null;
-
-                          return (
-                            <div key={stage.id} className="mt-3 rounded-xl border border-slate-200 p-3">
-                              <div className="mb-3 flex items-center justify-between gap-4">
-                                <div>
-                                  {stageWorkspaceHref ? (
-                                    <Link to={stageWorkspaceHref} className="text-sm font-semibold uppercase tracking-wide text-slate-800 hover:text-emerald-600">
-                                      {getStageDisplayName(stage)}
-                                    </Link>
-                                  ) : (
-                                    <p className="text-sm font-semibold uppercase tracking-wide text-slate-800">{getStageDisplayName(stage)}</p>
-                                  )}
-                                  <p className="text-xs text-slate-500">{stage.departmentName || "Department not set"}</p>
-                                </div>
-                                <div className="flex flex-wrap items-center gap-2">
-                                  {stageWorkspaceHref && (
-                                    <Link
-                                      to={stageWorkspaceHref}
-                                      className="rounded border border-emerald-300 px-2 py-0.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
-                                    >
-                                      Open Workspace
-                                    </Link>
-                                  )}
-                                  <button
-                                    onClick={() => moveStage(stage.id, "up")}
-                                    disabled={stageIndex === 0 || saving}
-                                    className="rounded border border-slate-300 px-1.5 py-0.5 text-xs disabled:opacity-50"
-                                    title="Move stage up"
-                                  >
-                                    ↑
-                                  </button>
-                                  <button
-                                    onClick={() => moveStage(stage.id, "down")}
-                                    disabled={stageIndex === orderedStages.length - 1 || saving}
-                                    className="rounded border border-slate-300 px-1.5 py-0.5 text-xs disabled:opacity-50"
-                                    title="Move stage down"
-                                  >
-                                    ↓
-                                  </button>
-                                  <button
-                                    onClick={() => deactivateStage(stage)}
-                                    disabled={saving}
-                                    className="rounded border border-red-300 px-1.5 py-0.5 text-xs text-red-600 hover:bg-red-50"
-                                    title="Remove stage"
-                                  >
-                                    Remove
-                                  </button>
-                                  <StatusBadge status={stage.status} />
-                                  <select
-                                    value={stage.status}
-                                    onChange={(event) => updateStage(stage.id, { status: event.target.value })}
-                                    className="rounded-lg border border-slate-300 px-2 py-1 text-xs"
-                                  >
-                                    {STAGE_STATUSES.map((status) => (
-                                      <option key={status} value={status}>
-                                        {labelize(status)}
-                                      </option>
-                                    ))}
-                                  </select>
-                                  <input
-                                    type="date"
-                                    defaultValue={formatDateInput(stage.deadline)}
-                                    onBlur={(event) => updateStage(stage.id, { deadline: event.target.value || null }, "Deadline updated")}
-                                    className={`rounded-lg border px-2 py-1.5 text-sm ${
-                                      stage.isDeadlineMissed ? "border-red-400 bg-red-50 text-red-700" : "border-slate-300"
-                                    }`}
-                                  />
-                                  <button
-                                    onClick={() =>
-                                      setOpenCommentsByStage((prev) => ({
-                                        ...prev,
-                                        [stage.id]: !prev[stage.id]
-                                      }))
-                                    }
-                                    className={`rounded-full border px-2 py-1 text-xs font-semibold ${
-                                      commentsOpen
-                                        ? "border-sky-300 bg-sky-50 text-sky-700"
-                                        : "border-slate-300 text-slate-600 hover:border-slate-400"
-                                    }`}
-                                  >
-                                    {commentCount > 0 ? `${commentCount} comment${commentCount > 1 ? "s" : ""}` : "Comment"}
-                                  </button>
-                                </div>
-                              </div>
-
-                              <div className="mb-3">
-                                <p className="mb-2 text-xs font-semibold text-slate-500">ASSIGNED DEPARTMENTS</p>
-                                <div className="mb-3 flex flex-wrap items-center gap-2">
-                                  {assignedDepartments.map((assignment) => {
-                                    const dept = assignment.department;
-                                    const memberCount = assignedUsers.filter((artist) => artist.user.departmentId === dept?.id).length;
-                                    return (
-                                      <div key={assignment.id} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                                        <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: dept?.color || "#10B981" }} />
-                                        <div>
-                                          <p className="text-sm font-medium text-slate-800">{dept?.name || "Department"}</p>
-                                          <p className="text-[11px] text-slate-500">{memberCount} members assigned</p>
-                                        </div>
-                                        <button
-                                          onClick={() => removeDepartmentFromStage(stage.id, dept?.id)}
-                                          className="text-xs text-slate-400 hover:text-red-500"
-                                          disabled={saving}
-                                        >
-                                          Remove
-                                        </button>
-                                      </div>
-                                    );
-                                  })}
-
-                                  {departmentPickerStageId !== stage.id ? (
-                                    <button
-                                      onClick={() => {
-                                        setDepartmentPickerStageId(stage.id);
-                                        setDepartmentToAssign("");
-                                      }}
-                                      className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-500 hover:border-emerald-500 hover:text-emerald-600"
-                                    >
-                                      Assign Department
-                                    </button>
-                                  ) : (
-                                    <div className="flex items-center gap-2 rounded-lg border border-slate-300 px-2 py-1.5">
-                                      <select
-                                        value={departmentToAssign}
-                                        onChange={(event) => setDepartmentToAssign(event.target.value)}
-                                        className="rounded border border-slate-300 px-2 py-1 text-sm"
-                                        autoFocus
-                                      >
-                                        <option value="">Select department...</option>
-                                        {availableDepartments.map((department) => (
-                                          <option key={department.id} value={department.id}>
-                                            {department.name} ({department.memberCount} members)
-                                          </option>
-                                        ))}
-                                      </select>
-                                      <button
-                                        onClick={() => assignDepartmentToStage(stage.id)}
-                                        disabled={!departmentToAssign || saving}
-                                        className="rounded bg-emerald-500 px-2 py-1 text-xs font-semibold text-white disabled:opacity-60"
-                                      >
-                                        Assign
-                                      </button>
-                                      <button
-                                        onClick={() => {
-                                          setDepartmentPickerStageId(null);
-                                          setDepartmentToAssign("");
-                                        }}
-                                        className="text-xs text-slate-500"
-                                      >
-                                        Cancel
-                                      </button>
-                                    </div>
-                                  )}
-                                </div>
-
-                                <p className="mb-2 text-xs font-semibold text-slate-500">ASSIGNED ARTISTS</p>
-                                <div className="flex flex-wrap items-center gap-2">
-                                  {assignedUsers.map((assignment) => (
-                                    <div key={assignment.userId} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                                      <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500 text-xs font-bold text-white">
-                                        {assignment.user.name.charAt(0).toUpperCase()}
-                                      </span>
-                                      <div>
-                                        <p className="text-sm font-medium text-slate-800">{assignment.user.name}</p>
-                                        <span
-                                          className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
-                                            assignment.user.employmentType === "FREELANCE"
-                                              ? "bg-blue-100 text-blue-700"
-                                              : "bg-emerald-100 text-emerald-700"
-                                          }`}
-                                        >
-                                          {assignment.user.employmentType === "FREELANCE" ? "Freelance" : "In-house"}
-                                        </span>
-                                      </div>
-                                      <button
-                                        onClick={() => removeArtistFromStage(stage.id, assignment.userId)}
-                                        className="text-xs text-slate-400 hover:text-red-500"
-                                        title="Remove from stage"
-                                        disabled={saving}
-                                      >
-                                        ✕
-                                      </button>
-                                    </div>
-                                  ))}
-
-                                  {artistPickerStageId !== stage.id ? (
-                                    <button
-                                      onClick={() => {
-                                        setArtistPickerStageId(stage.id);
-                                        setArtistToAdd("");
-                                      }}
-                                      className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-500 hover:border-emerald-500 hover:text-emerald-600"
-                                    >
-                                      + Add Artist
-                                    </button>
-                                  ) : (
-                                    <div className="flex items-center gap-2 rounded-lg border border-slate-300 px-2 py-1.5">
-                                      <select
-                                        value={artistToAdd}
-                                        onChange={(event) => setArtistToAdd(event.target.value)}
-                                        className="rounded border border-slate-300 px-2 py-1 text-sm"
-                                        autoFocus
-                                      >
-                                        <option value="">Select artist...</option>
-                                        {availableUsers.map((user) => (
-                                          <option key={user.id} value={user.id}>
-                                            {user.name} — {user.employmentType === "FREELANCE" ? "Freelance" : "In-house"} — {getDepartmentLabel(user)}
-                                          </option>
-                                        ))}
-                                      </select>
-                                      <button
-                                        onClick={() => assignArtistToStage(stage.id)}
-                                        disabled={!artistToAdd || saving}
-                                        className="rounded bg-emerald-500 px-2 py-1 text-xs font-semibold text-white disabled:opacity-60"
-                                      >
-                                        Assign
-                                      </button>
-                                      <button
-                                        onClick={() => {
-                                          setArtistPickerStageId(null);
-                                          setArtistToAdd("");
-                                        }}
-                                        className="text-xs text-slate-500"
-                                      >
-                                        Cancel
-                                      </button>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-
-                              <div className="flex items-start gap-3">
-                                <div className="text-xs text-slate-500">
-                                  <p>Submitted: {formatDate(stage.submittedAt)}</p>
-                                  <p>Approved: {formatDate(stage.approvedAt)}</p>
-                                </div>
-
-                                <textarea
-                                  rows={2}
-                                  defaultValue={stage.notes || ""}
-                                  onBlur={(event) => updateStage(stage.id, { notes: event.target.value }, "Notes updated")}
-                                  className="flex-1 rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
-                                  placeholder="Notes..."
-                                />
-
-                                <div className="flex flex-col gap-1.5">
-                                  {stage.status === "SUBMITTED" && (
-                                    <>
-                                      <button
-                                        disabled={saving}
-                                        onClick={() => approveStage(stage.id)}
-                                        className="rounded-lg bg-emerald-500 px-2 py-1 text-xs font-semibold text-white"
-                                      >
-                                        Approve
-                                      </button>
-                                      <button
-                                        disabled={saving}
-                                        onClick={() => {
-                                          setRejectStage(stage);
-                                          setRejectFeedback(stage.feedback || "");
-                                        }}
-                                        className="rounded-lg bg-red-500 px-2 py-1 text-xs font-semibold text-white"
-                                      >
-                                        Reject
-                                      </button>
-                                    </>
-                                  )}
-                                  <button
-                                    disabled={saving}
-                                    onClick={() => setIssueStage(stage)}
-                                    className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
-                                  >
-                                    Log Issue
-                                  </button>
-                                  <button
-                                    disabled={saving}
-                                    onClick={() => {
-                                      setExtendStage(stage);
-                                      setExtendDeadline(formatDateInput(stage.deadline));
-                                      setExtendReason("");
-                                    }}
-                                    className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
-                                  >
-                                    Extend
-                                  </button>
-                                </div>
-                              </div>
-
-                              {commentsOpen && (
-                                <StageCommentThread
-                                  stageId={stage.id}
-                                  currentUser={currentUser}
-                                  isManager
-                                  onCountChange={(count) =>
-                                    setStageCommentCounts((prev) => ({
-                                      ...prev,
-                                      [stage.id]: count
-                                    }))
-                                  }
-                                />
-                              )}
-                            </div>
-                          );
-                        })}
-
-                        {!detailRowsForSummary.length && (
-                          <p className="mt-2 text-[11px] text-slate-500">
-                            {groupKey === "PROJECT"
-                              ? "No project-level rows available for this stage."
-                              : `Managed in ${groupKey.toLowerCase()} workspace. Open workspace to manage items.`}
-                          </p>
-                        )}
                       </div>
                     );
                   })}
@@ -1001,7 +656,80 @@ export default function ProjectDetailPage() {
         </div>
       </section>
 
-      <section className="grid grid-cols-2 gap-6">
+      {workspaceDrawer.open && (
+        <div className="fixed inset-0 z-40 bg-slate-900/40" onClick={closeWorkspaceDrawer}>
+          <div
+            className="absolute right-0 top-0 h-full w-full max-w-2xl overflow-y-auto border-l border-slate-200 bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-5 py-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Workspace Preview</p>
+                  <h4 className="text-lg font-bold text-slate-900">{workspaceDrawer.summary?.stageName}</h4>
+                  <p className="text-sm text-slate-500">{workspaceDrawer.summary?.trackingMode} tracking</p>
+                </div>
+                <button
+                  onClick={closeWorkspaceDrawer}
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Close
+                </button>
+              </div>
+              <div className="mt-3 flex items-center gap-2">
+                {workspaceDrawer.summary?.stageSlug && (
+                  <Link
+                    to={`/projects/${project.id}/${workspaceDrawer.summary.stageSlug}`}
+                    className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800"
+                  >
+                    Open Full Workspace
+                  </Link>
+                )}
+                <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">
+                  {workspaceDrawer.summary?.approved || 0}/{workspaceDrawer.summary?.total || 0} approved
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-3 px-5 py-4">
+              {workspaceDrawer.loading ? (
+                <Loader label="Loading workspace preview..." />
+              ) : workspaceDrawer.error ? (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{workspaceDrawer.error}</div>
+              ) : !workspaceDrawer.items.length ? (
+                <div className="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-500">
+                  No rows available for this stage yet.
+                </div>
+              ) : (
+                workspaceDrawer.items.map((item) => (
+                  <div key={item.id} className="rounded-xl border border-slate-200 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">{item.title}</p>
+                        <p className="text-xs text-slate-500">{item.subtitle}</p>
+                      </div>
+                      <StatusBadge status={item.status} />
+                    </div>
+                    <div className="mt-2 grid gap-2 text-xs text-slate-600 sm:grid-cols-3">
+                      <span>
+                        Artist: <strong className="text-slate-800">{item.assignedUser}</strong>
+                      </span>
+                      <span>
+                        Deadline: <strong className="text-slate-800">{formatDate(item.deadline)}</strong>
+                      </span>
+                      <span>
+                        Status: <strong className="text-slate-800">{labelize(item.status)}</strong>
+                      </span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <section className="grid gap-6 xl:grid-cols-2">
         <div className="rounded-2xl border border-slate-200 bg-white p-4">
           <div className="mb-3 flex items-center justify-between">
             <h4 className="text-lg font-bold text-slate-900">Issue Logs</h4>
@@ -1080,73 +808,6 @@ export default function ProjectDetailPage() {
           </div>
         </div>
       </section>
-
-      <IssueModal
-        open={Boolean(issueStage)}
-        onClose={() => setIssueStage(null)}
-        onSubmit={submitIssue}
-        stageDeadline={formatDateInput(issueStage?.deadline)}
-        loading={saving}
-      />
-
-      <Modal open={Boolean(rejectStage)} onClose={() => setRejectStage(null)} title="Reject Stage">
-        <div className="space-y-4">
-          <textarea
-            value={rejectFeedback}
-            onChange={(event) => setRejectFeedback(event.target.value)}
-            rows={4}
-            placeholder="Write rejection feedback"
-            className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-          />
-          <div className="flex justify-end gap-2">
-            <button onClick={() => setRejectStage(null)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700">
-              Cancel
-            </button>
-            <button
-              disabled={!rejectFeedback.trim() || saving}
-              onClick={submitRejection}
-              className="rounded-xl bg-red-500 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
-            >
-              Reject
-            </button>
-          </div>
-        </div>
-      </Modal>
-
-      <Modal open={Boolean(extendStage)} onClose={() => setExtendStage(null)} title="Extend Deadline">
-        <div className="space-y-4">
-          <div>
-            <label className="mb-1 block text-sm font-semibold text-slate-700">New Deadline</label>
-            <input
-              type="date"
-              value={extendDeadline}
-              onChange={(event) => setExtendDeadline(event.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm font-semibold text-slate-700">Reason</label>
-            <textarea
-              rows={3}
-              value={extendReason}
-              onChange={(event) => setExtendReason(event.target.value)}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-            />
-          </div>
-          <div className="flex justify-end gap-2">
-            <button onClick={() => setExtendStage(null)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700">
-              Cancel
-            </button>
-            <button
-              disabled={!extendDeadline || !extendReason.trim() || saving}
-              onClick={submitExtension}
-              className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
-            >
-              Save Extension
-            </button>
-          </div>
-        </div>
-      </Modal>
 
       <Modal open={editingProject} onClose={() => setEditingProject(false)} title="Edit Project">
         <div className="space-y-4">

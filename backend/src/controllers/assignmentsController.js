@@ -1,5 +1,6 @@
 const prisma = require("../utils/prisma");
 const { AppError, asyncHandler } = require("../utils/http");
+const { getDepartmentForStage, normalizeStageCode } = require("../constants/stageDepartmentMap");
 
 function stageDisplayName(stage) {
   return stage.customName || stage.stageTemplate?.name || stage.stageName;
@@ -57,6 +58,11 @@ const getRecommendations = asyncHandler(async (req, res) => {
           name: true
         }
       },
+      stageDefinition: {
+        select: {
+          code: true
+        }
+      },
       project: {
         select: {
           id: true,
@@ -78,7 +84,8 @@ const getRecommendations = asyncHandler(async (req, res) => {
   const assignedIds = new Set(stage.assignments.map((assignment) => assignment.userId));
   if (stage.assignedUserId) assignedIds.add(stage.assignedUserId);
 
-  const departmentHint = normalize(stage.departmentName || stage.stageName);
+  const mappedDepartment = getDepartmentForStage(normalizeStageCode(stage.stageDefinition?.code || stage.stageName));
+  const departmentHint = normalize(mappedDepartment || stage.departmentName || stage.stageName);
 
   const employees = await prisma.user.findMany({
     where: {

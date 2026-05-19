@@ -9,6 +9,7 @@ import StageCommentThread from "../components/StageCommentThread";
 import { formatDate, formatDateInput, labelize } from "../utils/format";
 import { STAGE_STATUSES } from "../utils/constants";
 import { stageCodeFromSlug, stageLabelFromSlug } from "../utils/stageRouting";
+import { isDepartmentMatch, stageDepartmentFromCode } from "../utils/stageDepartmentMap";
 import { useToastStore } from "../store/toastStore";
 import { useAuthStore } from "../store/authStore";
 
@@ -51,6 +52,14 @@ export default function ProjectStageWorkspacePage() {
   }, [overview, stageCode]);
 
   const trackingMode = workspaceMode || stageSummary?.trackingMode || "PROJECT";
+  const requiredDepartment = useMemo(() => stageDepartmentFromCode(stageCode), [stageCode]);
+  const eligibleUsers = useMemo(() => {
+    if (!requiredDepartment) return users;
+    return users.filter((user) => {
+      const departmentName = user.departmentInfo?.name || user.departmentName || user.department || "";
+      return isDepartmentMatch(requiredDepartment, departmentName);
+    });
+  }, [users, requiredDepartment]);
 
   async function loadWorkspace(nextFilters = filters) {
     if (!stageCode) return;
@@ -196,7 +205,10 @@ export default function ProjectStageWorkspacePage() {
           <div>
             <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Stage Workspace</p>
             <h3 className="text-xl font-bold text-slate-900">{stageSummary?.stageName || stageLabelFromSlug(stageSlug)}</h3>
-            <p className="text-sm text-slate-500">{trackingMode} tracking mode</p>
+            <p className="text-sm text-slate-500">
+              {trackingMode} tracking mode
+              {requiredDepartment ? ` · ${requiredDepartment}` : ""}
+            </p>
           </div>
           <Link to={`/projects/${projectId}`} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
             Back To Overview
@@ -228,7 +240,7 @@ export default function ProjectStageWorkspacePage() {
             className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
           >
             <option value="">All artists</option>
-            {users.map((user) => (
+            {eligibleUsers.map((user) => (
               <option key={user.id} value={user.id}>
                 {user.name}
               </option>
@@ -291,12 +303,15 @@ export default function ProjectStageWorkspacePage() {
                             disabled={saving}
                           >
                             <option value="">Unassigned</option>
-                            {users.map((user) => (
+                            {eligibleUsers.map((user) => (
                               <option key={user.id} value={user.id}>
-                                {user.name}
+                                {user.name} · {user.departmentName || "No Department"} · {user._count?.assignedProjectStages || 0} active
                               </option>
                             ))}
                           </select>
+                          {!eligibleUsers.length && (
+                            <p className="mt-1 text-[11px] font-medium text-amber-600">No artists available in this department</p>
+                          )}
                         </td>
                         <td className="py-2.5">
                           <div className="flex items-center gap-2">

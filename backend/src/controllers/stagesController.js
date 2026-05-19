@@ -6,6 +6,7 @@ const { recalculateProjectProgress } = require("../utils/progress");
 const { processStageDeadline } = require("../utils/deadlines");
 const { logActivity } = require("../utils/activities");
 const { displayStageName, resolveLegacyStageNameFromTemplateName } = require("../utils/stageTemplates");
+const { getDepartmentForStage, isDepartmentMatch, normalizeStageCode } = require("../constants/stageDepartmentMap");
 
 function isManager(role) {
   return MANAGER_ROLES.includes(role);
@@ -226,7 +227,7 @@ const updateStage = asyncHandler(async (req, res) => {
         data.customName = null;
       }
       if (!Object.prototype.hasOwnProperty.call(req.body, "departmentName")) {
-        data.departmentName = `${template.name} Department`;
+        data.departmentName = getDepartmentForStage(data.stageName) || `${template.name} Department`;
       }
     }
   }
@@ -554,7 +555,12 @@ const assignArtistToStage = asyncHandler(async (req, res) => {
     prisma.projectStage.findUnique({
       where: { id: stageId },
       include: {
-        project: true
+        project: true,
+        stageDefinition: {
+          select: {
+            code: true
+          }
+        }
       }
     }),
     prisma.user.findUnique({
@@ -575,6 +581,13 @@ const assignArtistToStage = asyncHandler(async (req, res) => {
 
   if (!stage) throw new AppError("Stage not found", 404);
   if (!user || !user.isActive) throw new AppError("User not found", 404);
+
+  const stageCode = normalizeStageCode(stage.stageDefinition?.code || stage.stageName);
+  const requiredDepartment = getDepartmentForStage(stageCode);
+  const userDepartmentName = user.department?.name || user.departmentName || "";
+  if (requiredDepartment && !isDepartmentMatch(requiredDepartment, userDepartmentName)) {
+    throw new AppError(`Only ${requiredDepartment} artists can be assigned to this stage`, 400);
+  }
 
   const existing = await prisma.stageAssignment.findUnique({
     where: {

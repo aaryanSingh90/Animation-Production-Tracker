@@ -1,64 +1,65 @@
 const MANAGER_ROLES = ["BOSS", "PRODUCTION_MANAGER", "COORDINATOR"];
+const { getDepartmentForStage } = require("../constants/stageDepartmentMap");
 
 const STAGE_DEFAULTS = [
   {
     stageName: "AUDIO",
-    departmentName: "Audio Department",
+    departmentName: getDepartmentForStage("AUDIO"),
     recommendedArtists: 2
   },
   {
     stageName: "ANIMATICS",
-    departmentName: "Animatics Department",
+    departmentName: getDepartmentForStage("ANIMATICS"),
     recommendedArtists: 3
   },
   {
     stageName: "CHARACTER_MODELLING",
-    departmentName: "Character Modelling Department",
+    departmentName: getDepartmentForStage("CHARACTER_MODELLING"),
     recommendedArtists: 3
   },
   {
     stageName: "BLENDSHAPES",
-    departmentName: "Blendshapes Department",
+    departmentName: getDepartmentForStage("BLENDSHAPES"),
     recommendedArtists: 2
   },
   {
     stageName: "BG_MODELLING",
-    departmentName: "BG Modelling Department",
+    departmentName: getDepartmentForStage("BG_MODELLING"),
     recommendedArtists: 3
   },
   {
     stageName: "RIGGING",
-    departmentName: "Rigging Department",
+    departmentName: getDepartmentForStage("RIGGING"),
     recommendedArtists: 3
   },
   {
     stageName: "TEXTURING",
-    departmentName: "Texturing Department",
+    departmentName: getDepartmentForStage("TEXTURING"),
     recommendedArtists: 3
   },
   {
     stageName: "ANIMATION",
-    departmentName: "Animation Department",
+    departmentName: getDepartmentForStage("ANIMATION"),
     recommendedArtists: 10
   },
   {
     stageName: "LIGHTING",
-    departmentName: "Lighting Department",
+    departmentName: getDepartmentForStage("LIGHTING"),
     recommendedArtists: 4
   },
   {
     stageName: "RENDER",
-    departmentName: "Render Department",
+    departmentName: getDepartmentForStage("RENDERING"),
     recommendedArtists: 1
   },
   {
     stageName: "COMPOSITING",
-    departmentName: "Compositing Department",
+    departmentName: getDepartmentForStage("COMPOSITING"),
     recommendedArtists: 2
   },
   {
     stageName: "EDITING",
-    departmentName: "Editing Department",
+    departmentName: getDepartmentForStage("EDITING"),
     recommendedArtists: 2
   }
 ];
