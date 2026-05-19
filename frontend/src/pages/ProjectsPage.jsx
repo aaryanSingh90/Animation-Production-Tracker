@@ -5,6 +5,7 @@ import api from "../lib/api";
 import Loader from "../components/Loader";
 import EmptyState from "../components/EmptyState";
 import Modal from "../components/Modal";
+import CreateProjectWizardModal from "../components/CreateProjectWizardModal";
 import { STATUS_COLORS } from "../utils/constants";
 import { formatDate, formatDateInput, getStageDisplayName, labelize, initials } from "../utils/format";
 import { useToastStore } from "../store/toastStore";
@@ -63,11 +64,10 @@ export default function ProjectsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortBy, setSortBy] = useState("priority");
 
-  const [formOpen, setFormOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [editingProject, setEditingProject] = useState(null);
   const [form, setForm] = useState(initialForm);
-  const [selectedPipelineId, setSelectedPipelineId] = useState("template_full");
-  const [pipelineStageIds, setPipelineStageIds] = useState([]);
   const [saving, setSaving] = useState(false);
 
   async function fetchProjects() {
@@ -128,62 +128,9 @@ export default function ProjectsPage() {
     return copy;
   }, [projects, search, statusFilter, sortBy]);
 
-  const pipelineStageTemplates = useMemo(() => {
-    return pipelineStageIds
-      .map((id) => stageTemplates.find((template) => template.id === id))
-      .filter(Boolean);
-  }, [pipelineStageIds, stageTemplates]);
-
-  function applyPipelineTemplate(templateId) {
-    setSelectedPipelineId(templateId);
-    const template = pipelineTemplates.find((item) => item.id === templateId);
-    if (!template) return;
-
-    const selectedIds = template.stages
-      .map((stageName) => stageTemplates.find((item) => item.legacyStageName === stageName)?.id)
-      .filter(Boolean);
-
-    if (selectedIds.length) {
-      setPipelineStageIds(selectedIds);
-    }
-  }
-
-  function togglePipelineStage(templateId) {
-    setPipelineStageIds((current) => {
-      if (current.includes(templateId)) {
-        return current.filter((id) => id !== templateId);
-      }
-      return [...current, templateId];
-    });
-  }
-
-  function movePipelineStage(templateId, direction) {
-    setPipelineStageIds((current) => {
-      const index = current.indexOf(templateId);
-      if (index < 0) return current;
-      const nextIndex = direction === "up" ? index - 1 : index + 1;
-      if (nextIndex < 0 || nextIndex >= current.length) return current;
-      const clone = [...current];
-      const [item] = clone.splice(index, 1);
-      clone.splice(nextIndex, 0, item);
-      return clone;
-    });
-  }
-
   function openCreateModal() {
     setEditingProject(null);
-    setForm(initialForm);
-    const fullTemplate = pipelineTemplates.find((item) => item.id === "template_full") || pipelineTemplates[0];
-    if (fullTemplate) {
-      setSelectedPipelineId(fullTemplate.id);
-      const defaultStageIds = fullTemplate.stages
-        .map((stageName) => stageTemplates.find((item) => item.legacyStageName === stageName)?.id)
-        .filter(Boolean);
-      setPipelineStageIds(defaultStageIds);
-    } else {
-      setPipelineStageIds(stageTemplates.map((template) => template.id));
-    }
-    setFormOpen(true);
+    setCreateOpen(true);
   }
 
   function openEditModal(project) {
@@ -194,17 +141,29 @@ export default function ProjectsPage() {
       audioReceivedDate: formatDateInput(project.audioReceivedDate),
       description: project.description || ""
     });
-    const idsFromProject = (project.stages || [])
-      .filter((stage) => stage.isActive !== false)
-      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-      .map((stage) => stage.stageTemplateId)
-      .filter(Boolean);
-    setPipelineStageIds(idsFromProject);
-    setFormOpen(true);
+    setEditOpen(true);
   }
 
-  async function submitProject(event) {
+  async function createProject(payload) {
+    setSaving(true);
+    try {
+      await api.post("/projects", payload);
+      showToast("success", "Project created successfully");
+      setCreateOpen(false);
+      setForm(initialForm);
+      setEditingProject(null);
+      await fetchProjects();
+    } catch (err) {
+      showToast("error", err.userMessage || err.response?.data?.message || "Unable to create project");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveEditedProject(event) {
     event.preventDefault();
+    if (!editingProject) return;
+
     setSaving(true);
     try {
       const payload = {
@@ -213,30 +172,11 @@ export default function ProjectsPage() {
         audioReceivedDate: form.audioReceivedDate || null,
         description: form.description || ""
       };
-
-      if (editingProject) {
-        await api.put(`/projects/${editingProject.id}`, payload);
-        showToast("success", "Project updated successfully");
-      } else {
-        if (!pipelineStageTemplates.length) {
-          showToast("error", "Select at least one pipeline stage");
-          setSaving(false);
-          return;
-        }
-        payload.stages = pipelineStageTemplates.map((template, index) => ({
-          stageTemplateId: template.id,
-          stageName: template.legacyStageName || "CUSTOM",
-          customName: template.legacyStageName ? null : template.name,
-          order: index + 1,
-          isActive: true
-        }));
-        await api.post("/projects", payload);
-        showToast("success", "Project created successfully");
-      }
-
-      setFormOpen(false);
-      setForm(initialForm);
+      await api.put(`/projects/${editingProject.id}`, payload);
+      showToast("success", "Project updated successfully");
+      setEditOpen(false);
       setEditingProject(null);
+      setForm(initialForm);
       await fetchProjects();
     } catch (err) {
       showToast("error", err.userMessage || err.response?.data?.message || "Unable to save project");
@@ -431,8 +371,26 @@ export default function ProjectsPage() {
         )}
       </section>
 
-      <Modal open={formOpen} onClose={() => setFormOpen(false)} title={editingProject ? "Edit Project" : "Create Project"} size="max-w-lg">
-        <form onSubmit={submitProject} className="space-y-4">
+      <CreateProjectWizardModal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreate={createProject}
+        stageTemplates={stageTemplates}
+        pipelineTemplates={pipelineTemplates}
+        saving={saving}
+      />
+
+      <Modal
+        open={editOpen}
+        onClose={() => {
+          setEditOpen(false);
+          setEditingProject(null);
+          setForm(initialForm);
+        }}
+        title="Edit Project"
+        size="max-w-lg"
+      >
+        <form onSubmit={saveEditedProject} className="space-y-4">
           <div>
             <label className="mb-1 block text-sm font-semibold text-slate-700">Project Name</label>
             <input
@@ -476,77 +434,20 @@ export default function ProjectsPage() {
             />
           </div>
 
-          {!editingProject && (
-            <div className="space-y-3 rounded-xl border border-slate-200 p-3">
-              <div>
-                <label className="mb-1 block text-sm font-semibold text-slate-700">Pipeline Template</label>
-                <select
-                  value={selectedPipelineId}
-                  onChange={(event) => applyPipelineTemplate(event.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                >
-                  {pipelineTemplates.map((template) => (
-                    <option key={template.id} value={template.id}>
-                      {template.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <p className="mb-2 text-sm font-semibold text-slate-700">Custom Stages</p>
-                <div className="grid max-h-40 grid-cols-2 gap-2 overflow-auto rounded-lg border border-slate-200 p-2">
-                  {stageTemplates.map((template) => {
-                    const active = pipelineStageIds.includes(template.id);
-                    return (
-                      <label key={template.id} className="flex cursor-pointer items-center gap-2 text-xs text-slate-700">
-                        <input
-                          type="checkbox"
-                          checked={active}
-                          onChange={() => togglePipelineStage(template.id)}
-                        />
-                        <span>{template.name}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div>
-                <p className="mb-2 text-sm font-semibold text-slate-700">Stage Order</p>
-                <div className="space-y-1">
-                  {pipelineStageTemplates.map((template, index) => (
-                    <div key={template.id} className="flex items-center justify-between rounded-lg border border-slate-200 px-2 py-1.5 text-xs">
-                      <span>{index + 1}. {template.name}</span>
-                      <div className="flex gap-1">
-                        <button
-                          type="button"
-                          className="rounded border border-slate-300 px-1.5 py-0.5"
-                          onClick={() => movePipelineStage(template.id, "up")}
-                        >
-                          ↑
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded border border-slate-300 px-1.5 py-0.5"
-                          onClick={() => movePipelineStage(template.id, "down")}
-                        >
-                          ↓
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => setFormOpen(false)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700">
+            <button
+              type="button"
+              onClick={() => {
+                setEditOpen(false);
+                setEditingProject(null);
+                setForm(initialForm);
+              }}
+              className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700"
+            >
               Cancel
             </button>
             <button type="submit" disabled={saving} className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">
-              {saving ? "Saving..." : editingProject ? "Save Changes" : "Create Project"}
+              {saving ? "Saving..." : "Save Changes"}
             </button>
           </div>
         </form>
