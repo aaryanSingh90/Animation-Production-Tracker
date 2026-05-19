@@ -7,6 +7,7 @@ const managerLinks = [
   { label: "Projects", to: "/projects", icon: FolderKanban },
   { label: "Characters", to: "/characters", icon: Shapes },
   { label: "Approval Queue", to: "/approvals", icon: CheckCheck },
+  { label: "Employees", to: "/employees", icon: Users },
   { label: "Workforce", to: "/workforce", icon: Users },
   { label: "Teams", to: "/teams", icon: Workflow },
   { label: "Departments", to: "/departments", icon: Building2 },

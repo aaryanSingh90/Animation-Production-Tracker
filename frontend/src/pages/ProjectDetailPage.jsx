@@ -303,7 +303,8 @@ export default function ProjectDetailPage() {
               subtitle: `Shot #${item.shot?.shotNumber || "-"}`,
               status: item.status,
               deadline: item.deadline,
-              assignedUser: item.assignedUser?.name || "Unassigned"
+              assignedUser: item.assignedUser?.name || "Unassigned",
+              assignedUserId: item.assignedUser?.id || null
             }))
           : summary.trackingMode === "ASSET"
             ? (data.items || []).map((item) => ({
@@ -312,7 +313,8 @@ export default function ProjectDetailPage() {
                 subtitle: labelize(item.asset?.type || "ASSET"),
                 status: item.status,
                 deadline: item.deadline,
-                assignedUser: item.assignedUser?.name || "Unassigned"
+                assignedUser: item.assignedUser?.name || "Unassigned",
+                assignedUserId: item.assignedUser?.id || null
               }))
             : (data.items || []).map((item) => ({
                 id: item.id,
@@ -320,7 +322,8 @@ export default function ProjectDetailPage() {
                 subtitle: project?.name || "Project Stage",
                 status: item.status,
                 deadline: item.deadline,
-                assignedUser: item.assignedUser?.name || "Unassigned"
+                assignedUser: item.assignedUser?.name || "Unassigned",
+                assignedUserId: item.assignedUser?.id || null
               }));
 
       setWorkspaceDrawer({
@@ -712,7 +715,14 @@ export default function ProjectDetailPage() {
                     </div>
                     <div className="mt-2 grid gap-2 text-xs text-slate-600 sm:grid-cols-3">
                       <span>
-                        Artist: <strong className="text-slate-800">{item.assignedUser}</strong>
+                        Artist:{" "}
+                        {item.assignedUserId ? (
+                          <Link to={`/employees?userId=${item.assignedUserId}`} className="font-semibold text-emerald-700 hover:underline">
+                            {item.assignedUser}
+                          </Link>
+                        ) : (
+                          <strong className="text-slate-800">{item.assignedUser}</strong>
+                        )}
                       </span>
                       <span>
                         Deadline: <strong className="text-slate-800">{formatDate(item.deadline)}</strong>

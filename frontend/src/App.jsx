@@ -16,6 +16,7 @@ const ProjectStageWorkspacePage = lazy(() => import("./pages/ProjectStageWorkspa
 const CharactersPage = lazy(() => import("./pages/CharactersPage"));
 const CharacterDetailPage = lazy(() => import("./pages/CharacterDetailPage"));
 const ApprovalsPage = lazy(() => import("./pages/ApprovalsPage"));
+const EmployeesPage = lazy(() => import("./pages/EmployeesPage"));
 const WorkforcePage = lazy(() => import("./pages/WorkforcePage"));
 const TeamsPage = lazy(() => import("./pages/TeamsPage"));
 const AssignmentsPage = lazy(() => import("./pages/AssignmentsPage"));
@@ -126,7 +127,7 @@ export default function App() {
             path="/employees"
             element={
               <ManagerLayout>
-                <Navigate to="/workforce" replace />
+                <EmployeesPage />
               </ManagerLayout>
             }
           />

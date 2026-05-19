@@ -88,6 +88,28 @@ const listUsers = asyncHandler(async (req, res) => {
           color: true
         }
       },
+      assignedProjectStages: {
+        where: {
+          isActive: true
+        },
+        select: {
+          projectId: true
+        }
+      },
+      stageAssignments: {
+        where: {
+          projectStage: {
+            isActive: true
+          }
+        },
+        select: {
+          projectStage: {
+            select: {
+              projectId: true
+            }
+          }
+        }
+      },
       _count: {
         select: {
           assignedProjectStages: true
@@ -97,10 +119,24 @@ const listUsers = asyncHandler(async (req, res) => {
   });
 
   return res.json(
-    users.map((user) => ({
-      ...presentUser(user),
-      team: user.team || null
-    }))
+    users.map((user) => {
+      const projectIds = new Set();
+      for (const stage of user.assignedProjectStages || []) {
+        if (stage.projectId) projectIds.add(stage.projectId);
+      }
+      for (const assignment of user.stageAssignments || []) {
+        const projectId = assignment.projectStage?.projectId;
+        if (projectId) projectIds.add(projectId);
+      }
+      const { assignedProjectStages, stageAssignments, ...safeUser } = user;
+
+      return {
+        ...presentUser(safeUser),
+        team: user.team || null,
+        assignedProjectIds: Array.from(projectIds),
+        assignedProjectCount: projectIds.size
+      };
+    })
   );
 });
 
@@ -491,6 +527,95 @@ const updateUser = asyncHandler(async (req, res) => {
   });
 });
 
+const resetEmployeePassword = asyncHandler(async (req, res) => {
+  const { userId, newPassword, forcePasswordChange = false } = req.body;
+
+  const user = await prisma.user.findUnique({
+    where: { id: Number(userId) },
+    select: { id: true, name: true, email: true, isActive: true }
+  });
+
+  if (!user) {
+    throw new AppError("User not found", 404);
+  }
+
+  if (String(newPassword).length < 8) {
+    throw new AppError("Password must be at least 8 characters", 400);
+  }
+
+  const passwordHash = await bcrypt.hash(String(newPassword), 10);
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      password: passwordHash
+    }
+  });
+
+  return res.json({
+    message: forcePasswordChange
+      ? "Password reset successfully. Force password change flag is accepted for compatibility."
+      : "Password reset successfully"
+  });
+});
+
+const setEmployeeActiveStatus = asyncHandler(async (req, res) => {
+  const { userId, isActive = false } = req.body;
+
+  const user = await prisma.user.findUnique({
+    where: { id: Number(userId) },
+    select: { id: true, name: true, email: true, isActive: true }
+  });
+
+  if (!user) {
+    throw new AppError("User not found", 404);
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      isActive: Boolean(isActive)
+    },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      phone: true,
+      joinedAt: true,
+      departmentId: true,
+      departmentName: true,
+      teamId: true,
+      availabilityStatus: true,
+      skills: true,
+      employmentType: true,
+      isActive: true,
+      team: {
+        select: {
+          id: true,
+          name: true,
+          color: true
+        }
+      },
+      department: {
+        select: {
+          id: true,
+          name: true,
+          color: true
+        }
+      }
+    }
+  });
+
+  return res.json({
+    message: updated.isActive ? "User reactivated" : "User deactivated",
+    user: {
+      ...presentUser(updated),
+      team: updated.team || null
+    }
+  });
+});
+
 const deactivateUser = asyncHandler(async (req, res) => {
   const userId = Number(req.params.id);
   const existing = await prisma.user.findUnique({ where: { id: userId } });
@@ -669,6 +794,8 @@ module.exports = {
   createUser,
   getUserById,
   updateUser,
+  resetEmployeePassword,
+  setEmployeeActiveStatus,
   deactivateUser,
   getWorkload,
   assignUserToStage

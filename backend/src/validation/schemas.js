@@ -131,6 +131,17 @@ const assignUserSchema = z.object({
   }
 });
 
+const resetEmployeePasswordSchema = z.object({
+  userId: z.coerce.number().int().positive(),
+  newPassword: z.string().min(8, "Password must be at least 8 characters"),
+  forcePasswordChange: z.boolean().optional()
+});
+
+const setEmployeeActiveSchema = z.object({
+  userId: z.coerce.number().int().positive(),
+  isActive: z.boolean().optional().default(false)
+});
+
 const createProjectStageSchema = z.object({
   stageTemplateId: z.string().min(1).optional().nullable(),
   stageName: z.string().min(1).max(255).optional(),
@@ -389,6 +400,8 @@ module.exports = {
   changePasswordSchema,
   createUserSchema,
   assignUserSchema,
+  resetEmployeePasswordSchema,
+  setEmployeeActiveSchema,
   createProjectStageSchema,
   createProjectSchema,
   updateProjectSchema,
