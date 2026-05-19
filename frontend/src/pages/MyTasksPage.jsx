@@ -6,9 +6,11 @@ import StatusBadge from "../components/StatusBadge";
 import IssueModal from "../components/IssueModal";
 import { formatDate, labelize } from "../utils/format";
 import { useToastStore } from "../store/toastStore";
+import { useAuthStore } from "../store/authStore";
 
 export default function MyTasksPage() {
   const showToast = useToastStore((state) => state.showToast);
+  const user = useAuthStore((state) => state.user);
 
   const [loading, setLoading] = useState(true);
   const [projects, setProjects] = useState([]);
@@ -37,10 +39,14 @@ export default function MyTasksPage() {
       project.stages.map((stage) => ({
         ...stage,
         projectName: project.name,
-        projectId: project.id
+        projectId: project.id,
+        assignmentType:
+          stage.assignments?.find((assignment) => assignment.userId === user?.id)?.user?.employmentType ||
+          user?.employmentType ||
+          "INHOUSE"
       }))
     );
-  }, [projects]);
+  }, [projects, user]);
 
   const startWork = async (stageId) => {
     try {
@@ -99,6 +105,13 @@ export default function MyTasksPage() {
 
                 <div className="mt-2 flex items-center gap-4 text-xs text-slate-600">
                   <span className={task.isDeadlineMissed ? "font-semibold text-red-600" : ""}>Deadline: {formatDate(task.deadline)}</span>
+                  <span
+                    className={`rounded-full px-2 py-1 font-semibold ${
+                      task.assignmentType === "FREELANCE" ? "bg-blue-100 text-blue-700" : "bg-emerald-100 text-emerald-700"
+                    }`}
+                  >
+                    {task.assignmentType === "FREELANCE" ? "Freelance" : "In-house"}
+                  </span>
                   {task.feedback && <span className="rounded-lg bg-red-50 px-2 py-1 text-red-700">Feedback: {task.feedback}</span>}
                 </div>
 

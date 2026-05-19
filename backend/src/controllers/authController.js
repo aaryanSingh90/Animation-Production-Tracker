@@ -30,7 +30,8 @@ const login = asyncHandler(async (req, res) => {
       name: user.name,
       email: user.email,
       role: user.role,
-      department: user.department
+      department: user.department,
+      employmentType: user.employmentType
     }
   });
 });
@@ -68,7 +69,8 @@ const register = asyncHandler(async (req, res) => {
       name: user.name,
       email: user.email,
       role: user.role,
-      department: user.department
+      department: user.department,
+      employmentType: user.employmentType
     }
   });
 });

@@ -219,7 +219,17 @@ export default function ProjectsPage() {
           <div className="grid grid-cols-2 gap-4">
             {filtered.map((project) => {
               const byStage = new Map((project.stages || []).map((stage) => [stage.stageName, stage]));
-              const artists = Array.from(new Map((project.stages || []).filter((s) => s.assignedUser).map((s) => [s.assignedUser.id, s.assignedUser])).values());
+              const artists = Array.from(
+                new Map(
+                  (project.stages || [])
+                    .flatMap((stage) => {
+                      const assignmentUsers = (stage.assignments || []).map((assignment) => assignment.user);
+                      return stage.assignedUser ? [stage.assignedUser, ...assignmentUsers] : assignmentUsers;
+                    })
+                    .filter(Boolean)
+                    .map((artist) => [artist.id, artist])
+                ).values()
+              );
               const deadline = nearestDeadline(project.stages);
               const hasIssues = projectHasIssue(project);
               const progress = Number(project.progressPercent || 0);
@@ -283,7 +293,7 @@ export default function ProjectsPage() {
                     </div>
                   </div>
 
-                  <div className="mb-2 grid grid-cols-12 gap-1">
+                  <div className="mb-2 grid gap-1" style={{ gridTemplateColumns: `repeat(${PROJECT_STAGES.length}, minmax(0, 1fr))` }}>
                     {PROJECT_STAGES.map((stageName) => {
                       const stage = byStage.get(stageName);
                       const status = stage?.status || "NOT_STARTED";
@@ -299,7 +309,7 @@ export default function ProjectsPage() {
                     })}
                   </div>
 
-                  <div className="mb-3 grid grid-cols-12 gap-1 text-[10px] text-slate-500">
+                  <div className="mb-3 grid gap-1 text-[10px] text-slate-500" style={{ gridTemplateColumns: `repeat(${PROJECT_STAGES.length}, minmax(0, 1fr))` }}>
                     {PROJECT_STAGES.map((stageName) => (
                       <div key={`${project.id}-${stageName}-abbr`} className="text-center">
                         {stageAbbr(stageName)}

@@ -11,6 +11,11 @@ const characterStageParamSchema = z.object({
   stageName: z.string().min(1)
 });
 
+const stageArtistParamSchema = z.object({
+  id: z.coerce.number().int().positive(),
+  userId: z.coerce.number().int().positive()
+});
+
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1)
@@ -33,7 +38,8 @@ const createUserSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
   role: z.enum(["BOSS", "PRODUCTION_MANAGER", "COORDINATOR", "EMPLOYEE"]),
-  department: z.string().min(2).optional().or(z.literal(""))
+  department: z.string().min(2).optional().or(z.literal("")),
+  employmentType: z.enum(["INHOUSE", "FREELANCE"]).optional()
 });
 
 const assignUserSchema = z.object({
@@ -110,6 +116,10 @@ const extendDeadlineSchema = z.object({
   reason: z.string().min(5).max(2000)
 });
 
+const assignArtistSchema = z.object({
+  userId: z.coerce.number().int().positive()
+});
+
 const linkCharacterSchema = z.object({
   characterId: z.coerce.number().int().positive()
 });
@@ -117,6 +127,7 @@ const linkCharacterSchema = z.object({
 module.exports = {
   idParamSchema,
   characterStageParamSchema,
+  stageArtistParamSchema,
   loginSchema,
   registerSchema,
   changePasswordSchema,
@@ -128,5 +139,6 @@ module.exports = {
   rejectStageSchema,
   issueSchema,
   extendDeadlineSchema,
+  assignArtistSchema,
   linkCharacterSchema
 };

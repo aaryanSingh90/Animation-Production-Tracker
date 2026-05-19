@@ -64,7 +64,12 @@ export default function ManagerDashboardPage() {
     const matches = copy.filter((project) => {
       const bySearch = !search || project.name.toLowerCase().includes(search.toLowerCase());
       const byArtist =
-        artistFilter === "all" || project.stages.some((stage) => String(stage.assignedUserId) === artistFilter);
+        artistFilter === "all" ||
+        project.stages.some(
+          (stage) =>
+            String(stage.assignedUserId) === artistFilter ||
+            stage.assignments?.some((assignment) => String(assignment.userId) === artistFilter)
+        );
 
       let byStatus = true;
       if (statusFilter === "on-track") {
@@ -159,7 +164,17 @@ export default function ManagerDashboardPage() {
       ) : (
         <section className="grid grid-cols-2 gap-4">
           {filtered.map((project) => {
-            const artists = Array.from(new Map(project.stages.filter((s) => s.assignedUser).map((s) => [s.assignedUser.id, s.assignedUser])).values());
+            const artists = Array.from(
+              new Map(
+                project.stages
+                  .flatMap((stage) => {
+                    const assignmentUsers = (stage.assignments || []).map((assignment) => assignment.user);
+                    return stage.assignedUser ? [stage.assignedUser, ...assignmentUsers] : assignmentUsers;
+                  })
+                  .filter(Boolean)
+                  .map((artist) => [artist.id, artist])
+              ).values()
+            );
             const deadline = nearestDeadline(project.stages);
             const hasIssue = project.stages.some((stage) => stage.status === "ISSUE" || stage.status === "EXTENDED");
 

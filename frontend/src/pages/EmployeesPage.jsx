@@ -25,7 +25,8 @@ export default function EmployeesPage() {
     email: "",
     password: "",
     role: "EMPLOYEE",
-    department: ""
+    department: "",
+    employmentType: "INHOUSE"
   });
 
   const [editOpen, setEditOpen] = useState(false);
@@ -34,7 +35,8 @@ export default function EmployeesPage() {
     email: "",
     role: "EMPLOYEE",
     department: "",
-    password: ""
+    password: "",
+    employmentType: "INHOUSE"
   });
 
   const [assignment, setAssignment] = useState({ projectId: "", projectStageId: "" });
@@ -76,7 +78,7 @@ export default function EmployeesPage() {
 
   const availableStages = useMemo(() => {
     const project = projects.find((item) => String(item.id) === String(assignment.projectId));
-    return (project?.stages || []).filter((stage) => !stage.assignedUserId);
+    return project?.stages || [];
   }, [projects, assignment.projectId]);
 
   async function openUserProfile(userId) {
@@ -95,7 +97,7 @@ export default function EmployeesPage() {
       await api.post("/users", addForm);
       showToast("success", "Employee created");
       setAddOpen(false);
-      setAddForm({ name: "", email: "", password: "", role: "EMPLOYEE", department: "" });
+      setAddForm({ name: "", email: "", password: "", role: "EMPLOYEE", department: "", employmentType: "INHOUSE" });
       await fetchUsersAndProjects();
     } catch (error) {
       showToast("error", error.userMessage || error.response?.data?.message || "Unable to create employee");
@@ -109,7 +111,8 @@ export default function EmployeesPage() {
       email: selectedUser.email || "",
       role: selectedUser.role || "EMPLOYEE",
       department: selectedUser.department || "",
-      password: ""
+      password: "",
+      employmentType: selectedUser.employmentType || "INHOUSE"
     });
     setEditOpen(true);
   }
@@ -123,7 +126,8 @@ export default function EmployeesPage() {
         name: editForm.name,
         email: editForm.email,
         role: editForm.role,
-        department: editForm.department
+        department: editForm.department,
+        employmentType: editForm.employmentType
       };
       if (editForm.password.trim()) payload.password = editForm.password.trim();
       await api.put(`/users/${selectedUserId}`, payload);
@@ -197,6 +201,7 @@ export default function EmployeesPage() {
                   <th className="py-2">Email</th>
                   <th className="py-2">Role</th>
                   <th className="py-2">Department</th>
+                  <th className="py-2">Type</th>
                   <th className="py-2">Status</th>
                   <th className="py-2">Assigned Projects</th>
                 </tr>
@@ -212,6 +217,15 @@ export default function EmployeesPage() {
                     <td className="py-3">{user.email}</td>
                     <td className="py-3">{labelize(user.role)}</td>
                     <td className="py-3">{user.department || "-"}</td>
+                    <td className="py-3">
+                      <span
+                        className={`rounded-full px-2 py-1 text-xs font-semibold ${
+                          user.employmentType === "FREELANCE" ? "bg-blue-100 text-blue-700" : "bg-emerald-100 text-emerald-700"
+                        }`}
+                      >
+                        {user.employmentType === "FREELANCE" ? "Freelance" : "In-house"}
+                      </span>
+                    </td>
                     <td className="py-3">
                       <span className={`rounded-full px-2 py-1 text-xs font-semibold ${user.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>
                         {user.isActive ? "Active" : "Inactive"}
@@ -241,6 +255,15 @@ export default function EmployeesPage() {
                     <p className="text-sm font-bold text-slate-900">{selectedUser.name}</p>
                     <p className="text-xs text-slate-500">{selectedUser.email}</p>
                     <p className="text-xs text-slate-500">{labelize(selectedUser.role)} · {selectedUser.department || "-"}</p>
+                    <p className="mt-1">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                          selectedUser.employmentType === "FREELANCE" ? "bg-blue-100 text-blue-700" : "bg-emerald-100 text-emerald-700"
+                        }`}
+                      >
+                        {selectedUser.employmentType === "FREELANCE" ? "Freelance" : "In-house"}
+                      </span>
+                    </p>
                   </div>
                 </div>
                 <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${selectedUser.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>
@@ -347,6 +370,31 @@ export default function EmployeesPage() {
             </select>
           </div>
           <Input label="Department / Speciality" value={addForm.department} onChange={(value) => setAddForm((prev) => ({ ...prev, department: value }))} required />
+          <div>
+            <label className="mb-1 block text-sm font-semibold text-slate-700">Employment Type</label>
+            <div className="flex gap-4 text-sm">
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="add-employment-type"
+                  value="INHOUSE"
+                  checked={addForm.employmentType === "INHOUSE"}
+                  onChange={(event) => setAddForm((prev) => ({ ...prev, employmentType: event.target.value }))}
+                />
+                In-house
+              </label>
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="add-employment-type"
+                  value="FREELANCE"
+                  checked={addForm.employmentType === "FREELANCE"}
+                  onChange={(event) => setAddForm((prev) => ({ ...prev, employmentType: event.target.value }))}
+                />
+                Freelance
+              </label>
+            </div>
+          </div>
 
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => setAddOpen(false)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700">
@@ -371,6 +419,17 @@ export default function EmployeesPage() {
             </select>
           </div>
           <Input label="Department / Speciality" value={editForm.department} onChange={(value) => setEditForm((prev) => ({ ...prev, department: value }))} />
+          <div>
+            <label className="mb-1 block text-sm font-semibold text-slate-700">Employment Type</label>
+            <select
+              value={editForm.employmentType}
+              onChange={(event) => setEditForm((prev) => ({ ...prev, employmentType: event.target.value }))}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+            >
+              <option value="INHOUSE">In-house</option>
+              <option value="FREELANCE">Freelance</option>
+            </select>
+          </div>
           <Input
             label="Password Reset (optional)"
             type="password"

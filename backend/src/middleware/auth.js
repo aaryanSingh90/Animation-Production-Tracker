@@ -25,6 +25,7 @@ const authMiddleware = asyncHandler(async (req, res, next) => {
       email: true,
       role: true,
       department: true,
+      employmentType: true,
       isActive: true
     }
   });

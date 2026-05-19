@@ -12,5 +12,6 @@ router.get("/overview", reportsController.getOverviewReport);
 router.get("/deadlines", reportsController.getUpcomingDeadlines);
 router.get("/issues", reportsController.getIssuesGrouped);
 router.get("/workload", reportsController.getWorkloadReport);
+router.get("/team-composition", reportsController.getTeamCompositionReport);
 
 module.exports = router;

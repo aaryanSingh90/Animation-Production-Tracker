@@ -29,6 +29,8 @@ export default function ProjectDetailPage() {
   const [extendStage, setExtendStage] = useState(null);
   const [extendDeadline, setExtendDeadline] = useState("");
   const [extendReason, setExtendReason] = useState("");
+  const [artistPickerStageId, setArtistPickerStageId] = useState(null);
+  const [artistToAdd, setArtistToAdd] = useState("");
 
   const [editingProject, setEditingProject] = useState(false);
   const [projectForm, setProjectForm] = useState({ name: "", priority: 1, audioReceivedDate: "" });
@@ -199,6 +201,37 @@ export default function ProjectDetailPage() {
     }
   };
 
+  const assignArtistToStage = async (stageId) => {
+    if (!artistToAdd) return;
+    setSaving(true);
+    try {
+      await api.post(`/stages/${stageId}/assign-artist`, { userId: Number(artistToAdd) });
+      showToast("success", "Artist assigned");
+      setArtistPickerStageId(null);
+      setArtistToAdd("");
+      await fetchData();
+    } catch (error) {
+      showToast("error", error.userMessage || error.response?.data?.message || "Unable to assign artist");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeArtistFromStage = async (stageId, userId) => {
+    const confirmed = window.confirm("Remove this artist from this stage?");
+    if (!confirmed) return;
+    setSaving(true);
+    try {
+      await api.delete(`/stages/${stageId}/assign-artist/${userId}`);
+      showToast("success", "Artist removed");
+      await fetchData();
+    } catch (error) {
+      showToast("error", error.userMessage || error.response?.data?.message || "Unable to remove artist");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) return <Loader label="Loading project detail..." />;
   if (!project) return <EmptyState title="Project not found" description="This project may have been deleted." />;
 
@@ -228,127 +261,178 @@ export default function ProjectDetailPage() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1260px] text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-left text-slate-500">
-                <th className="py-2">Stage</th>
-                <th className="py-2">Assigned Artist</th>
-                <th className="py-2">Status</th>
-                <th className="py-2">Deadline</th>
-                <th className="py-2">Submitted / Approved</th>
-                <th className="py-2">Notes</th>
-                <th className="py-2">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {project.stages.map((stage) => (
-                <tr key={stage.id} className="border-b border-slate-100 align-top">
-                  <td className="py-2 font-semibold text-slate-800">{labelize(stage.stageName)}</td>
-                  <td className="py-2">
-                    <select
-                      value={stage.assignedUserId || ""}
-                      onChange={(event) =>
-                        updateStage(stage.id, { assignedUserId: event.target.value ? Number(event.target.value) : null }, "Artist reassigned")
-                      }
-                      className="w-44 rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
-                    >
-                      <option value="">Unassigned</option>
-                      {users.map((user) => (
-                        <option key={user.id} value={user.id}>
-                          {user.name}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="py-2">
-                    <div className="space-y-2">
-                      <StatusBadge status={stage.status} />
-                      <select
-                        value={stage.status}
-                        onChange={(event) => updateStage(stage.id, { status: event.target.value })}
-                        className="w-40 rounded-lg border border-slate-300 px-2 py-1 text-xs"
+      <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
+        {project.stages.map((stage) => {
+          const assignedUsers = stage.assignments || [];
+          const availableUsers = users.filter((user) => !assignedUsers.some((assignment) => assignment.userId === user.id));
+
+          return (
+            <div key={stage.id} className="rounded-xl border border-slate-200 p-4">
+              <div className="mb-3 flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold uppercase tracking-wide text-slate-800">{labelize(stage.stageName)}</p>
+                  <p className="text-xs text-slate-500">{stage.departmentName || "Department not set"}</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <StatusBadge status={stage.status} />
+                  <select
+                    value={stage.status}
+                    onChange={(event) => updateStage(stage.id, { status: event.target.value })}
+                    className="rounded-lg border border-slate-300 px-2 py-1 text-xs"
+                  >
+                    {STAGE_STATUSES.map((status) => (
+                      <option key={status} value={status}>
+                        {labelize(status)}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="date"
+                    defaultValue={formatDateInput(stage.deadline)}
+                    onBlur={(event) => updateStage(stage.id, { deadline: event.target.value || null }, "Deadline updated")}
+                    className={`rounded-lg border px-2 py-1.5 text-sm ${
+                      stage.isDeadlineMissed ? "border-red-400 bg-red-50 text-red-700" : "border-slate-300"
+                    }`}
+                  />
+                </div>
+              </div>
+
+              <div className="mb-3">
+                <p className="mb-2 text-xs font-semibold text-slate-500">ASSIGNED ARTISTS</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  {assignedUsers.map((assignment) => (
+                    <div key={assignment.userId} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                      <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500 text-xs font-bold text-white">
+                        {assignment.user.name.charAt(0).toUpperCase()}
+                      </span>
+                      <div>
+                        <p className="text-sm font-medium text-slate-800">{assignment.user.name}</p>
+                        <span
+                          className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+                            assignment.user.employmentType === "FREELANCE"
+                              ? "bg-blue-100 text-blue-700"
+                              : "bg-emerald-100 text-emerald-700"
+                          }`}
+                        >
+                          {assignment.user.employmentType === "FREELANCE" ? "Freelance" : "In-house"}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => removeArtistFromStage(stage.id, assignment.userId)}
+                        className="text-xs text-slate-400 hover:text-red-500"
+                        title="Remove from stage"
+                        disabled={saving}
                       >
-                        {STAGE_STATUSES.map((status) => (
-                          <option key={status} value={status}>
-                            {labelize(status)}
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+
+                  {artistPickerStageId !== stage.id ? (
+                    <button
+                      onClick={() => {
+                        setArtistPickerStageId(stage.id);
+                        setArtistToAdd("");
+                      }}
+                      className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-500 hover:border-emerald-500 hover:text-emerald-600"
+                    >
+                      + Add Artist
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2 rounded-lg border border-slate-300 px-2 py-1.5">
+                      <select
+                        value={artistToAdd}
+                        onChange={(event) => setArtistToAdd(event.target.value)}
+                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        autoFocus
+                      >
+                        <option value="">Select artist...</option>
+                        {availableUsers.map((user) => (
+                          <option key={user.id} value={user.id}>
+                            {user.name} — {user.employmentType === "FREELANCE" ? "Freelance" : "In-house"} — {user.department || "-"}
                           </option>
                         ))}
                       </select>
+                      <button
+                        onClick={() => assignArtistToStage(stage.id)}
+                        disabled={!artistToAdd || saving}
+                        className="rounded bg-emerald-500 px-2 py-1 text-xs font-semibold text-white disabled:opacity-60"
+                      >
+                        Assign
+                      </button>
+                      <button
+                        onClick={() => {
+                          setArtistPickerStageId(null);
+                          setArtistToAdd("");
+                        }}
+                        className="text-xs text-slate-500"
+                      >
+                        Cancel
+                      </button>
                     </div>
-                  </td>
-                  <td className="py-2">
-                    <input
-                      type="date"
-                      defaultValue={formatDateInput(stage.deadline)}
-                      onBlur={(event) => updateStage(stage.id, { deadline: event.target.value || null }, "Deadline updated")}
-                      className={`rounded-lg border px-2 py-1.5 text-sm ${
-                        stage.isDeadlineMissed ? "border-red-400 bg-red-50 text-red-700" : "border-slate-300"
-                      }`}
-                    />
-                    {stage.isDeadlineMissed && <p className="mt-1 text-xs font-semibold text-red-600">Deadline missed</p>}
-                  </td>
-                  <td className="py-2 text-xs text-slate-600">
-                    <div>Submitted: {formatDate(stage.submittedAt)}</div>
-                    <div>Approved: {formatDate(stage.approvedAt)}</div>
-                  </td>
-                  <td className="py-2">
-                    <textarea
-                      rows={2}
-                      defaultValue={stage.notes || ""}
-                      onBlur={(event) => updateStage(stage.id, { notes: event.target.value }, "Notes updated")}
-                      className="w-48 rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
-                    />
-                  </td>
-                  <td className="py-2">
-                    <div className="flex flex-col gap-1.5">
-                      {stage.status === "SUBMITTED" && (
-                        <>
-                          <button
-                            disabled={saving}
-                            onClick={() => approveStage(stage.id)}
-                            className="rounded-lg bg-emerald-500 px-2 py-1 text-xs font-semibold text-white"
-                          >
-                            Approve
-                          </button>
-                          <button
-                            disabled={saving}
-                            onClick={() => {
-                              setRejectStage(stage);
-                              setRejectFeedback(stage.feedback || "");
-                            }}
-                            className="rounded-lg bg-red-500 px-2 py-1 text-xs font-semibold text-white"
-                          >
-                            Reject
-                          </button>
-                        </>
-                      )}
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <div className="text-xs text-slate-500">
+                  <p>Submitted: {formatDate(stage.submittedAt)}</p>
+                  <p>Approved: {formatDate(stage.approvedAt)}</p>
+                </div>
+
+                <textarea
+                  rows={2}
+                  defaultValue={stage.notes || ""}
+                  onBlur={(event) => updateStage(stage.id, { notes: event.target.value }, "Notes updated")}
+                  className="flex-1 rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
+                  placeholder="Notes..."
+                />
+
+                <div className="flex flex-col gap-1.5">
+                  {stage.status === "SUBMITTED" && (
+                    <>
                       <button
                         disabled={saving}
-                        onClick={() => setIssueStage(stage)}
-                        className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
+                        onClick={() => approveStage(stage.id)}
+                        className="rounded-lg bg-emerald-500 px-2 py-1 text-xs font-semibold text-white"
                       >
-                        Log Issue
+                        Approve
                       </button>
                       <button
                         disabled={saving}
                         onClick={() => {
-                          setExtendStage(stage);
-                          setExtendDeadline(formatDateInput(stage.deadline));
-                          setExtendReason("");
+                          setRejectStage(stage);
+                          setRejectFeedback(stage.feedback || "");
                         }}
-                        className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
+                        className="rounded-lg bg-red-500 px-2 py-1 text-xs font-semibold text-white"
                       >
-                        Extend
+                        Reject
                       </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                    </>
+                  )}
+                  <button
+                    disabled={saving}
+                    onClick={() => setIssueStage(stage)}
+                    className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
+                  >
+                    Log Issue
+                  </button>
+                  <button
+                    disabled={saving}
+                    onClick={() => {
+                      setExtendStage(stage);
+                      setExtendDeadline(formatDateInput(stage.deadline));
+                      setExtendReason("");
+                    }}
+                    className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
+                  >
+                    Extend
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </section>
 
       <section className="grid grid-cols-2 gap-6">

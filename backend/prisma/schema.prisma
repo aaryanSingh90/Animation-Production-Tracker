@@ -14,11 +14,15 @@ enum Role {
   EMPLOYEE
 }
 
+enum EmploymentType {
+  INHOUSE
+  FREELANCE
+}
+
 enum StageName {
   AUDIO
   ANIMATICS
-  CHARACTER_MODELLING
-  BLENDSHAPES
+  CHARACTER_MODELLING_BLENDSHAPES
   BG_MODELLING
   RIGGING
   TEXTURING
@@ -80,10 +84,12 @@ model User {
   password                String
   role                    Role
   department              String?
+  employmentType          EmploymentType   @default(INHOUSE)
   isActive                Boolean          @default(true)
   createdAt               DateTime         @default(now())
   updatedAt               DateTime         @updatedAt
   assignedProjectStages   ProjectStage[]   @relation("UserProjectStages")
+  stageAssignments        StageAssignment[]
   assignedCharacterStages CharacterStage[] @relation("UserCharacterStages")
   loggedIssues            IssueLog[]
   notifications           Notification[]
@@ -110,6 +116,7 @@ model ProjectStage {
   id               Int            @id @default(autoincrement())
   projectId        Int
   stageName        StageName
+  departmentName   String?
   status           StageStatus    @default(NOT_STARTED)
   deadline         DateTime?
   assignedUserId   Int?
@@ -123,6 +130,7 @@ model ProjectStage {
   updatedAt        DateTime       @updatedAt
   project          Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   assignedUser     User?          @relation("UserProjectStages", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  assignments      StageAssignment[]
   issueLogs        IssueLog[]
   notifications    Notification[]
   activityLogs     ActivityLog[]
@@ -204,4 +212,15 @@ model ActivityLog {
   project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
   stage     ProjectStage? @relation(fields: [stageId], references: [id], onDelete: SetNull)
   actor     User?         @relation(fields: [actorId], references: [id], onDelete: SetNull)
+}
+
+model StageAssignment {
+  id             String       @id @default(cuid())
+  projectStageId Int
+  projectStage   ProjectStage @relation(fields: [projectStageId], references: [id], onDelete: Cascade)
+  userId         Int
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@unique([projectStageId, userId])
 }

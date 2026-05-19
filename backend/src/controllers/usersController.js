@@ -18,6 +18,7 @@ const listUsers = asyncHandler(async (req, res) => {
       email: true,
       role: true,
       department: true,
+      employmentType: true,
       isActive: true,
       createdAt: true,
       _count: {
@@ -32,7 +33,7 @@ const listUsers = asyncHandler(async (req, res) => {
 });
 
 const createUser = asyncHandler(async (req, res) => {
-  const { name, email, password, role, department } = req.body;
+  const { name, email, password, role, department, employmentType = "INHOUSE" } = req.body;
 
   if (!name || !email || !password || !role) {
     throw new AppError("name, email, password and role are required", 400);
@@ -57,7 +58,8 @@ const createUser = asyncHandler(async (req, res) => {
       email: email.toLowerCase(),
       password: hashed,
       role,
-      department
+      department,
+      employmentType
     },
     select: {
       id: true,
@@ -65,6 +67,7 @@ const createUser = asyncHandler(async (req, res) => {
       email: true,
       role: true,
       department: true,
+      employmentType: true,
       isActive: true
     }
   });
@@ -86,6 +89,7 @@ const getUserById = asyncHandler(async (req, res) => {
       email: true,
       role: true,
       department: true,
+      employmentType: true,
       isActive: true,
       createdAt: true,
       updatedAt: true,
@@ -94,6 +98,15 @@ const getUserById = asyncHandler(async (req, res) => {
           project: { select: { id: true, name: true } }
         },
         orderBy: { deadline: "asc" }
+      },
+      stageAssignments: {
+        include: {
+          projectStage: {
+            include: {
+              project: { select: { id: true, name: true } }
+            }
+          }
+        }
       }
     }
   });
@@ -102,17 +115,35 @@ const getUserById = asyncHandler(async (req, res) => {
     throw new AppError("User not found", 404);
   }
 
-  const submittedCount = user.assignedProjectStages.filter((stage) => stage.submittedAt).length;
-  const approvedCount = user.assignedProjectStages.filter((stage) => stage.status === "APPROVED").length;
+  const stageMap = new Map();
+  for (const stage of user.assignedProjectStages) {
+    stageMap.set(stage.id, stage);
+  }
+  for (const assignment of user.stageAssignments) {
+    if (!stageMap.has(assignment.projectStage.id)) {
+      stageMap.set(assignment.projectStage.id, assignment.projectStage);
+    }
+  }
+
+  const mergedStages = Array.from(stageMap.values()).sort((a, b) => {
+    const aDeadline = a.deadline ? new Date(a.deadline).getTime() : Number.MAX_SAFE_INTEGER;
+    const bDeadline = b.deadline ? new Date(b.deadline).getTime() : Number.MAX_SAFE_INTEGER;
+    return aDeadline - bDeadline;
+  });
+
+  const submittedCount = mergedStages.filter((stage) => stage.submittedAt).length;
+  const approvedCount = mergedStages.filter((stage) => stage.status === "APPROVED").length;
   const approvalRate = submittedCount === 0 ? 0 : Number(((approvedCount / submittedCount) * 100).toFixed(2));
 
   return res.json({
     ...user,
+    assignedProjectStages: mergedStages,
+    stageAssignments: undefined,
     stats: {
       submittedCount,
       approvedCount,
       approvalRate,
-      activeStages: user.assignedProjectStages.filter((stage) => stage.status !== "APPROVED").length
+      activeStages: mergedStages.filter((stage) => stage.status !== "APPROVED").length
     }
   });
 });
@@ -130,7 +161,7 @@ const updateUser = asyncHandler(async (req, res) => {
 
   const payload = {};
   const allowedForSelf = ["name", "department"];
-  const allowedForManager = ["name", "email", "role", "department", "isActive", "password"];
+  const allowedForManager = ["name", "email", "role", "department", "employmentType", "isActive", "password"];
   const allowed = isManager(req.user.role) ? allowedForManager : allowedForSelf;
 
   for (const key of allowed) {
@@ -141,6 +172,10 @@ const updateUser = asyncHandler(async (req, res) => {
 
   if (payload.email) {
     payload.email = String(payload.email).toLowerCase();
+  }
+
+  if (payload.employmentType && !["INHOUSE", "FREELANCE"].includes(payload.employmentType)) {
+    throw new AppError("Invalid employmentType", 400);
   }
 
   if (payload.password) {
@@ -159,6 +194,7 @@ const updateUser = asyncHandler(async (req, res) => {
       email: true,
       role: true,
       department: true,
+      employmentType: true,
       isActive: true
     }
   });
@@ -188,9 +224,27 @@ const getWorkload = asyncHandler(async (req, res) => {
   }
 
   const stages = await prisma.projectStage.findMany({
-    where: { assignedUserId: userId },
+    where: {
+      OR: [
+        { assignedUserId: userId },
+        {
+          assignments: {
+            some: {
+              userId
+            }
+          }
+        }
+      ]
+    },
     include: {
-      project: { select: { id: true, name: true, priority: true } }
+      project: { select: { id: true, name: true, priority: true } },
+      assignments: {
+        include: {
+          user: {
+            select: { id: true, name: true, employmentType: true, department: true }
+          }
+        }
+      }
     },
     orderBy: [{ status: "asc" }, { deadline: "asc" }]
   });
@@ -226,7 +280,30 @@ const assignUserToStage = asyncHandler(async (req, res) => {
     where: { id: stageId },
     data: {
       assignedUserId: userId
+    },
+    include: {
+      assignments: {
+        include: {
+          user: {
+            select: { id: true, name: true, employmentType: true, department: true }
+          }
+        }
+      }
     }
+  });
+
+  await prisma.stageAssignment.upsert({
+    where: {
+      projectStageId_userId: {
+        projectStageId: stageId,
+        userId
+      }
+    },
+    create: {
+      projectStageId: stageId,
+      userId
+    },
+    update: {}
   });
 
   await createNotification({

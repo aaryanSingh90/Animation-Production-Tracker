@@ -28,6 +28,7 @@ export default function ReportsPage() {
   const [deadlines, setDeadlines] = useState([]);
   const [issues, setIssues] = useState({ grouped: [], detailed: [] });
   const [workload, setWorkload] = useState([]);
+  const [teamComposition, setTeamComposition] = useState({ inhouse: 0, freelance: 0, byDepartment: [] });
 
   useEffect(() => {
     let cancelled = false;
@@ -35,11 +36,12 @@ export default function ReportsPage() {
     async function fetchData() {
       setLoading(true);
       try {
-        const [overviewRes, deadlinesRes, issuesRes, workloadRes] = await Promise.all([
+        const [overviewRes, deadlinesRes, issuesRes, workloadRes, teamRes] = await Promise.all([
           api.get("/reports/overview"),
           api.get("/reports/deadlines"),
           api.get("/reports/issues"),
-          api.get("/reports/workload")
+          api.get("/reports/workload"),
+          api.get("/reports/team-composition")
         ]);
 
         if (!cancelled) {
@@ -47,6 +49,7 @@ export default function ReportsPage() {
           setDeadlines(deadlinesRes.data);
           setIssues(issuesRes.data);
           setWorkload(workloadRes.data);
+          setTeamComposition(teamRes.data);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -88,6 +91,10 @@ export default function ReportsPage() {
   }));
 
   const upcomingDeadlines = overview?.upcomingDeadlines || deadlines;
+  const teamCompositionData = [
+    { name: "In-house", value: teamComposition.inhouse, color: "#10B981" },
+    { name: "Freelance", value: teamComposition.freelance, color: "#3B82F6" }
+  ];
 
   return (
     <div className="space-y-6">
@@ -209,6 +216,53 @@ export default function ReportsPage() {
             </BarChart>
           </ResponsiveContainer>
         )}
+      </section>
+
+      <section className="grid grid-cols-2 gap-4">
+        <ChartCard title="Team Composition">
+          {!teamCompositionData.some((entry) => entry.value > 0) ? (
+            <EmptyState title="No team data" description="In-house and freelance counts will appear here." />
+          ) : (
+            <ResponsiveContainer width="100%" height={260}>
+              <PieChart>
+                <Pie data={teamCompositionData} dataKey="value" nameKey="name" outerRadius={90}>
+                  {teamCompositionData.map((entry) => (
+                    <Cell key={entry.name} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
+        </ChartCard>
+
+        <ChartCard title="Active Assignments By Type">
+          {!teamComposition.byDepartment?.length ? (
+            <EmptyState title="No assignment data" description="Department breakdown will appear here." />
+          ) : (
+            <div className="max-h-[260px] overflow-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-left text-slate-500">
+                    <th className="py-2">Department</th>
+                    <th className="py-2">In-house Artists</th>
+                    <th className="py-2">Freelance Artists</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {teamComposition.byDepartment.map((row) => (
+                    <tr key={row.department} className="border-b border-slate-100">
+                      <td className="py-2.5 font-semibold text-slate-800">{row.department}</td>
+                      <td className="py-2.5">{row.inhouse}</td>
+                      <td className="py-2.5">{row.freelance}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </ChartCard>
       </section>
     </div>
   );

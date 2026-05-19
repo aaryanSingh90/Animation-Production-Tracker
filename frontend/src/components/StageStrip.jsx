@@ -5,7 +5,7 @@ function StageStrip({ stages }) {
   const byStage = new Map((stages || []).map((stage) => [stage.stageName, stage]));
 
   return (
-    <div className="grid grid-cols-12 gap-1">
+    <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${PROJECT_STAGES.length}, minmax(0, 1fr))` }}>
       {PROJECT_STAGES.map((stageName) => {
         const status = byStage.get(stageName)?.status || "NOT_STARTED";
         return (

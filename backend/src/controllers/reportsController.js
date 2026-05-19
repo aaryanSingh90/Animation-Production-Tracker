@@ -122,7 +122,9 @@ const getOverviewReport = asyncHandler(async (req, res) => {
       isActive: true
     },
     select: {
+      id: true,
       name: true,
+      employmentType: true,
       assignedProjectStages: {
         where: {
           status: {
@@ -132,15 +134,34 @@ const getOverviewReport = asyncHandler(async (req, res) => {
         select: {
           id: true
         }
+      },
+      stageAssignments: {
+        where: {
+          projectStage: {
+            status: {
+              in: ACTIVE_STAGE_STATUSES
+            }
+          }
+        },
+        select: {
+          projectStageId: true
+        }
       }
     },
     orderBy: { name: "asc" }
   });
 
-  const workloadPerArtist = workloads.map((user) => ({
-    name: user.name,
-    activeTasks: user.assignedProjectStages.length
-  }));
+  const workloadPerArtist = workloads.map((user) => {
+    const taskIds = new Set(user.assignedProjectStages.map((stage) => stage.id));
+    for (const assignment of user.stageAssignments) {
+      taskIds.add(assignment.projectStageId);
+    }
+
+    return {
+      name: user.name,
+      activeTasks: taskIds.size
+    };
+  });
 
   const upcomingStages = await prisma.projectStage.findMany({
     where: {
@@ -259,6 +280,7 @@ const getWorkloadReport = asyncHandler(async (req, res) => {
       name: true,
       role: true,
       department: true,
+      employmentType: true,
       assignedProjectStages: {
         where: {
           status: {
@@ -273,25 +295,135 @@ const getWorkloadReport = asyncHandler(async (req, res) => {
             select: { id: true, name: true }
           }
         }
+      },
+      stageAssignments: {
+        where: {
+          projectStage: {
+            status: {
+              in: ACTIVE_STAGE_STATUSES
+            }
+          }
+        },
+        select: {
+          projectStage: {
+            select: {
+              id: true,
+              stageName: true,
+              status: true,
+              project: {
+                select: { id: true, name: true }
+              }
+            }
+          }
+        }
       }
     }
   });
 
-  const workloads = users.map((user) => ({
-    id: user.id,
-    name: user.name,
-    role: user.role,
-    department: user.department,
-    activeTaskCount: user.assignedProjectStages.length,
-    tasks: user.assignedProjectStages
-  }));
+  const workloads = users.map((user) => {
+    const taskMap = new Map();
+    for (const stage of user.assignedProjectStages) {
+      taskMap.set(stage.id, stage);
+    }
+    for (const assignment of user.stageAssignments) {
+      const stage = assignment.projectStage;
+      if (!taskMap.has(stage.id)) {
+        taskMap.set(stage.id, stage);
+      }
+    }
+    const tasks = Array.from(taskMap.values());
+
+    return {
+      id: user.id,
+      name: user.name,
+      role: user.role,
+      department: user.department,
+      employmentType: user.employmentType,
+      activeTaskCount: tasks.length,
+      tasks
+    };
+  });
 
   return res.json(workloads);
+});
+
+const getTeamCompositionReport = asyncHandler(async (req, res) => {
+  const artists = await prisma.user.findMany({
+    where: {
+      isActive: true,
+      role: "EMPLOYEE"
+    },
+    select: {
+      id: true,
+      employmentType: true
+    }
+  });
+
+  const inhouse = artists.filter((artist) => artist.employmentType === "INHOUSE").length;
+  const freelance = artists.filter((artist) => artist.employmentType === "FREELANCE").length;
+
+  const activeAssignments = await prisma.stageAssignment.findMany({
+    where: {
+      projectStage: {
+        status: {
+          in: ACTIVE_STAGE_STATUSES
+        }
+      },
+      user: {
+        isActive: true
+      }
+    },
+    include: {
+      user: {
+        select: {
+          employmentType: true
+        }
+      },
+      projectStage: {
+        select: {
+          departmentName: true,
+          stageName: true
+        }
+      }
+    }
+  });
+
+  const byDepartmentMap = new Map();
+  for (const assignment of activeAssignments) {
+    const department = assignment.projectStage.departmentName || assignment.projectStage.stageName.replaceAll("_", " ");
+    if (!byDepartmentMap.has(department)) {
+      byDepartmentMap.set(department, {
+        department,
+        inhouseUsers: new Set(),
+        freelanceUsers: new Set()
+      });
+    }
+
+    const bucket = byDepartmentMap.get(department);
+    if (assignment.user.employmentType === "INHOUSE") {
+      bucket.inhouseUsers.add(assignment.userId);
+    } else {
+      bucket.freelanceUsers.add(assignment.userId);
+    }
+  }
+
+  return res.json({
+    inhouse,
+    freelance,
+    byDepartment: Array.from(byDepartmentMap.values())
+      .map((bucket) => ({
+        department: bucket.department,
+        inhouse: bucket.inhouseUsers.size,
+        freelance: bucket.freelanceUsers.size
+      }))
+      .sort((a, b) => a.department.localeCompare(b.department))
+  });
 });
 
 module.exports = {
   getOverviewReport,
   getUpcomingDeadlines,
   getIssuesGrouped,
-  getWorkloadReport
+  getWorkloadReport,
+  getTeamCompositionReport
 };

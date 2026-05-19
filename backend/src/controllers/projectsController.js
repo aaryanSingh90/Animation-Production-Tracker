@@ -1,6 +1,6 @@
 const prisma = require("../utils/prisma");
 const { AppError, asyncHandler } = require("../utils/http");
-const { PROJECT_STAGES, MANAGER_ROLES } = require("../utils/constants");
+const { STAGE_DEFAULTS, MANAGER_ROLES } = require("../utils/constants");
 const { recalculateProjectProgress } = require("../utils/progress");
 const { logActivity } = require("../utils/activities");
 
@@ -23,7 +23,16 @@ const listProjects = asyncHandler(async (req, res) => {
   if (artistId) {
     where.stages = {
       some: {
-        assignedUserId: Number(artistId)
+        OR: [
+          { assignedUserId: Number(artistId) },
+          {
+            assignments: {
+              some: {
+                userId: Number(artistId)
+              }
+            }
+          }
+        ]
       }
     };
   }
@@ -35,6 +44,13 @@ const listProjects = asyncHandler(async (req, res) => {
         include: {
           assignedUser: {
             select: { id: true, name: true }
+          },
+          assignments: {
+            include: {
+              user: {
+                select: { id: true, name: true, department: true, employmentType: true }
+              }
+            }
           }
         },
         orderBy: { createdAt: "asc" }
@@ -106,7 +122,11 @@ const createProject = asyncHandler(async (req, res) => {
       overallStatus: "ON_TRACK",
       stages: {
         createMany: {
-          data: PROJECT_STAGES.map((stageName) => ({ stageName, status: "NOT_STARTED" }))
+          data: STAGE_DEFAULTS.map((stage) => ({
+            stageName: stage.stageName,
+            departmentName: stage.departmentName,
+            status: "NOT_STARTED"
+          }))
         }
       }
     },
@@ -137,6 +157,13 @@ const getProjectById = asyncHandler(async (req, res) => {
         include: {
           assignedUser: {
             select: { id: true, name: true, role: true, department: true }
+          },
+          assignments: {
+            include: {
+              user: {
+                select: { id: true, name: true, role: true, department: true, employmentType: true }
+              }
+            }
           },
           issueLogs: {
             include: {
@@ -181,7 +208,9 @@ const getProjectById = asyncHandler(async (req, res) => {
   }
 
   if (!isManager(req.user.role)) {
-    const assigned = project.stages.some((stage) => stage.assignedUserId === req.user.id);
+    const assigned = project.stages.some(
+      (stage) => stage.assignedUserId === req.user.id || stage.assignments?.some((assignment) => assignment.userId === req.user.id)
+    );
     if (!assigned) {
       throw new AppError("Forbidden", 403);
     }
@@ -246,18 +275,43 @@ const getMyProjects = asyncHandler(async (req, res) => {
     where: {
       stages: {
         some: {
-          assignedUserId: req.user.id
+          OR: [
+            { assignedUserId: req.user.id },
+            {
+              assignments: {
+                some: {
+                  userId: req.user.id
+                }
+              }
+            }
+          ]
         }
       }
     },
     include: {
       stages: {
         where: {
-          assignedUserId: req.user.id
+          OR: [
+            { assignedUserId: req.user.id },
+            {
+              assignments: {
+                some: {
+                  userId: req.user.id
+                }
+              }
+            }
+          ]
         },
         include: {
           assignedUser: {
             select: { id: true, name: true }
+          },
+          assignments: {
+            include: {
+              user: {
+                select: { id: true, name: true, employmentType: true, department: true }
+              }
+            }
           }
         },
         orderBy: { deadline: "asc" }

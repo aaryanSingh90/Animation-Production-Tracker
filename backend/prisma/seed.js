@@ -7,8 +7,7 @@ const prisma = new PrismaClient();
 const PROJECT_STAGES = [
   "AUDIO",
   "ANIMATICS",
-  "CHARACTER_MODELLING",
-  "BLENDSHAPES",
+  "CHARACTER_MODELLING_BLENDSHAPES",
   "BG_MODELLING",
   "RIGGING",
   "TEXTURING",
@@ -18,6 +17,20 @@ const PROJECT_STAGES = [
   "COMPOSITING",
   "EDITING"
 ];
+
+const STAGE_DEFAULTS = {
+  AUDIO: "Audio Department",
+  ANIMATICS: "Animatics Department",
+  CHARACTER_MODELLING_BLENDSHAPES: "Character Modelling & Blendshapes",
+  BG_MODELLING: "BG Modelling Department",
+  RIGGING: "Rigging Department",
+  TEXTURING: "Texturing Department",
+  ANIMATION: "Animation Department",
+  LIGHTING: "Lighting Department",
+  RENDER: "Render Department",
+  COMPOSITING: "Compositing Department",
+  EDITING: "Editing Department"
+};
 
 const CHARACTER_STAGES = ["REFERENCE", "MODELLING", "BLENDSHAPES", "TEXTURING", "RIGGING"];
 
@@ -124,6 +137,7 @@ async function main() {
   await prisma.activityLog.deleteMany();
   await prisma.notification.deleteMany();
   await prisma.issueLog.deleteMany();
+  await prisma.stageAssignment.deleteMany();
   await prisma.projectCharacter.deleteMany();
   await prisma.characterStage.deleteMany();
   await prisma.character.deleteMany();
@@ -138,7 +152,8 @@ async function main() {
         email: "boss@studio.com",
         password: defaultPassword,
         role: "BOSS",
-        department: "Leadership"
+        department: "Leadership",
+        employmentType: "INHOUSE"
       }
     }),
     prisma.user.create({
@@ -147,7 +162,8 @@ async function main() {
         email: "manager@studio.com",
         password: defaultPassword,
         role: "PRODUCTION_MANAGER",
-        department: "Production"
+        department: "Production",
+        employmentType: "INHOUSE"
       }
     }),
     prisma.user.create({
@@ -156,7 +172,8 @@ async function main() {
         email: "coordinator@studio.com",
         password: defaultPassword,
         role: "COORDINATOR",
-        department: "Pipeline"
+        department: "Pipeline",
+        employmentType: "INHOUSE"
       }
     }),
     prisma.user.create({
@@ -165,7 +182,8 @@ async function main() {
         email: "artist1@studio.com",
         password: defaultPassword,
         role: "EMPLOYEE",
-        department: "Animator"
+        department: "Animator",
+        employmentType: "INHOUSE"
       }
     }),
     prisma.user.create({
@@ -174,7 +192,8 @@ async function main() {
         email: "artist2@studio.com",
         password: defaultPassword,
         role: "EMPLOYEE",
-        department: "Rigger"
+        department: "Rigger",
+        employmentType: "INHOUSE"
       }
     }),
     prisma.user.create({
@@ -183,7 +202,8 @@ async function main() {
         email: "artist3@studio.com",
         password: defaultPassword,
         role: "EMPLOYEE",
-        department: "BG Artist"
+        department: "BG Artist",
+        employmentType: "FREELANCE"
       }
     }),
     prisma.user.create({
@@ -192,7 +212,8 @@ async function main() {
         email: "artist4@studio.com",
         password: defaultPassword,
         role: "EMPLOYEE",
-        department: "Compositor"
+        department: "Compositor",
+        employmentType: "FREELANCE"
       }
     }),
     prisma.user.create({
@@ -201,7 +222,8 @@ async function main() {
         email: "artist5@studio.com",
         password: defaultPassword,
         role: "EMPLOYEE",
-        department: "Modeller"
+        department: "Modeller",
+        employmentType: "INHOUSE"
       }
     })
   ]);
@@ -233,10 +255,11 @@ async function main() {
       const submittedAt = status === "SUBMITTED" || status === "APPROVED" ? subDays(new Date(), 1) : null;
       const approvedAt = status === "APPROVED" ? new Date() : null;
 
-      await prisma.projectStage.create({
+      const stageRecord = await prisma.projectStage.create({
         data: {
           projectId: project.id,
           stageName,
+          departmentName: STAGE_DEFAULTS[stageName] || null,
           status,
           assignedUserId,
           deadline,
@@ -246,6 +269,35 @@ async function main() {
           notes: `Stage notes for ${stageName.toLowerCase().replaceAll("_", " ")}`
         }
       });
+
+      const extraArtistIds = [];
+      if (stageName === "CHARACTER_MODELLING_BLENDSHAPES") {
+        extraArtistIds.push(artistIds[(projectIndex + stageIndex + 1) % artistIds.length]);
+      }
+      if (stageName === "ANIMATION") {
+        extraArtistIds.push(artistIds[(projectIndex + stageIndex + 1) % artistIds.length]);
+        extraArtistIds.push(artistIds[(projectIndex + stageIndex + 2) % artistIds.length]);
+      }
+      if (stageName === "RIGGING" && projectIndex % 2 === 0) {
+        extraArtistIds.push(artistIds[(projectIndex + stageIndex + 3) % artistIds.length]);
+      }
+
+      const allAssigned = Array.from(new Set([assignedUserId, ...extraArtistIds]));
+      for (const userId of allAssigned) {
+        await prisma.stageAssignment.upsert({
+          where: {
+            projectStageId_userId: {
+              projectStageId: stageRecord.id,
+              userId
+            }
+          },
+          create: {
+            projectStageId: stageRecord.id,
+            userId
+          },
+          update: {}
+        });
+      }
     }
 
     createdProjects.push(project);
