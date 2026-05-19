@@ -3,6 +3,7 @@ const { AppError, asyncHandler } = require("../utils/http");
 const { MANAGER_ROLES } = require("../utils/constants");
 const { getTrackingDefinitionSnapshot, computeStatusFromChildren } = require("../utils/trackingSetup");
 const { recalculateProjectProgress } = require("../utils/progress");
+const { normalizeStageCode } = require("../utils/stageDefinitions");
 
 function isManager(role) {
   return MANAGER_ROLES.includes(role);
@@ -457,6 +458,90 @@ const bulkUpdateShotStages = asyncHandler(async (req, res) => {
   });
 });
 
+const rangeAssignShotStages = asyncHandler(async (req, res) => {
+  const projectId = Number(req.body.projectId);
+  const stageCode = normalizeStageCode(req.body.stageCode);
+  const rawStart = Number(req.body.startShotNumber);
+  const rawEnd = Number(req.body.endShotNumber);
+  const startShotNumber = Math.min(rawStart, rawEnd);
+  const endShotNumber = Math.max(rawStart, rawEnd);
+  const sequence = req.body.sequence ? String(req.body.sequence).trim() : null;
+  const userId = Object.prototype.hasOwnProperty.call(req.body, "userId") ? req.body.userId : null;
+
+  const stageDefinition = await prisma.stageDefinition.findUnique({
+    where: { code: stageCode },
+    select: { id: true }
+  });
+
+  if (!stageDefinition) {
+    throw new AppError("Stage definition not found", 404);
+  }
+
+  if (userId) {
+    const user = await prisma.user.findUnique({
+      where: { id: Number(userId) },
+      select: { id: true, isActive: true }
+    });
+    if (!user || !user.isActive) {
+      throw new AppError("Assigned artist not found or inactive", 404);
+    }
+  }
+
+  const where = {
+    stageDefinitionId: stageDefinition.id,
+    shot: {
+      projectId,
+      shotNumber: {
+        gte: startShotNumber,
+        lte: endShotNumber
+      }
+    }
+  };
+
+  if (sequence) {
+    where.shot = {
+      ...where.shot,
+      name: {
+        contains: sequence,
+        mode: "insensitive"
+      }
+    };
+  }
+
+  const stages = await prisma.shotStage.findMany({
+    where,
+    select: {
+      id: true,
+      shotId: true
+    }
+  });
+
+  if (!stages.length) {
+    return res.json({
+      success: true,
+      updatedCount: 0,
+      shotCount: 0
+    });
+  }
+
+  await prisma.shotStage.updateMany({
+    where: {
+      id: {
+        in: stages.map((stage) => stage.id)
+      }
+    },
+    data: {
+      assignedUserId: userId ? Number(userId) : null
+    }
+  });
+
+  return res.json({
+    success: true,
+    updatedCount: stages.length,
+    shotCount: new Set(stages.map((stage) => stage.shotId)).size
+  });
+});
+
 module.exports = {
   listProjectShots,
   createProjectShot,
@@ -464,5 +549,6 @@ module.exports = {
   deleteShot,
   updateShotStage,
   bulkAssignShotStages,
-  bulkUpdateShotStages
+  bulkUpdateShotStages,
+  rangeAssignShotStages
 };

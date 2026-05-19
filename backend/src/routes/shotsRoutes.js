@@ -10,6 +10,7 @@ const {
   updateShotSchema,
   updateStageSchema,
   bulkShotAssignSchema,
+  rangeShotAssignSchema,
   bulkShotUpdateSchema
 } = require("../validation/schemas");
 
@@ -36,6 +37,12 @@ router.post(
   requireRoles("BOSS", "PRODUCTION_MANAGER", "COORDINATOR"),
   validate({ body: bulkShotAssignSchema }),
   shotsController.bulkAssignShotStages
+);
+router.post(
+  "/shots/range-assign",
+  requireRoles("BOSS", "PRODUCTION_MANAGER", "COORDINATOR"),
+  validate({ body: rangeShotAssignSchema }),
+  shotsController.rangeAssignShotStages
 );
 router.post(
   "/shots/bulk-update",

@@ -358,6 +358,15 @@ const bulkShotAssignSchema = z.object({
   userId: z.coerce.number().int().positive().nullable().optional()
 });
 
+const rangeShotAssignSchema = z.object({
+  projectId: z.coerce.number().int().positive(),
+  stageCode: z.string().min(1).max(80),
+  startShotNumber: z.coerce.number().int().positive(),
+  endShotNumber: z.coerce.number().int().positive(),
+  sequence: z.string().max(120).optional().nullable(),
+  userId: z.coerce.number().int().positive().nullable().optional()
+});
+
 const bulkShotUpdateSchema = z
   .object({
     shotStageIds: z.array(z.string().min(1)).min(1).max(1000),
@@ -458,6 +467,7 @@ module.exports = {
   updateAssetSchema,
   stageWorkspaceQuerySchema,
   bulkShotAssignSchema,
+  rangeShotAssignSchema,
   bulkShotUpdateSchema,
   smartAssignSchema,
   createCommentSchema,
