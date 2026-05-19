@@ -325,10 +325,144 @@ const updateShotStage = asyncHandler(async (req, res) => {
   return res.json(updated);
 });
 
+const bulkAssignShotStages = asyncHandler(async (req, res) => {
+  const shotStageIds = Array.from(new Set(req.body.shotStageIds || []));
+  const userId = Object.prototype.hasOwnProperty.call(req.body, "userId") ? req.body.userId : null;
+
+  if (!shotStageIds.length) {
+    throw new AppError("shotStageIds are required", 400);
+  }
+
+  if (userId) {
+    const user = await prisma.user.findUnique({
+      where: { id: Number(userId) },
+      select: { id: true, isActive: true }
+    });
+    if (!user || !user.isActive) {
+      throw new AppError("Assigned artist not found or inactive", 404);
+    }
+  }
+
+  const stages = await prisma.shotStage.findMany({
+    where: {
+      id: {
+        in: shotStageIds
+      }
+    },
+    select: {
+      id: true,
+      shotId: true
+    }
+  });
+
+  if (!stages.length) {
+    throw new AppError("No shot stages found", 404);
+  }
+
+  await prisma.shotStage.updateMany({
+    where: {
+      id: {
+        in: stages.map((stage) => stage.id)
+      }
+    },
+    data: {
+      assignedUserId: userId ? Number(userId) : null
+    }
+  });
+
+  return res.json({
+    success: true,
+    updatedCount: stages.length,
+    shotCount: new Set(stages.map((stage) => stage.shotId)).size
+  });
+});
+
+const bulkUpdateShotStages = asyncHandler(async (req, res) => {
+  const shotStageIds = Array.from(new Set(req.body.shotStageIds || []));
+
+  if (!shotStageIds.length) {
+    throw new AppError("shotStageIds are required", 400);
+  }
+
+  const stages = await prisma.shotStage.findMany({
+    where: {
+      id: {
+        in: shotStageIds
+      }
+    },
+    select: {
+      id: true,
+      shotId: true,
+      shot: {
+        select: {
+          projectId: true
+        }
+      }
+    }
+  });
+
+  if (!stages.length) {
+    throw new AppError("No shot stages found", 404);
+  }
+
+  const payload = {};
+
+  if (Object.prototype.hasOwnProperty.call(req.body, "status")) {
+    payload.status = req.body.status;
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body, "deadline")) {
+    payload.deadline = req.body.deadline ? new Date(req.body.deadline) : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body, "assignedUserId")) {
+    payload.assignedUserId = req.body.assignedUserId ? Number(req.body.assignedUserId) : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body, "notes")) {
+    payload.notes = req.body.notes || null;
+  }
+
+  if (!Object.keys(payload).length) {
+    throw new AppError("At least one update field is required", 400);
+  }
+
+  if (payload.status === "SUBMITTED") {
+    payload.submittedAt = new Date();
+  }
+  if (payload.status === "APPROVED") {
+    payload.approvedAt = new Date();
+    payload.feedback = null;
+  }
+  if (["REJECTED", "REVISION_REQUIRED"].includes(payload.status || "")) {
+    payload.approvedAt = null;
+  }
+
+  await prisma.shotStage.updateMany({
+    where: {
+      id: {
+        in: stages.map((stage) => stage.id)
+      }
+    },
+    data: payload
+  });
+
+  const uniqueShotIds = Array.from(new Set(stages.map((stage) => stage.shotId)));
+  const uniqueProjectIds = Array.from(new Set(stages.map((stage) => stage.shot.projectId)));
+
+  await Promise.all(uniqueShotIds.map((shotId) => refreshShotStatus(shotId)));
+  await Promise.all(uniqueProjectIds.map((projectId) => recalculateProjectProgress(projectId)));
+
+  return res.json({
+    success: true,
+    updatedCount: stages.length,
+    shotCount: uniqueShotIds.length
+  });
+});
+
 module.exports = {
   listProjectShots,
   createProjectShot,
   updateShot,
   deleteShot,
-  updateShotStage
+  updateShotStage,
+  bulkAssignShotStages,
+  bulkUpdateShotStages
 };

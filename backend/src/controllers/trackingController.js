@@ -320,6 +320,11 @@ const getStageShotsWorkspace = asyncHandler(async (req, res) => {
   const status = req.query.status;
   const artistId = req.query.artistId ? Number(req.query.artistId) : null;
   const search = req.query.search;
+  const sequence = req.query.sequence;
+  const unassigned = req.query.unassigned === true || req.query.unassigned === "true";
+  const overdue = req.query.overdue === true || req.query.overdue === "true";
+  const sortBy = req.query.sortBy || "shotNumber";
+  const sortDir = req.query.sortDir === "desc" ? "desc" : "asc";
 
   await assertProjectAccess(projectId, req.user);
 
@@ -345,11 +350,41 @@ const getStageShotsWorkspace = asyncHandler(async (req, res) => {
 
   if (status) where.status = status;
   if (artistId) where.assignedUserId = artistId;
+  if (unassigned) where.assignedUserId = null;
+  if (overdue) {
+    where.deadline = { lt: new Date() };
+    if (!status) {
+      where.status = { not: "APPROVED" };
+    }
+  }
+  if (sequence) {
+    where.shot = {
+      ...where.shot,
+      name: {
+        contains: String(sequence),
+        mode: "insensitive"
+      }
+    };
+  }
   if (search) {
-    where.OR = [
+    const shotSearch = [
       { shot: { name: { contains: String(search), mode: "insensitive" } } },
       { shot: { shotNumber: Number.isNaN(Number(search)) ? undefined : Number(search) } }
     ].filter(Boolean);
+    where.OR = where.OR ? [...where.OR, ...shotSearch] : shotSearch;
+  }
+
+  let orderBy = [{ shot: { order: "asc" } }, { shot: { shotNumber: "asc" } }];
+  if (sortBy === "deadline") {
+    orderBy = [{ deadline: sortDir }, { shot: { order: "asc" } }];
+  } else if (sortBy === "priority") {
+    orderBy = [{ shot: { order: sortDir } }, { shot: { shotNumber: "asc" } }];
+  } else if (sortBy === "status") {
+    orderBy = [{ status: sortDir }, { shot: { order: "asc" } }];
+  } else if (sortBy === "artist") {
+    orderBy = [{ assignedUserId: sortDir }, { shot: { order: "asc" } }];
+  } else if (sortBy === "shotNumber") {
+    orderBy = [{ shot: { shotNumber: sortDir } }, { shot: { order: "asc" } }];
   }
 
   const [total, items] = await Promise.all([
@@ -383,7 +418,7 @@ const getStageShotsWorkspace = asyncHandler(async (req, res) => {
           }
         }
       },
-      orderBy: [{ shot: { order: "asc" } }, { shot: { shotNumber: "asc" } }],
+      orderBy,
       skip: (page - 1) * pageSize,
       take: pageSize
     })

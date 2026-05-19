@@ -345,8 +345,41 @@ const stageWorkspaceQuerySchema = z.object({
   status: stageStatusEnum.optional(),
   artistId: z.coerce.number().int().positive().optional(),
   search: z.string().max(255).optional(),
-  type: z.enum(["CHARACTER", "PROP", "ENVIRONMENT"]).optional()
+  type: z.enum(["CHARACTER", "PROP", "ENVIRONMENT"]).optional(),
+  sequence: z.string().max(120).optional(),
+  unassigned: z.coerce.boolean().optional(),
+  overdue: z.coerce.boolean().optional(),
+  sortBy: z.enum(["shotNumber", "deadline", "priority", "status", "artist"]).optional(),
+  sortDir: z.enum(["asc", "desc"]).optional()
 });
+
+const bulkShotAssignSchema = z.object({
+  shotStageIds: z.array(z.string().min(1)).min(1).max(1000),
+  userId: z.coerce.number().int().positive().nullable().optional()
+});
+
+const bulkShotUpdateSchema = z
+  .object({
+    shotStageIds: z.array(z.string().min(1)).min(1).max(1000),
+    status: stageStatusEnum.optional(),
+    deadline: isoDate.nullable().optional(),
+    assignedUserId: z.coerce.number().int().positive().nullable().optional(),
+    notes: z.string().max(5000).optional()
+  })
+  .superRefine((value, ctx) => {
+    if (
+      !Object.prototype.hasOwnProperty.call(value, "status") &&
+      !Object.prototype.hasOwnProperty.call(value, "deadline") &&
+      !Object.prototype.hasOwnProperty.call(value, "assignedUserId") &&
+      !Object.prototype.hasOwnProperty.call(value, "notes")
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["status"],
+        message: "At least one update field is required"
+      });
+    }
+  });
 
 const smartAssignSchema = z
   .object({
@@ -424,6 +457,8 @@ module.exports = {
   createAssetSchema,
   updateAssetSchema,
   stageWorkspaceQuerySchema,
+  bulkShotAssignSchema,
+  bulkShotUpdateSchema,
   smartAssignSchema,
   createCommentSchema,
   updateCommentSchema,

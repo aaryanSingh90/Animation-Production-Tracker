@@ -8,7 +8,9 @@ const {
   stringIdParamSchema,
   createShotSchema,
   updateShotSchema,
-  updateStageSchema
+  updateStageSchema,
+  bulkShotAssignSchema,
+  bulkShotUpdateSchema
 } = require("../validation/schemas");
 
 const router = express.Router();
@@ -28,6 +30,18 @@ router.put(
   requireRoles("BOSS", "PRODUCTION_MANAGER", "COORDINATOR"),
   validate({ params: stringIdParamSchema, body: updateShotSchema }),
   shotsController.updateShot
+);
+router.post(
+  "/shots/bulk-assign",
+  requireRoles("BOSS", "PRODUCTION_MANAGER", "COORDINATOR"),
+  validate({ body: bulkShotAssignSchema }),
+  shotsController.bulkAssignShotStages
+);
+router.post(
+  "/shots/bulk-update",
+  requireRoles("BOSS", "PRODUCTION_MANAGER", "COORDINATOR"),
+  validate({ body: bulkShotUpdateSchema }),
+  shotsController.bulkUpdateShotStages
 );
 router.delete(
   "/shots/:id",
