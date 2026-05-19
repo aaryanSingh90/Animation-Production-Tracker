@@ -14,6 +14,41 @@ import { useToastStore } from "../store/toastStore";
 import { useAuthStore } from "../store/authStore";
 import { stageSlugFromCode } from "../utils/stageRouting";
 
+const TRACKING_GROUP_ORDER = ["PROJECT", "SHOT", "ASSET"];
+const TRACKING_GROUP_LABEL = {
+  PROJECT: "Project Stages",
+  SHOT: "Shot Stages",
+  ASSET: "Asset Stages"
+};
+
+const STAGE_GROUP_BY_CODE = {
+  AUDIO: "PROJECT",
+  ANIMATICS: "SHOT",
+  CHARACTER_MODELLING: "ASSET",
+  BLENDSHAPES: "ASSET",
+  BG_MODELLING: "ASSET",
+  RIGGING: "ASSET",
+  TEXTURING: "SHOT",
+  ANIMATION: "SHOT",
+  COMPOSITING: "PROJECT",
+  EDITING: "PROJECT"
+};
+
+const PIPELINE_STAGE_ORDER = [
+  "AUDIO",
+  "ANIMATICS",
+  "CHARACTER_MODELLING",
+  "BLENDSHAPES",
+  "BG_MODELLING",
+  "RIGGING",
+  "TEXTURING",
+  "ANIMATION",
+  "LIGHTING",
+  "RENDERING",
+  "COMPOSITING",
+  "EDITING"
+];
+
 function resolveStageCode(stage) {
   const fromDefinition = stage?.stageDefinition?.code;
   if (fromDefinition) return String(fromDefinition).toUpperCase();
@@ -21,6 +56,21 @@ function resolveStageCode(stage) {
   const stageName = String(stage?.stageName || "").toUpperCase();
   if (stageName === "RENDER") return "RENDERING";
   return stageName || null;
+}
+
+function normalizeTrackingGroup(value) {
+  const normalized = String(value || "").toUpperCase();
+  if (TRACKING_GROUP_ORDER.includes(normalized)) return normalized;
+  return "PROJECT";
+}
+
+function resolveSummaryTrackingGroup(summary) {
+  const stageCode = String(summary?.stageCode || "").toUpperCase();
+  const trackingMode = normalizeTrackingGroup(summary?.trackingMode);
+  if (stageCode === "LIGHTING" || stageCode === "RENDERING") {
+    return trackingMode === "SHOT" ? "SHOT" : "PROJECT";
+  }
+  return STAGE_GROUP_BY_CODE[stageCode] || trackingMode;
 }
 
 export default function ProjectDetailPage() {
@@ -126,6 +176,8 @@ export default function ProjectDetailPage() {
   }, [project]);
 
   const stageWorkspaceSummaries = useMemo(() => {
+    const stageOrder = new Map(PIPELINE_STAGE_ORDER.map((code, index) => [code, index]));
+
     return (overview?.stageSummaries || [])
       .map((summary) => {
         const stageCode = String(summary.stageCode || "").toUpperCase();
@@ -137,11 +189,63 @@ export default function ProjectDetailPage() {
         };
       })
       .sort((a, b) => {
-        const nameA = String(a.stageName || "");
-        const nameB = String(b.stageName || "");
-        return nameA.localeCompare(nameB);
+        const orderA = stageOrder.get(a.stageCode) ?? Number.MAX_SAFE_INTEGER;
+        const orderB = stageOrder.get(b.stageCode) ?? Number.MAX_SAFE_INTEGER;
+        if (orderA !== orderB) return orderA - orderB;
+        return String(a.stageName || "").localeCompare(String(b.stageName || ""));
       });
   }, [overview]);
+
+  const trackingModeByCode = useMemo(() => {
+    const map = new Map();
+    for (const summary of stageWorkspaceSummaries) {
+      map.set(summary.stageCode, summary.trackingMode);
+    }
+    return map;
+  }, [stageWorkspaceSummaries]);
+
+  const orderedStageIndexById = useMemo(
+    () => new Map(orderedStages.map((stage, index) => [stage.id, index])),
+    [orderedStages]
+  );
+
+  const groupedSummaries = useMemo(() => {
+    const groups = {
+      PROJECT: [],
+      SHOT: [],
+      ASSET: []
+    };
+    for (const summary of stageWorkspaceSummaries) {
+      const group = resolveSummaryTrackingGroup(summary);
+      groups[group].push(summary);
+    }
+    return groups;
+  }, [stageWorkspaceSummaries]);
+
+  const stageGroupByCode = useMemo(() => {
+    const map = new Map();
+    for (const summary of stageWorkspaceSummaries) {
+      const group = resolveSummaryTrackingGroup(summary);
+      map.set(summary.stageCode, group);
+    }
+    return map;
+  }, [stageWorkspaceSummaries]);
+
+  const groupedDetailedStages = useMemo(() => {
+    const groups = {
+      PROJECT: [],
+      SHOT: [],
+      ASSET: []
+    };
+    for (const stage of orderedStages) {
+      const stageCode = resolveStageCode(stage);
+      const trackingGroup =
+        stageGroupByCode.get(stageCode) ||
+        normalizeTrackingGroup(trackingModeByCode.get(stageCode) || stage.trackingMode || "PROJECT");
+      groups[trackingGroup].push(stage);
+    }
+    return groups;
+  }, [orderedStages, trackingModeByCode, stageGroupByCode]);
 
   const updateStage = async (stageId, payload, successMessage = "Stage updated") => {
     setSaving(true);
@@ -474,12 +578,13 @@ export default function ProjectDetailPage() {
                 </div>
               );
 
+              const summaryKey = `${summary.stageCode}-${summary.trackingMode || "PROJECT"}`;
               if (!summary.stageSlug) {
-                return <div key={summary.stageCode}>{card}</div>;
+                return <div key={summaryKey}>{card}</div>;
               }
 
               return (
-                <Link key={summary.stageCode} to={`/projects/${project.id}/${summary.stageSlug}`}>
+                <Link key={summaryKey} to={`/projects/${project.id}/${summary.stageSlug}`}>
                   {card}
                 </Link>
               );
@@ -499,322 +604,401 @@ export default function ProjectDetailPage() {
           </button>
         </div>
 
-        {orderedStages.map((stage, stageIndex) => {
-          const assignedUsers = stage.assignments || [];
-          const assignedDepartments = stage.departmentAssignments || [];
-          const availableUsers = users.filter((user) => !assignedUsers.some((assignment) => assignment.userId === user.id));
-          const availableDepartments = departments.filter(
-            (department) =>
-              !assignedDepartments.some((assignment) => (assignment.departmentId || assignment.department?.id) === department.id)
-          );
-          const commentCount = stageCommentCounts[stage.id] ?? stage._count?.comments ?? 0;
-          const commentsOpen = Boolean(openCommentsByStage[stage.id]);
-          const stageCode = resolveStageCode(stage);
-          const stageSlug = stageCode ? stageSlugFromCode(stageCode) : null;
-          const stageWorkspaceHref = stageSlug ? `/projects/${project.id}/${stageSlug}` : null;
+        <div className="grid gap-4 xl:grid-cols-3">
+          {TRACKING_GROUP_ORDER.map((groupKey) => {
+            const summaries = groupedSummaries[groupKey] || [];
+            const detailedStages = groupedDetailedStages[groupKey] || [];
 
-          return (
-            <div key={stage.id} className="rounded-xl border border-slate-200 p-4">
-              <div className="mb-3 flex items-center justify-between gap-4">
-                <div>
-                  {stageWorkspaceHref ? (
-                    <Link to={stageWorkspaceHref} className="text-sm font-semibold uppercase tracking-wide text-slate-800 hover:text-emerald-600">
-                      {getStageDisplayName(stage)}
-                    </Link>
-                  ) : (
-                    <p className="text-sm font-semibold uppercase tracking-wide text-slate-800">{getStageDisplayName(stage)}</p>
-                  )}
-                  <p className="text-xs text-slate-500">{stage.departmentName || "Department not set"}</p>
+            return (
+              <div key={groupKey} className="rounded-xl border border-slate-200 bg-slate-50/40 p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <h5 className="text-sm font-bold text-slate-800">{TRACKING_GROUP_LABEL[groupKey] || groupKey}</h5>
+                  <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                    {summaries.length} stages
+                  </span>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {stageWorkspaceHref && (
-                    <Link
-                      to={stageWorkspaceHref}
-                      className="rounded border border-emerald-300 px-2 py-0.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
-                    >
-                      Open Workspace
-                    </Link>
-                  )}
-                  <button
-                    onClick={() => moveStage(stage.id, "up")}
-                    disabled={stageIndex === 0 || saving}
-                    className="rounded border border-slate-300 px-1.5 py-0.5 text-xs disabled:opacity-50"
-                    title="Move stage up"
-                  >
-                    ↑
-                  </button>
-                  <button
-                    onClick={() => moveStage(stage.id, "down")}
-                    disabled={stageIndex === orderedStages.length - 1 || saving}
-                    className="rounded border border-slate-300 px-1.5 py-0.5 text-xs disabled:opacity-50"
-                    title="Move stage down"
-                  >
-                    ↓
-                  </button>
-                  <button
-                    onClick={() => deactivateStage(stage)}
-                    disabled={saving}
-                    className="rounded border border-red-300 px-1.5 py-0.5 text-xs text-red-600 hover:bg-red-50"
-                    title="Remove stage"
-                  >
-                    Remove
-                  </button>
-                  <StatusBadge status={stage.status} />
-                  <select
-                    value={stage.status}
-                    onChange={(event) => updateStage(stage.id, { status: event.target.value })}
-                    className="rounded-lg border border-slate-300 px-2 py-1 text-xs"
-                  >
-                    {STAGE_STATUSES.map((status) => (
-                      <option key={status} value={status}>
-                        {labelize(status)}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="date"
-                    defaultValue={formatDateInput(stage.deadline)}
-                    onBlur={(event) => updateStage(stage.id, { deadline: event.target.value || null }, "Deadline updated")}
-                    className={`rounded-lg border px-2 py-1.5 text-sm ${
-                      stage.isDeadlineMissed ? "border-red-400 bg-red-50 text-red-700" : "border-slate-300"
-                    }`}
-                  />
-                  <button
-                    onClick={() =>
-                      setOpenCommentsByStage((prev) => ({
-                        ...prev,
-                        [stage.id]: !prev[stage.id]
-                      }))
-                    }
-                    className={`rounded-full border px-2 py-1 text-xs font-semibold ${
-                      commentsOpen
-                        ? "border-sky-300 bg-sky-50 text-sky-700"
-                        : "border-slate-300 text-slate-600 hover:border-slate-400"
-                    }`}
-                  >
-                    {commentCount > 0 ? `${commentCount} comment${commentCount > 1 ? "s" : ""}` : "Comment"}
-                  </button>
-                </div>
-              </div>
 
-              <div className="mb-3">
-                <p className="mb-2 text-xs font-semibold text-slate-500">ASSIGNED DEPARTMENTS</p>
-                <div className="mb-3 flex flex-wrap items-center gap-2">
-                  {assignedDepartments.map((assignment) => {
-                    const dept = assignment.department;
-                    const memberCount = assignedUsers.filter((artist) => artist.user.departmentId === dept?.id).length;
+                <div className="space-y-2">
+                  {summaries.map((summary) => {
+                    const stageHref = summary.stageSlug ? `/projects/${project.id}/${summary.stageSlug}` : null;
+                    const completion = Number(summary.completionPercent || 0);
+                    const detailRowsForSummary = detailedStages.filter(
+                      (item) => resolveStageCode(item) === summary.stageCode
+                    );
+
                     return (
-                      <div key={assignment.id} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                        <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: dept?.color || "#10B981" }} />
-                        <div>
-                          <p className="text-sm font-medium text-slate-800">{dept?.name || "Department"}</p>
-                          <p className="text-[11px] text-slate-500">{memberCount} members assigned</p>
+                      <div key={`${groupKey}-${summary.stageCode}`} className="rounded-lg border border-slate-200 bg-white p-2.5">
+                        <div className="mb-2 flex items-start justify-between gap-2">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-800">{summary.stageName}</p>
+                          <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                            {summary.trackingMode}
+                          </span>
                         </div>
-                        <button
-                          onClick={() => removeDepartmentFromStage(stage.id, dept?.id)}
-                          className="text-xs text-slate-400 hover:text-red-500"
-                          disabled={saving}
-                        >
-                          Remove
-                        </button>
+                        <p className="mb-1 text-[11px] text-slate-500">
+                          {summary.approved}/{summary.total} approved
+                        </p>
+                        <div className="h-1.5 rounded-full bg-slate-200">
+                          <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, completion)}%` }} />
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {stageHref && (
+                            <Link
+                              to={stageHref}
+                              className="rounded border border-emerald-300 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-50"
+                            >
+                              Open Workspace
+                            </Link>
+                          )}
+                          {summary.delayed > 0 && (
+                            <span className="rounded border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-600">
+                              {summary.delayed} delayed
+                            </span>
+                          )}
+                          {summary.submitted > 0 && (
+                            <span className="rounded border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-600">
+                              {summary.submitted} submitted
+                            </span>
+                          )}
+                        </div>
+
+                        {detailRowsForSummary.map((stage) => {
+                          const stageIndex = orderedStageIndexById.get(stage.id) ?? 0;
+                          const assignedUsers = stage.assignments || [];
+                          const assignedDepartments = stage.departmentAssignments || [];
+                          const availableUsers = users.filter((user) => !assignedUsers.some((assignment) => assignment.userId === user.id));
+                          const availableDepartments = departments.filter(
+                            (department) =>
+                              !assignedDepartments.some((assignment) => (assignment.departmentId || assignment.department?.id) === department.id)
+                          );
+                          const commentCount = stageCommentCounts[stage.id] ?? stage._count?.comments ?? 0;
+                          const commentsOpen = Boolean(openCommentsByStage[stage.id]);
+                          const stageCode = resolveStageCode(stage);
+                          const stageSlug = stageCode ? stageSlugFromCode(stageCode) : null;
+                          const stageWorkspaceHref = stageSlug ? `/projects/${project.id}/${stageSlug}` : null;
+
+                          return (
+                            <div key={stage.id} className="mt-3 rounded-xl border border-slate-200 p-3">
+                              <div className="mb-3 flex items-center justify-between gap-4">
+                                <div>
+                                  {stageWorkspaceHref ? (
+                                    <Link to={stageWorkspaceHref} className="text-sm font-semibold uppercase tracking-wide text-slate-800 hover:text-emerald-600">
+                                      {getStageDisplayName(stage)}
+                                    </Link>
+                                  ) : (
+                                    <p className="text-sm font-semibold uppercase tracking-wide text-slate-800">{getStageDisplayName(stage)}</p>
+                                  )}
+                                  <p className="text-xs text-slate-500">{stage.departmentName || "Department not set"}</p>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {stageWorkspaceHref && (
+                                    <Link
+                                      to={stageWorkspaceHref}
+                                      className="rounded border border-emerald-300 px-2 py-0.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+                                    >
+                                      Open Workspace
+                                    </Link>
+                                  )}
+                                  <button
+                                    onClick={() => moveStage(stage.id, "up")}
+                                    disabled={stageIndex === 0 || saving}
+                                    className="rounded border border-slate-300 px-1.5 py-0.5 text-xs disabled:opacity-50"
+                                    title="Move stage up"
+                                  >
+                                    ↑
+                                  </button>
+                                  <button
+                                    onClick={() => moveStage(stage.id, "down")}
+                                    disabled={stageIndex === orderedStages.length - 1 || saving}
+                                    className="rounded border border-slate-300 px-1.5 py-0.5 text-xs disabled:opacity-50"
+                                    title="Move stage down"
+                                  >
+                                    ↓
+                                  </button>
+                                  <button
+                                    onClick={() => deactivateStage(stage)}
+                                    disabled={saving}
+                                    className="rounded border border-red-300 px-1.5 py-0.5 text-xs text-red-600 hover:bg-red-50"
+                                    title="Remove stage"
+                                  >
+                                    Remove
+                                  </button>
+                                  <StatusBadge status={stage.status} />
+                                  <select
+                                    value={stage.status}
+                                    onChange={(event) => updateStage(stage.id, { status: event.target.value })}
+                                    className="rounded-lg border border-slate-300 px-2 py-1 text-xs"
+                                  >
+                                    {STAGE_STATUSES.map((status) => (
+                                      <option key={status} value={status}>
+                                        {labelize(status)}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <input
+                                    type="date"
+                                    defaultValue={formatDateInput(stage.deadline)}
+                                    onBlur={(event) => updateStage(stage.id, { deadline: event.target.value || null }, "Deadline updated")}
+                                    className={`rounded-lg border px-2 py-1.5 text-sm ${
+                                      stage.isDeadlineMissed ? "border-red-400 bg-red-50 text-red-700" : "border-slate-300"
+                                    }`}
+                                  />
+                                  <button
+                                    onClick={() =>
+                                      setOpenCommentsByStage((prev) => ({
+                                        ...prev,
+                                        [stage.id]: !prev[stage.id]
+                                      }))
+                                    }
+                                    className={`rounded-full border px-2 py-1 text-xs font-semibold ${
+                                      commentsOpen
+                                        ? "border-sky-300 bg-sky-50 text-sky-700"
+                                        : "border-slate-300 text-slate-600 hover:border-slate-400"
+                                    }`}
+                                  >
+                                    {commentCount > 0 ? `${commentCount} comment${commentCount > 1 ? "s" : ""}` : "Comment"}
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="mb-3">
+                                <p className="mb-2 text-xs font-semibold text-slate-500">ASSIGNED DEPARTMENTS</p>
+                                <div className="mb-3 flex flex-wrap items-center gap-2">
+                                  {assignedDepartments.map((assignment) => {
+                                    const dept = assignment.department;
+                                    const memberCount = assignedUsers.filter((artist) => artist.user.departmentId === dept?.id).length;
+                                    return (
+                                      <div key={assignment.id} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                                        <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: dept?.color || "#10B981" }} />
+                                        <div>
+                                          <p className="text-sm font-medium text-slate-800">{dept?.name || "Department"}</p>
+                                          <p className="text-[11px] text-slate-500">{memberCount} members assigned</p>
+                                        </div>
+                                        <button
+                                          onClick={() => removeDepartmentFromStage(stage.id, dept?.id)}
+                                          className="text-xs text-slate-400 hover:text-red-500"
+                                          disabled={saving}
+                                        >
+                                          Remove
+                                        </button>
+                                      </div>
+                                    );
+                                  })}
+
+                                  {departmentPickerStageId !== stage.id ? (
+                                    <button
+                                      onClick={() => {
+                                        setDepartmentPickerStageId(stage.id);
+                                        setDepartmentToAssign("");
+                                      }}
+                                      className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-500 hover:border-emerald-500 hover:text-emerald-600"
+                                    >
+                                      Assign Department
+                                    </button>
+                                  ) : (
+                                    <div className="flex items-center gap-2 rounded-lg border border-slate-300 px-2 py-1.5">
+                                      <select
+                                        value={departmentToAssign}
+                                        onChange={(event) => setDepartmentToAssign(event.target.value)}
+                                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                                        autoFocus
+                                      >
+                                        <option value="">Select department...</option>
+                                        {availableDepartments.map((department) => (
+                                          <option key={department.id} value={department.id}>
+                                            {department.name} ({department.memberCount} members)
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <button
+                                        onClick={() => assignDepartmentToStage(stage.id)}
+                                        disabled={!departmentToAssign || saving}
+                                        className="rounded bg-emerald-500 px-2 py-1 text-xs font-semibold text-white disabled:opacity-60"
+                                      >
+                                        Assign
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          setDepartmentPickerStageId(null);
+                                          setDepartmentToAssign("");
+                                        }}
+                                        className="text-xs text-slate-500"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+
+                                <p className="mb-2 text-xs font-semibold text-slate-500">ASSIGNED ARTISTS</p>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {assignedUsers.map((assignment) => (
+                                    <div key={assignment.userId} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                                      <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500 text-xs font-bold text-white">
+                                        {assignment.user.name.charAt(0).toUpperCase()}
+                                      </span>
+                                      <div>
+                                        <p className="text-sm font-medium text-slate-800">{assignment.user.name}</p>
+                                        <span
+                                          className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+                                            assignment.user.employmentType === "FREELANCE"
+                                              ? "bg-blue-100 text-blue-700"
+                                              : "bg-emerald-100 text-emerald-700"
+                                          }`}
+                                        >
+                                          {assignment.user.employmentType === "FREELANCE" ? "Freelance" : "In-house"}
+                                        </span>
+                                      </div>
+                                      <button
+                                        onClick={() => removeArtistFromStage(stage.id, assignment.userId)}
+                                        className="text-xs text-slate-400 hover:text-red-500"
+                                        title="Remove from stage"
+                                        disabled={saving}
+                                      >
+                                        ✕
+                                      </button>
+                                    </div>
+                                  ))}
+
+                                  {artistPickerStageId !== stage.id ? (
+                                    <button
+                                      onClick={() => {
+                                        setArtistPickerStageId(stage.id);
+                                        setArtistToAdd("");
+                                      }}
+                                      className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-500 hover:border-emerald-500 hover:text-emerald-600"
+                                    >
+                                      + Add Artist
+                                    </button>
+                                  ) : (
+                                    <div className="flex items-center gap-2 rounded-lg border border-slate-300 px-2 py-1.5">
+                                      <select
+                                        value={artistToAdd}
+                                        onChange={(event) => setArtistToAdd(event.target.value)}
+                                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                                        autoFocus
+                                      >
+                                        <option value="">Select artist...</option>
+                                        {availableUsers.map((user) => (
+                                          <option key={user.id} value={user.id}>
+                                            {user.name} — {user.employmentType === "FREELANCE" ? "Freelance" : "In-house"} — {getDepartmentLabel(user)}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <button
+                                        onClick={() => assignArtistToStage(stage.id)}
+                                        disabled={!artistToAdd || saving}
+                                        className="rounded bg-emerald-500 px-2 py-1 text-xs font-semibold text-white disabled:opacity-60"
+                                      >
+                                        Assign
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          setArtistPickerStageId(null);
+                                          setArtistToAdd("");
+                                        }}
+                                        className="text-xs text-slate-500"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex items-start gap-3">
+                                <div className="text-xs text-slate-500">
+                                  <p>Submitted: {formatDate(stage.submittedAt)}</p>
+                                  <p>Approved: {formatDate(stage.approvedAt)}</p>
+                                </div>
+
+                                <textarea
+                                  rows={2}
+                                  defaultValue={stage.notes || ""}
+                                  onBlur={(event) => updateStage(stage.id, { notes: event.target.value }, "Notes updated")}
+                                  className="flex-1 rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
+                                  placeholder="Notes..."
+                                />
+
+                                <div className="flex flex-col gap-1.5">
+                                  {stage.status === "SUBMITTED" && (
+                                    <>
+                                      <button
+                                        disabled={saving}
+                                        onClick={() => approveStage(stage.id)}
+                                        className="rounded-lg bg-emerald-500 px-2 py-1 text-xs font-semibold text-white"
+                                      >
+                                        Approve
+                                      </button>
+                                      <button
+                                        disabled={saving}
+                                        onClick={() => {
+                                          setRejectStage(stage);
+                                          setRejectFeedback(stage.feedback || "");
+                                        }}
+                                        className="rounded-lg bg-red-500 px-2 py-1 text-xs font-semibold text-white"
+                                      >
+                                        Reject
+                                      </button>
+                                    </>
+                                  )}
+                                  <button
+                                    disabled={saving}
+                                    onClick={() => setIssueStage(stage)}
+                                    className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
+                                  >
+                                    Log Issue
+                                  </button>
+                                  <button
+                                    disabled={saving}
+                                    onClick={() => {
+                                      setExtendStage(stage);
+                                      setExtendDeadline(formatDateInput(stage.deadline));
+                                      setExtendReason("");
+                                    }}
+                                    className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
+                                  >
+                                    Extend
+                                  </button>
+                                </div>
+                              </div>
+
+                              {commentsOpen && (
+                                <StageCommentThread
+                                  stageId={stage.id}
+                                  currentUser={currentUser}
+                                  isManager
+                                  onCountChange={(count) =>
+                                    setStageCommentCounts((prev) => ({
+                                      ...prev,
+                                      [stage.id]: count
+                                    }))
+                                  }
+                                />
+                              )}
+                            </div>
+                          );
+                        })}
+
+                        {!detailRowsForSummary.length && (
+                          <p className="mt-2 text-[11px] text-slate-500">
+                            {groupKey === "PROJECT"
+                              ? "No project-level rows available for this stage."
+                              : `Managed in ${groupKey.toLowerCase()} workspace. Open workspace to manage items.`}
+                          </p>
+                        )}
                       </div>
                     );
                   })}
-
-                  {departmentPickerStageId !== stage.id ? (
-                    <button
-                      onClick={() => {
-                        setDepartmentPickerStageId(stage.id);
-                        setDepartmentToAssign("");
-                      }}
-                      className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-500 hover:border-emerald-500 hover:text-emerald-600"
-                    >
-                      Assign Department
-                    </button>
-                  ) : (
-                    <div className="flex items-center gap-2 rounded-lg border border-slate-300 px-2 py-1.5">
-                      <select
-                        value={departmentToAssign}
-                        onChange={(event) => setDepartmentToAssign(event.target.value)}
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
-                        autoFocus
-                      >
-                        <option value="">Select department...</option>
-                        {availableDepartments.map((department) => (
-                          <option key={department.id} value={department.id}>
-                            {department.name} ({department.memberCount} members)
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        onClick={() => assignDepartmentToStage(stage.id)}
-                        disabled={!departmentToAssign || saving}
-                        className="rounded bg-emerald-500 px-2 py-1 text-xs font-semibold text-white disabled:opacity-60"
-                      >
-                        Assign
-                      </button>
-                      <button
-                        onClick={() => {
-                          setDepartmentPickerStageId(null);
-                          setDepartmentToAssign("");
-                        }}
-                        className="text-xs text-slate-500"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                <p className="mb-2 text-xs font-semibold text-slate-500">ASSIGNED ARTISTS</p>
-                <div className="flex flex-wrap items-center gap-2">
-                  {assignedUsers.map((assignment) => (
-                    <div key={assignment.userId} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                      <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500 text-xs font-bold text-white">
-                        {assignment.user.name.charAt(0).toUpperCase()}
-                      </span>
-                      <div>
-                        <p className="text-sm font-medium text-slate-800">{assignment.user.name}</p>
-                        <span
-                          className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
-                            assignment.user.employmentType === "FREELANCE"
-                              ? "bg-blue-100 text-blue-700"
-                              : "bg-emerald-100 text-emerald-700"
-                          }`}
-                        >
-                          {assignment.user.employmentType === "FREELANCE" ? "Freelance" : "In-house"}
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => removeArtistFromStage(stage.id, assignment.userId)}
-                        className="text-xs text-slate-400 hover:text-red-500"
-                        title="Remove from stage"
-                        disabled={saving}
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ))}
-
-                  {artistPickerStageId !== stage.id ? (
-                    <button
-                      onClick={() => {
-                        setArtistPickerStageId(stage.id);
-                        setArtistToAdd("");
-                      }}
-                      className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-500 hover:border-emerald-500 hover:text-emerald-600"
-                    >
-                      + Add Artist
-                    </button>
-                  ) : (
-                    <div className="flex items-center gap-2 rounded-lg border border-slate-300 px-2 py-1.5">
-                      <select
-                        value={artistToAdd}
-                        onChange={(event) => setArtistToAdd(event.target.value)}
-                        className="rounded border border-slate-300 px-2 py-1 text-sm"
-                        autoFocus
-                      >
-                        <option value="">Select artist...</option>
-                        {availableUsers.map((user) => (
-                          <option key={user.id} value={user.id}>
-                            {user.name} — {user.employmentType === "FREELANCE" ? "Freelance" : "In-house"} — {getDepartmentLabel(user)}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        onClick={() => assignArtistToStage(stage.id)}
-                        disabled={!artistToAdd || saving}
-                        className="rounded bg-emerald-500 px-2 py-1 text-xs font-semibold text-white disabled:opacity-60"
-                      >
-                        Assign
-                      </button>
-                      <button
-                        onClick={() => {
-                          setArtistPickerStageId(null);
-                          setArtistToAdd("");
-                        }}
-                        className="text-xs text-slate-500"
-                      >
-                        Cancel
-                      </button>
+                  {!summaries.length && (
+                    <div className="rounded-lg border border-dashed border-slate-300 bg-white p-3 text-xs text-slate-500">
+                      No active stages in this group.
                     </div>
                   )}
                 </div>
               </div>
-
-              <div className="flex items-start gap-3">
-                <div className="text-xs text-slate-500">
-                  <p>Submitted: {formatDate(stage.submittedAt)}</p>
-                  <p>Approved: {formatDate(stage.approvedAt)}</p>
-                </div>
-
-                <textarea
-                  rows={2}
-                  defaultValue={stage.notes || ""}
-                  onBlur={(event) => updateStage(stage.id, { notes: event.target.value }, "Notes updated")}
-                  className="flex-1 rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
-                  placeholder="Notes..."
-                />
-
-                <div className="flex flex-col gap-1.5">
-                  {stage.status === "SUBMITTED" && (
-                    <>
-                      <button
-                        disabled={saving}
-                        onClick={() => approveStage(stage.id)}
-                        className="rounded-lg bg-emerald-500 px-2 py-1 text-xs font-semibold text-white"
-                      >
-                        Approve
-                      </button>
-                      <button
-                        disabled={saving}
-                        onClick={() => {
-                          setRejectStage(stage);
-                          setRejectFeedback(stage.feedback || "");
-                        }}
-                        className="rounded-lg bg-red-500 px-2 py-1 text-xs font-semibold text-white"
-                      >
-                        Reject
-                      </button>
-                    </>
-                  )}
-                  <button
-                    disabled={saving}
-                    onClick={() => setIssueStage(stage)}
-                    className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
-                  >
-                    Log Issue
-                  </button>
-                  <button
-                    disabled={saving}
-                    onClick={() => {
-                      setExtendStage(stage);
-                      setExtendDeadline(formatDateInput(stage.deadline));
-                      setExtendReason("");
-                    }}
-                    className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
-                  >
-                    Extend
-                  </button>
-                </div>
-              </div>
-
-              {commentsOpen && (
-                <StageCommentThread
-                  stageId={stage.id}
-                  currentUser={currentUser}
-                  isManager
-                  onCountChange={(count) =>
-                    setStageCommentCounts((prev) => ({
-                      ...prev,
-                      [stage.id]: count
-                    }))
-                  }
-                />
-              )}
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </section>
 
       <section className="grid grid-cols-2 gap-6">
