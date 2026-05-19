@@ -5,9 +5,17 @@ async function ensureUniversalAdmin() {
   const email = (process.env.UNIVERSAL_ADMIN_EMAIL || "admin@animationtracker.com").toLowerCase();
   const password = process.env.UNIVERSAL_ADMIN_PASSWORD || "Admin@12345";
   const name = process.env.UNIVERSAL_ADMIN_NAME || "Universal Admin";
-  const department = process.env.UNIVERSAL_ADMIN_DEPARTMENT || "Administration";
+  const departmentName = process.env.UNIVERSAL_ADMIN_DEPARTMENT || "Administration";
 
   const hashedPassword = await bcrypt.hash(password, 10);
+  const department = await prisma.department.upsert({
+    where: { name: departmentName },
+    create: {
+      name: departmentName,
+      color: "#10B981"
+    },
+    update: {}
+  });
 
   const admin = await prisma.user.upsert({
     where: { email },
@@ -16,14 +24,16 @@ async function ensureUniversalAdmin() {
       email,
       password: hashedPassword,
       role: "BOSS",
-      department,
+      departmentId: department.id,
+      departmentName: department.name,
       isActive: true
     },
     update: {
       name,
       password: hashedPassword,
       role: "BOSS",
-      department,
+      departmentId: department.id,
+      departmentName: department.name,
       isActive: true
     },
     select: {

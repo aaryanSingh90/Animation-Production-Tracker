@@ -48,7 +48,16 @@ const listProjects = asyncHandler(async (req, res) => {
           assignments: {
             include: {
               user: {
-                select: { id: true, name: true, department: true, employmentType: true }
+                select: {
+                  id: true,
+                  name: true,
+                  departmentId: true,
+                  departmentName: true,
+                  department: {
+                    select: { id: true, name: true, color: true }
+                  },
+                  employmentType: true
+                }
               }
             }
           }
@@ -156,12 +165,38 @@ const getProjectById = asyncHandler(async (req, res) => {
       stages: {
         include: {
           assignedUser: {
-            select: { id: true, name: true, role: true, department: true }
+            select: {
+              id: true,
+              name: true,
+              role: true,
+              departmentId: true,
+              departmentName: true,
+              department: {
+                select: { id: true, name: true, color: true }
+              }
+            }
           },
           assignments: {
             include: {
               user: {
-                select: { id: true, name: true, role: true, department: true, employmentType: true }
+                select: {
+                  id: true,
+                  name: true,
+                  role: true,
+                  departmentId: true,
+                  departmentName: true,
+                  department: {
+                    select: { id: true, name: true, color: true }
+                  },
+                  employmentType: true
+                }
+              }
+            }
+          },
+          departmentAssignments: {
+            include: {
+              department: {
+                select: { id: true, name: true, color: true }
               }
             }
           },
@@ -309,7 +344,16 @@ const getMyProjects = asyncHandler(async (req, res) => {
           assignments: {
             include: {
               user: {
-                select: { id: true, name: true, employmentType: true, department: true }
+                select: {
+                  id: true,
+                  name: true,
+                  employmentType: true,
+                  departmentId: true,
+                  departmentName: true,
+                  department: {
+                    select: { id: true, name: true, color: true }
+                  }
+                }
               }
             }
           }

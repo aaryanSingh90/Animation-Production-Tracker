@@ -34,7 +34,15 @@ const getApprovalQueue = asyncHandler(async (req, res) => {
         select: { id: true, name: true, priority: true }
       },
       assignedUser: {
-        select: { id: true, name: true, department: true }
+        select: {
+          id: true,
+          name: true,
+          departmentId: true,
+          departmentName: true,
+          department: {
+            select: { id: true, name: true, color: true }
+          }
+        }
       }
     },
     orderBy: { submittedAt: "asc" }

@@ -26,6 +26,7 @@ const approvalsRoutes = require("./routes/approvalsRoutes");
 const notificationsRoutes = require("./routes/notificationsRoutes");
 const reportsRoutes = require("./routes/reportsRoutes");
 const issuesRoutes = require("./routes/issuesRoutes");
+const departmentsRoutes = require("./routes/departmentsRoutes");
 
 const app = express();
 const server = http.createServer(app);
@@ -107,6 +108,7 @@ app.use("/api/approvals", approvalsRoutes);
 app.use("/api/notifications", notificationsRoutes);
 app.use("/api/reports", reportsRoutes);
 app.use("/api/issues", issuesRoutes);
+app.use("/api/departments", departmentsRoutes);
 
 app.use("*", (req, res) => {
   res.status(404).json({

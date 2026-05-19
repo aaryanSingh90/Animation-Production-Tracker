@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, FolderKanban, Users, CheckCheck, Shapes, BarChart3, ListTodo, PanelLeft } from "lucide-react";
+import { LayoutDashboard, FolderKanban, Users, CheckCheck, Shapes, BarChart3, ListTodo, PanelLeft, Building2 } from "lucide-react";
 import { useUiStore } from "../store/uiStore";
 
 const managerLinks = [
@@ -8,6 +8,7 @@ const managerLinks = [
   { label: "Characters", to: "/characters", icon: Shapes },
   { label: "Approval Queue", to: "/approvals", icon: CheckCheck },
   { label: "Employees", to: "/employees", icon: Users },
+  { label: "Departments", to: "/departments", icon: Building2 },
   { label: "Reports", to: "/reports", icon: BarChart3 }
 ];
 

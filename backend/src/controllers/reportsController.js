@@ -230,7 +230,15 @@ const getUpcomingDeadlines = asyncHandler(async (req, res) => {
         select: { id: true, name: true, priority: true }
       },
       assignedUser: {
-        select: { id: true, name: true, department: true }
+        select: {
+          id: true,
+          name: true,
+          departmentId: true,
+          departmentName: true,
+          department: {
+            select: { id: true, name: true, color: true }
+          }
+        }
       }
     },
     orderBy: { deadline: "asc" }
@@ -279,7 +287,15 @@ const getWorkloadReport = asyncHandler(async (req, res) => {
       id: true,
       name: true,
       role: true,
-      department: true,
+      departmentId: true,
+      departmentName: true,
+      department: {
+        select: {
+          id: true,
+          name: true,
+          color: true
+        }
+      },
       employmentType: true,
       assignedProjectStages: {
         where: {
@@ -337,7 +353,7 @@ const getWorkloadReport = asyncHandler(async (req, res) => {
       id: user.id,
       name: user.name,
       role: user.role,
-      department: user.department,
+      department: user.department?.name || user.departmentName || null,
       employmentType: user.employmentType,
       activeTaskCount: tasks.length,
       tasks
@@ -376,7 +392,15 @@ const getTeamCompositionReport = asyncHandler(async (req, res) => {
     include: {
       user: {
         select: {
-          employmentType: true
+          employmentType: true,
+          departmentName: true,
+          department: {
+            select: {
+              id: true,
+              name: true,
+              color: true
+            }
+          }
         }
       },
       projectStage: {
@@ -390,7 +414,11 @@ const getTeamCompositionReport = asyncHandler(async (req, res) => {
 
   const byDepartmentMap = new Map();
   for (const assignment of activeAssignments) {
-    const department = assignment.projectStage.departmentName || assignment.projectStage.stageName.replaceAll("_", " ");
+    const department =
+      assignment.user.department?.name ||
+      assignment.user.departmentName ||
+      assignment.projectStage.departmentName ||
+      assignment.projectStage.stageName.replaceAll("_", " ");
     if (!byDepartmentMap.has(department)) {
       byDepartmentMap.set(department, {
         department,

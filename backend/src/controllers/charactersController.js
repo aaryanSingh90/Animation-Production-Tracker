@@ -9,7 +9,15 @@ const listCharacters = asyncHandler(async (req, res) => {
       stages: {
         include: {
           assignedUser: {
-            select: { id: true, name: true, department: true }
+            select: {
+              id: true,
+              name: true,
+              departmentId: true,
+              departmentName: true,
+              department: {
+                select: { id: true, name: true, color: true }
+              }
+            }
           }
         }
       },

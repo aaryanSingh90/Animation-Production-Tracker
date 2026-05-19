@@ -32,6 +32,23 @@ const STAGE_DEFAULTS = {
   EDITING: "Editing Department"
 };
 
+const DEFAULT_DEPARTMENTS = [
+  { name: "Audio Department", color: "#6366F1" },
+  { name: "Animatics Department", color: "#8B5CF6" },
+  { name: "Character Modelling & Blendshapes", color: "#EC4899" },
+  { name: "BG Modelling Department", color: "#10B981" },
+  { name: "Rigging Department", color: "#F59E0B" },
+  { name: "Texturing Department", color: "#EF4444" },
+  { name: "Animation Department", color: "#3B82F6" },
+  { name: "Lighting Department", color: "#F97316" },
+  { name: "Render Department", color: "#14B8A6" },
+  { name: "Compositing Department", color: "#84CC16" },
+  { name: "Editing Department", color: "#06B6D4" },
+  { name: "Administration", color: "#0F172A" },
+  { name: "Production", color: "#334155" },
+  { name: "Pipeline", color: "#1D4ED8" }
+];
+
 const CHARACTER_STAGES = ["REFERENCE", "MODELLING", "BLENDSHAPES", "TEXTURING", "RIGGING"];
 
 const projectsSeed = [
@@ -47,18 +64,7 @@ const projectsSeed = [
   { name: "Machli Jal Ki Rani", priority: 10 }
 ];
 
-const charactersSeed = [
-  "Raja",
-  "Rani",
-  "Hathi",
-  "Bandar",
-  "Lakdi",
-  "Chanda",
-  "Baby",
-  "Machli",
-  "Jack",
-  "Jill"
-];
+const charactersSeed = ["Raja", "Rani", "Hathi", "Bandar", "Lakdi", "Chanda", "Baby", "Machli", "Jack", "Jill"];
 
 function stageStatusByProject(projectIndex, stageIndex) {
   if (projectIndex === 0) {
@@ -137,6 +143,7 @@ async function main() {
   await prisma.activityLog.deleteMany();
   await prisma.notification.deleteMany();
   await prisma.issueLog.deleteMany();
+  await prisma.stageDepartmentAssignment.deleteMany();
   await prisma.stageAssignment.deleteMany();
   await prisma.projectCharacter.deleteMany();
   await prisma.characterStage.deleteMany();
@@ -144,6 +151,18 @@ async function main() {
   await prisma.projectStage.deleteMany();
   await prisma.project.deleteMany();
   await prisma.user.deleteMany();
+  await prisma.department.deleteMany();
+
+  const departments = new Map();
+  for (const department of DEFAULT_DEPARTMENTS) {
+    const record = await prisma.department.create({
+      data: {
+        name: department.name,
+        color: department.color
+      }
+    });
+    departments.set(record.name, record);
+  }
 
   const users = await Promise.all([
     prisma.user.create({
@@ -152,7 +171,8 @@ async function main() {
         email: "boss@studio.com",
         password: defaultPassword,
         role: "BOSS",
-        department: "Leadership",
+        departmentId: departments.get("Administration").id,
+        departmentName: "Administration",
         employmentType: "INHOUSE"
       }
     }),
@@ -162,7 +182,8 @@ async function main() {
         email: "manager@studio.com",
         password: defaultPassword,
         role: "PRODUCTION_MANAGER",
-        department: "Production",
+        departmentId: departments.get("Production").id,
+        departmentName: "Production",
         employmentType: "INHOUSE"
       }
     }),
@@ -172,64 +193,71 @@ async function main() {
         email: "coordinator@studio.com",
         password: defaultPassword,
         role: "COORDINATOR",
-        department: "Pipeline",
+        departmentId: departments.get("Pipeline").id,
+        departmentName: "Pipeline",
         employmentType: "INHOUSE"
       }
     }),
     prisma.user.create({
       data: {
-        name: "Artist 1",
+        name: "Rahul Kumar",
         email: "artist1@studio.com",
         password: defaultPassword,
         role: "EMPLOYEE",
-        department: "Animator",
+        departmentId: departments.get("Animation Department").id,
+        departmentName: "Animation Department",
         employmentType: "INHOUSE"
       }
     }),
     prisma.user.create({
       data: {
-        name: "Artist 2",
+        name: "Priya Singh",
         email: "artist2@studio.com",
         password: defaultPassword,
         role: "EMPLOYEE",
-        department: "Rigger",
+        departmentId: departments.get("Rigging Department").id,
+        departmentName: "Rigging Department",
         employmentType: "INHOUSE"
       }
     }),
     prisma.user.create({
       data: {
-        name: "Artist 3",
+        name: "Amit Sharma",
         email: "artist3@studio.com",
         password: defaultPassword,
         role: "EMPLOYEE",
-        department: "BG Artist",
+        departmentId: departments.get("BG Modelling Department").id,
+        departmentName: "BG Modelling Department",
         employmentType: "FREELANCE"
       }
     }),
     prisma.user.create({
       data: {
-        name: "Artist 4",
+        name: "Neha Patel",
         email: "artist4@studio.com",
         password: defaultPassword,
         role: "EMPLOYEE",
-        department: "Compositor",
+        departmentId: departments.get("Compositing Department").id,
+        departmentName: "Compositing Department",
         employmentType: "FREELANCE"
       }
     }),
     prisma.user.create({
       data: {
-        name: "Artist 5",
+        name: "Vikram Das",
         email: "artist5@studio.com",
         password: defaultPassword,
         role: "EMPLOYEE",
-        department: "Modeller",
+        departmentId: departments.get("Character Modelling & Blendshapes").id,
+        departmentName: "Character Modelling & Blendshapes",
         employmentType: "INHOUSE"
       }
     })
   ]);
 
   const managerIds = users.filter((u) => ["BOSS", "PRODUCTION_MANAGER", "COORDINATOR"].includes(u.role)).map((u) => u.id);
-  const artistIds = users.filter((u) => u.role === "EMPLOYEE").map((u) => u.id);
+  const artists = users.filter((u) => u.role === "EMPLOYEE");
+  const artistIds = artists.map((u) => u.id);
 
   const createdProjects = [];
 
@@ -270,6 +298,16 @@ async function main() {
         }
       });
 
+      const stageDepartment = departments.get(STAGE_DEFAULTS[stageName]);
+      if (stageDepartment) {
+        await prisma.stageDepartmentAssignment.create({
+          data: {
+            projectStageId: stageRecord.id,
+            departmentId: stageDepartment.id
+          }
+        });
+      }
+
       const extraArtistIds = [];
       if (stageName === "CHARACTER_MODELLING_BLENDSHAPES") {
         extraArtistIds.push(artistIds[(projectIndex + stageIndex + 1) % artistIds.length]);
@@ -283,21 +321,13 @@ async function main() {
       }
 
       const allAssigned = Array.from(new Set([assignedUserId, ...extraArtistIds]));
-      for (const userId of allAssigned) {
-        await prisma.stageAssignment.upsert({
-          where: {
-            projectStageId_userId: {
-              projectStageId: stageRecord.id,
-              userId
-            }
-          },
-          create: {
-            projectStageId: stageRecord.id,
-            userId
-          },
-          update: {}
-        });
-      }
+      await prisma.stageAssignment.createMany({
+        data: allAssigned.map((userId) => ({
+          projectStageId: stageRecord.id,
+          userId
+        })),
+        skipDuplicates: true
+      });
     }
 
     createdProjects.push(project);

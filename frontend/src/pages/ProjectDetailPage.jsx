@@ -7,7 +7,7 @@ import EmptyState from "../components/EmptyState";
 import IssueModal from "../components/IssueModal";
 import Modal from "../components/Modal";
 import ProgressBar from "../components/ProgressBar";
-import { formatDate, formatDateInput, labelize } from "../utils/format";
+import { formatDate, formatDateInput, getDepartmentLabel, labelize } from "../utils/format";
 import { STAGE_STATUSES } from "../utils/constants";
 import { useToastStore } from "../store/toastStore";
 
@@ -22,6 +22,7 @@ export default function ProjectDetailPage() {
   const [project, setProject] = useState(null);
   const [users, setUsers] = useState([]);
   const [characters, setCharacters] = useState([]);
+  const [departments, setDepartments] = useState([]);
 
   const [issueStage, setIssueStage] = useState(null);
   const [rejectStage, setRejectStage] = useState(null);
@@ -31,6 +32,8 @@ export default function ProjectDetailPage() {
   const [extendReason, setExtendReason] = useState("");
   const [artistPickerStageId, setArtistPickerStageId] = useState(null);
   const [artistToAdd, setArtistToAdd] = useState("");
+  const [departmentPickerStageId, setDepartmentPickerStageId] = useState(null);
+  const [departmentToAssign, setDepartmentToAssign] = useState("");
 
   const [editingProject, setEditingProject] = useState(false);
   const [projectForm, setProjectForm] = useState({ name: "", priority: 1, audioReceivedDate: "" });
@@ -40,14 +43,16 @@ export default function ProjectDetailPage() {
   async function fetchData() {
     setLoading(true);
     try {
-      const [projectRes, usersRes, charsRes] = await Promise.all([
+      const [projectRes, usersRes, charsRes, departmentsRes] = await Promise.all([
         api.get(`/projects/${id}`),
         api.get("/users"),
-        api.get("/characters")
+        api.get("/characters"),
+        api.get("/departments")
       ]);
       setProject(projectRes.data);
       setUsers(usersRes.data.filter((user) => user.role === "EMPLOYEE"));
       setCharacters(charsRes.data);
+      setDepartments(departmentsRes.data);
       setProjectForm({
         name: projectRes.data.name,
         priority: projectRes.data.priority,
@@ -232,6 +237,37 @@ export default function ProjectDetailPage() {
     }
   };
 
+  const assignDepartmentToStage = async (stageId) => {
+    if (!departmentToAssign) return;
+    setSaving(true);
+    try {
+      const { data } = await api.post(`/stages/${stageId}/assign-department`, { departmentId: departmentToAssign });
+      showToast("success", `${data.department} (${data.assigned} artists) assigned`);
+      setDepartmentPickerStageId(null);
+      setDepartmentToAssign("");
+      await fetchData();
+    } catch (error) {
+      showToast("error", error.userMessage || error.response?.data?.message || "Unable to assign department");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeDepartmentFromStage = async (stageId, departmentId) => {
+    const confirmed = window.confirm("Remove this department and its members from the stage?");
+    if (!confirmed) return;
+    setSaving(true);
+    try {
+      await api.delete(`/stages/${stageId}/assign-department/${departmentId}`);
+      showToast("success", "Department removed from stage");
+      await fetchData();
+    } catch (error) {
+      showToast("error", error.userMessage || error.response?.data?.message || "Unable to remove department");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) return <Loader label="Loading project detail..." />;
   if (!project) return <EmptyState title="Project not found" description="This project may have been deleted." />;
 
@@ -264,7 +300,12 @@ export default function ProjectDetailPage() {
       <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
         {project.stages.map((stage) => {
           const assignedUsers = stage.assignments || [];
+          const assignedDepartments = stage.departmentAssignments || [];
           const availableUsers = users.filter((user) => !assignedUsers.some((assignment) => assignment.userId === user.id));
+          const availableDepartments = departments.filter(
+            (department) =>
+              !assignedDepartments.some((assignment) => (assignment.departmentId || assignment.department?.id) === department.id)
+          );
 
           return (
             <div key={stage.id} className="rounded-xl border border-slate-200 p-4">
@@ -298,6 +339,74 @@ export default function ProjectDetailPage() {
               </div>
 
               <div className="mb-3">
+                <p className="mb-2 text-xs font-semibold text-slate-500">ASSIGNED DEPARTMENTS</p>
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  {assignedDepartments.map((assignment) => {
+                    const dept = assignment.department;
+                    const memberCount = assignedUsers.filter((artist) => artist.user.departmentId === dept?.id).length;
+                    return (
+                      <div key={assignment.id} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                        <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: dept?.color || "#10B981" }} />
+                        <div>
+                          <p className="text-sm font-medium text-slate-800">{dept?.name || "Department"}</p>
+                          <p className="text-[11px] text-slate-500">{memberCount} members assigned</p>
+                        </div>
+                        <button
+                          onClick={() => removeDepartmentFromStage(stage.id, dept?.id)}
+                          className="text-xs text-slate-400 hover:text-red-500"
+                          disabled={saving}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    );
+                  })}
+
+                  {departmentPickerStageId !== stage.id ? (
+                    <button
+                      onClick={() => {
+                        setDepartmentPickerStageId(stage.id);
+                        setDepartmentToAssign("");
+                      }}
+                      className="rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-500 hover:border-emerald-500 hover:text-emerald-600"
+                    >
+                      Assign Department
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2 rounded-lg border border-slate-300 px-2 py-1.5">
+                      <select
+                        value={departmentToAssign}
+                        onChange={(event) => setDepartmentToAssign(event.target.value)}
+                        className="rounded border border-slate-300 px-2 py-1 text-sm"
+                        autoFocus
+                      >
+                        <option value="">Select department...</option>
+                        {availableDepartments.map((department) => (
+                          <option key={department.id} value={department.id}>
+                            {department.name} ({department.memberCount} members)
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() => assignDepartmentToStage(stage.id)}
+                        disabled={!departmentToAssign || saving}
+                        className="rounded bg-emerald-500 px-2 py-1 text-xs font-semibold text-white disabled:opacity-60"
+                      >
+                        Assign
+                      </button>
+                      <button
+                        onClick={() => {
+                          setDepartmentPickerStageId(null);
+                          setDepartmentToAssign("");
+                        }}
+                        className="text-xs text-slate-500"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 <p className="mb-2 text-xs font-semibold text-slate-500">ASSIGNED ARTISTS</p>
                 <div className="flex flex-wrap items-center gap-2">
                   {assignedUsers.map((assignment) => (
@@ -349,7 +458,7 @@ export default function ProjectDetailPage() {
                         <option value="">Select artist...</option>
                         {availableUsers.map((user) => (
                           <option key={user.id} value={user.id}>
-                            {user.name} — {user.employmentType === "FREELANCE" ? "Freelance" : "In-house"} — {user.department || "-"}
+                            {user.name} — {user.employmentType === "FREELANCE" ? "Freelance" : "In-house"} — {getDepartmentLabel(user)}
                           </option>
                         ))}
                       </select>

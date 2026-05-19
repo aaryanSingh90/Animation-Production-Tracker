@@ -6,11 +6,13 @@ const stagesController = require("../controllers/stagesController");
 const {
   idParamSchema,
   stageArtistParamSchema,
+  stageDepartmentParamSchema,
   updateStageSchema,
   rejectStageSchema,
   issueSchema,
   extendDeadlineSchema,
-  assignArtistSchema
+  assignArtistSchema,
+  assignDepartmentSchema
 } = require("../validation/schemas");
 
 const router = express.Router();
@@ -49,6 +51,18 @@ router.delete(
   requireRoles("BOSS", "PRODUCTION_MANAGER", "COORDINATOR"),
   validate({ params: stageArtistParamSchema }),
   stagesController.removeArtistFromStage
+);
+router.post(
+  "/:id/assign-department",
+  requireRoles("BOSS", "PRODUCTION_MANAGER", "COORDINATOR"),
+  validate({ params: idParamSchema, body: assignDepartmentSchema }),
+  stagesController.assignDepartmentToStage
+);
+router.delete(
+  "/:id/assign-department/:departmentId",
+  requireRoles("BOSS", "PRODUCTION_MANAGER", "COORDINATOR"),
+  validate({ params: stageDepartmentParamSchema }),
+  stagesController.removeDepartmentFromStage
 );
 
 module.exports = router;

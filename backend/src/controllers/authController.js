@@ -2,6 +2,7 @@ const bcrypt = require("bcryptjs");
 const prisma = require("../utils/prisma");
 const { signToken } = require("../utils/jwt");
 const { AppError, asyncHandler } = require("../utils/http");
+const { presentUser } = require("../utils/userPresenter");
 
 const login = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
@@ -10,7 +11,18 @@ const login = asyncHandler(async (req, res) => {
     throw new AppError("Email and password are required", 400);
   }
 
-  const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+  const user = await prisma.user.findUnique({
+    where: { email: email.toLowerCase() },
+    include: {
+      department: {
+        select: {
+          id: true,
+          name: true,
+          color: true
+        }
+      }
+    }
+  });
 
   if (!user || !user.isActive) {
     throw new AppError("Invalid credentials", 401);
@@ -22,22 +34,26 @@ const login = asyncHandler(async (req, res) => {
   }
 
   const token = signToken(user);
+  const normalizedUser = presentUser(user);
 
   return res.json({
     token,
     user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      department: user.department,
-      employmentType: user.employmentType
+      id: normalizedUser.id,
+      name: normalizedUser.name,
+      email: normalizedUser.email,
+      role: normalizedUser.role,
+      department: normalizedUser.department,
+      departmentId: normalizedUser.departmentId,
+      departmentName: normalizedUser.departmentName,
+      departmentInfo: normalizedUser.departmentInfo,
+      employmentType: normalizedUser.employmentType
     }
   });
 });
 
 const register = asyncHandler(async (req, res) => {
-  const { name, email, password, department } = req.body;
+  const { name, email, password, departmentName } = req.body;
 
   const existing = await prisma.user.findUnique({
     where: { email: email.toLowerCase() }
@@ -55,22 +71,35 @@ const register = asyncHandler(async (req, res) => {
       email: email.toLowerCase(),
       password: hashedPassword,
       role: "EMPLOYEE",
-      department: department || null,
+      departmentName: departmentName || null,
       isActive: true
+    },
+    include: {
+      department: {
+        select: {
+          id: true,
+          name: true,
+          color: true
+        }
+      }
     }
   });
 
   const token = signToken(user);
+  const normalizedUser = presentUser(user);
 
   return res.status(201).json({
     token,
     user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      department: user.department,
-      employmentType: user.employmentType
+      id: normalizedUser.id,
+      name: normalizedUser.name,
+      email: normalizedUser.email,
+      role: normalizedUser.role,
+      department: normalizedUser.department,
+      departmentId: normalizedUser.departmentId,
+      departmentName: normalizedUser.departmentName,
+      departmentInfo: normalizedUser.departmentInfo,
+      employmentType: normalizedUser.employmentType
     }
   });
 });

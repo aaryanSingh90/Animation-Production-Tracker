@@ -1,6 +1,7 @@
 const prisma = require("../utils/prisma");
 const { verifyToken } = require("../utils/jwt");
 const { AppError, asyncHandler } = require("../utils/http");
+const { presentUser } = require("../utils/userPresenter");
 
 const authMiddleware = asyncHandler(async (req, res, next) => {
   const header = req.headers.authorization;
@@ -24,9 +25,17 @@ const authMiddleware = asyncHandler(async (req, res, next) => {
       name: true,
       email: true,
       role: true,
-      department: true,
+      departmentId: true,
+      departmentName: true,
       employmentType: true,
-      isActive: true
+      isActive: true,
+      department: {
+        select: {
+          id: true,
+          name: true,
+          color: true
+        }
+      }
     }
   });
 
@@ -34,7 +43,7 @@ const authMiddleware = asyncHandler(async (req, res, next) => {
     throw new AppError("Unauthorized", 401);
   }
 
-  req.user = user;
+  req.user = presentUser(user);
   next();
 });
 

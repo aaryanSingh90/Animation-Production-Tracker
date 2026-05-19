@@ -41,8 +41,27 @@ async function getStageWithProject(stageId) {
             select: {
               id: true,
               name: true,
-              department: true,
+              departmentId: true,
+              departmentName: true,
+              department: {
+                select: {
+                  id: true,
+                  name: true,
+                  color: true
+                }
+              },
               employmentType: true
+            }
+          }
+        }
+      },
+      departmentAssignments: {
+        include: {
+          department: {
+            select: {
+              id: true,
+              name: true,
+              color: true
             }
           }
         }
@@ -80,12 +99,44 @@ const getProjectStages = asyncHandler(async (req, res) => {
     where,
     include: {
       assignedUser: {
-        select: { id: true, name: true, department: true }
+        select: {
+          id: true,
+          name: true,
+          departmentId: true,
+          departmentName: true,
+          department: {
+            select: {
+              id: true,
+              name: true,
+              color: true
+            }
+          }
+        }
       },
       assignments: {
         include: {
           user: {
-            select: { id: true, name: true, department: true, employmentType: true }
+            select: {
+              id: true,
+              name: true,
+              departmentId: true,
+              departmentName: true,
+              department: {
+                select: {
+                  id: true,
+                  name: true,
+                  color: true
+                }
+              },
+              employmentType: true
+            }
+          }
+        }
+      },
+      departmentAssignments: {
+        include: {
+          department: {
+            select: { id: true, name: true, color: true }
           }
         }
       },
@@ -154,7 +205,23 @@ const updateStage = asyncHandler(async (req, res) => {
       assignments: {
         include: {
           user: {
-            select: { id: true, name: true, department: true, employmentType: true }
+            select: {
+              id: true,
+              name: true,
+              departmentId: true,
+              departmentName: true,
+              department: {
+                select: { id: true, name: true, color: true }
+              },
+              employmentType: true
+            }
+          }
+        }
+      },
+      departmentAssignments: {
+        include: {
+          department: {
+            select: { id: true, name: true, color: true }
           }
         }
       }
@@ -368,7 +435,17 @@ const assignArtistToStage = asyncHandler(async (req, res) => {
     }),
     prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, name: true, department: true, employmentType: true, isActive: true }
+      select: {
+        id: true,
+        name: true,
+        departmentId: true,
+        departmentName: true,
+        department: {
+          select: { id: true, name: true, color: true }
+        },
+        employmentType: true,
+        isActive: true
+      }
     })
   ]);
 
@@ -395,7 +472,16 @@ const assignArtistToStage = asyncHandler(async (req, res) => {
     },
     include: {
       user: {
-        select: { id: true, name: true, department: true, employmentType: true }
+        select: {
+          id: true,
+          name: true,
+          departmentId: true,
+          departmentName: true,
+          department: {
+            select: { id: true, name: true, color: true }
+          },
+          employmentType: true
+        }
       }
     }
   });
@@ -464,6 +550,194 @@ const removeArtistFromStage = asyncHandler(async (req, res) => {
     actorId: req.user.id,
     eventType: "ASSIGNED",
     message: `${req.user.name} removed an artist from ${stage.stageName.replaceAll("_", " ")}.`
+  });
+
+  return res.json({ success: true });
+});
+
+const assignDepartmentToStage = asyncHandler(async (req, res) => {
+  const stageId = Number(req.params.id);
+  const { departmentId } = req.body;
+
+  const [stage, department] = await Promise.all([
+    prisma.projectStage.findUnique({
+      where: { id: stageId },
+      include: {
+        project: true
+      }
+    }),
+    prisma.department.findUnique({
+      where: { id: departmentId },
+      include: {
+        employees: {
+          where: { isActive: true },
+          select: { id: true, name: true }
+        }
+      }
+    })
+  ]);
+
+  if (!stage) {
+    throw new AppError("Stage not found", 404);
+  }
+  if (!department) {
+    throw new AppError("Department not found", 404);
+  }
+
+  const results = await Promise.allSettled(
+    department.employees.map((employee) =>
+      prisma.stageAssignment.upsert({
+        where: {
+          projectStageId_userId: {
+            projectStageId: stageId,
+            userId: employee.id
+          }
+        },
+        create: {
+          projectStageId: stageId,
+          userId: employee.id
+        },
+        update: {}
+      })
+    )
+  );
+
+  await prisma.stageDepartmentAssignment.upsert({
+    where: {
+      projectStageId_departmentId: {
+        projectStageId: stageId,
+        departmentId
+      }
+    },
+    create: {
+      projectStageId: stageId,
+      departmentId
+    },
+    update: {}
+  });
+
+  const firstAssigned = department.employees[0]?.id || null;
+  if (!stage.assignedUserId && firstAssigned) {
+    await prisma.projectStage.update({
+      where: { id: stageId },
+      data: {
+        assignedUserId: firstAssigned
+      }
+    });
+  }
+
+  await logActivity({
+    projectId: stage.projectId,
+    stageId: stage.id,
+    actorId: req.user.id,
+    eventType: "DEPARTMENT_ASSIGNED",
+    message: `${req.user.name} assigned ${department.name} to ${stage.stageName.replaceAll("_", " ")}.`
+  });
+
+  const updatedStage = await prisma.projectStage.findUnique({
+    where: { id: stageId },
+    include: {
+      project: {
+        select: { id: true, name: true }
+      },
+      assignments: {
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              employmentType: true,
+              departmentId: true,
+              departmentName: true,
+              department: {
+                select: { id: true, name: true, color: true }
+              }
+            }
+          }
+        }
+      },
+      departmentAssignments: {
+        include: {
+          department: {
+            select: { id: true, name: true, color: true }
+          }
+        }
+      }
+    }
+  });
+
+  return res.json({
+    assigned: results.filter((item) => item.status === "fulfilled").length,
+    department: department.name,
+    stage: updatedStage
+  });
+});
+
+const removeDepartmentFromStage = asyncHandler(async (req, res) => {
+  const stageId = Number(req.params.id);
+  const { departmentId } = req.params;
+
+  const [stage, department] = await Promise.all([
+    prisma.projectStage.findUnique({
+      where: { id: stageId },
+      include: {
+        project: true,
+        assignments: true
+      }
+    }),
+    prisma.department.findUnique({
+      where: { id: departmentId },
+      include: {
+        employees: {
+          where: { isActive: true },
+          select: { id: true }
+        }
+      }
+    })
+  ]);
+
+  if (!stage) {
+    throw new AppError("Stage not found", 404);
+  }
+  if (!department) {
+    throw new AppError("Department not found", 404);
+  }
+
+  const memberIds = department.employees.map((employee) => employee.id);
+  if (memberIds.length) {
+    await prisma.stageAssignment.deleteMany({
+      where: {
+        projectStageId: stageId,
+        userId: {
+          in: memberIds
+        }
+      }
+    });
+  }
+
+  await prisma.stageDepartmentAssignment.deleteMany({
+    where: {
+      projectStageId: stageId,
+      departmentId
+    }
+  });
+
+  if (stage.assignedUserId && memberIds.includes(stage.assignedUserId)) {
+    const remaining = stage.assignments.filter((assignment) => !memberIds.includes(assignment.userId));
+    await prisma.projectStage.update({
+      where: { id: stageId },
+      data: {
+        assignedUserId: remaining[0]?.userId || null
+      }
+    });
+  }
+
+  await logActivity({
+    projectId: stage.projectId,
+    stageId: stage.id,
+    actorId: req.user.id,
+    eventType: "DEPARTMENT_REMOVED",
+    message: `${req.user.name} removed ${department.name} from ${stage.stageName.replaceAll("_", " ")}.`
   });
 
   return res.json({ success: true });
@@ -617,6 +891,8 @@ module.exports = {
   rejectStage,
   assignArtistToStage,
   removeArtistFromStage,
+  assignDepartmentToStage,
+  removeDepartmentFromStage,
   logIssue,
   extendDeadline
 };

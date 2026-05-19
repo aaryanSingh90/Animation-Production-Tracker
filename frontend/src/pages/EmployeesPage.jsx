@@ -1,18 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import api from "../lib/api";
 import Loader from "../components/Loader";
 import EmptyState from "../components/EmptyState";
 import Modal from "../components/Modal";
 import StatusBadge from "../components/StatusBadge";
-import { formatDate, initials, labelize } from "../utils/format";
+import { formatDate, getDepartmentLabel, initials, labelize } from "../utils/format";
 import { useToastStore } from "../store/toastStore";
 
 export default function EmployeesPage() {
+  const navigate = useNavigate();
   const showToast = useToastStore((state) => state.showToast);
 
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState([]);
   const [projects, setProjects] = useState([]);
+  const [departments, setDepartments] = useState([]);
   const [selectedUserId, setSelectedUserId] = useState(null);
   const [selectedUser, setSelectedUser] = useState(null);
 
@@ -25,7 +28,7 @@ export default function EmployeesPage() {
     email: "",
     password: "",
     role: "EMPLOYEE",
-    department: "",
+    departmentId: "",
     employmentType: "INHOUSE"
   });
 
@@ -34,7 +37,7 @@ export default function EmployeesPage() {
     name: "",
     email: "",
     role: "EMPLOYEE",
-    department: "",
+    departmentId: "",
     password: "",
     employmentType: "INHOUSE"
   });
@@ -44,9 +47,10 @@ export default function EmployeesPage() {
   async function fetchUsersAndProjects() {
     setLoading(true);
     try {
-      const [usersRes, projectsRes] = await Promise.all([api.get("/users"), api.get("/projects")]);
+      const [usersRes, projectsRes, departmentsRes] = await Promise.all([api.get("/users"), api.get("/projects"), api.get("/departments")]);
       setUsers(usersRes.data);
       setProjects(projectsRes.data);
+      setDepartments(departmentsRes.data);
       if (selectedUserId) {
         const detail = await api.get(`/users/${selectedUserId}`);
         setSelectedUser(detail.data);
@@ -67,7 +71,7 @@ export default function EmployeesPage() {
   const sorted = useMemo(() => {
     const copy = [...employees];
     copy.sort((a, b) => {
-      if (sortBy === "department") return (a.department || "").localeCompare(b.department || "");
+      if (sortBy === "department") return getDepartmentLabel(a).localeCompare(getDepartmentLabel(b));
       if (sortBy === "role") return a.role.localeCompare(b.role);
       if (sortBy === "active") return Number(a.isActive) - Number(b.isActive);
       return a.name.localeCompare(b.name);
@@ -97,7 +101,7 @@ export default function EmployeesPage() {
       await api.post("/users", addForm);
       showToast("success", "Employee created");
       setAddOpen(false);
-      setAddForm({ name: "", email: "", password: "", role: "EMPLOYEE", department: "", employmentType: "INHOUSE" });
+      setAddForm({ name: "", email: "", password: "", role: "EMPLOYEE", departmentId: "", employmentType: "INHOUSE" });
       await fetchUsersAndProjects();
     } catch (error) {
       showToast("error", error.userMessage || error.response?.data?.message || "Unable to create employee");
@@ -110,7 +114,7 @@ export default function EmployeesPage() {
       name: selectedUser.name || "",
       email: selectedUser.email || "",
       role: selectedUser.role || "EMPLOYEE",
-      department: selectedUser.department || "",
+      departmentId: selectedUser.departmentId || "",
       password: "",
       employmentType: selectedUser.employmentType || "INHOUSE"
     });
@@ -126,7 +130,7 @@ export default function EmployeesPage() {
         name: editForm.name,
         email: editForm.email,
         role: editForm.role,
-        department: editForm.department,
+        departmentId: editForm.departmentId,
         employmentType: editForm.employmentType
       };
       if (editForm.password.trim()) payload.password = editForm.password.trim();
@@ -169,6 +173,11 @@ export default function EmployeesPage() {
   }
 
   if (loading) return <Loader label="Loading employees..." />;
+
+  function openDepartmentFromRow(departmentId) {
+    if (!departmentId) return;
+    navigate(`/departments?departmentId=${departmentId}`);
+  }
 
   return (
     <div className="grid grid-cols-3 gap-6">
@@ -216,7 +225,21 @@ export default function EmployeesPage() {
                     <td className="py-3 font-semibold text-slate-900">{user.name}</td>
                     <td className="py-3">{user.email}</td>
                     <td className="py-3">{labelize(user.role)}</td>
-                    <td className="py-3">{user.department || "-"}</td>
+                    <td className="py-3">
+                      {user.departmentId ? (
+                        <button
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openDepartmentFromRow(user.departmentId);
+                          }}
+                          className="rounded px-1 py-0.5 text-left text-emerald-700 hover:bg-emerald-50"
+                        >
+                          {getDepartmentLabel(user)}
+                        </button>
+                      ) : (
+                        getDepartmentLabel(user)
+                      )}
+                    </td>
                     <td className="py-3">
                       <span
                         className={`rounded-full px-2 py-1 text-xs font-semibold ${
@@ -254,7 +277,7 @@ export default function EmployeesPage() {
                   <div>
                     <p className="text-sm font-bold text-slate-900">{selectedUser.name}</p>
                     <p className="text-xs text-slate-500">{selectedUser.email}</p>
-                    <p className="text-xs text-slate-500">{labelize(selectedUser.role)} · {selectedUser.department || "-"}</p>
+                    <p className="text-xs text-slate-500">{labelize(selectedUser.role)} · {getDepartmentLabel(selectedUser)}</p>
                     <p className="mt-1">
                       <span
                         className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
@@ -369,7 +392,21 @@ export default function EmployeesPage() {
               <option value="COORDINATOR">COORDINATOR</option>
             </select>
           </div>
-          <Input label="Department / Speciality" value={addForm.department} onChange={(value) => setAddForm((prev) => ({ ...prev, department: value }))} required />
+          <div>
+            <label className="mb-1 block text-sm font-semibold text-slate-700">Department</label>
+            <select
+              value={addForm.departmentId}
+              onChange={(event) => setAddForm((prev) => ({ ...prev, departmentId: event.target.value }))}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+            >
+              <option value="">No Department</option>
+              {departments.map((department) => (
+                <option key={department.id} value={department.id}>
+                  {department.name}
+                </option>
+              ))}
+            </select>
+          </div>
           <div>
             <label className="mb-1 block text-sm font-semibold text-slate-700">Employment Type</label>
             <div className="flex gap-4 text-sm">
@@ -418,7 +455,21 @@ export default function EmployeesPage() {
               <option value="COORDINATOR">COORDINATOR</option>
             </select>
           </div>
-          <Input label="Department / Speciality" value={editForm.department} onChange={(value) => setEditForm((prev) => ({ ...prev, department: value }))} />
+          <div>
+            <label className="mb-1 block text-sm font-semibold text-slate-700">Department</label>
+            <select
+              value={editForm.departmentId}
+              onChange={(event) => setEditForm((prev) => ({ ...prev, departmentId: event.target.value }))}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+            >
+              <option value="">No Department</option>
+              {departments.map((department) => (
+                <option key={department.id} value={department.id}>
+                  {department.name}
+                </option>
+              ))}
+            </select>
+          </div>
           <div>
             <label className="mb-1 block text-sm font-semibold text-slate-700">Employment Type</label>
             <select

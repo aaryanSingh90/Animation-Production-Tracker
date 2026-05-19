@@ -6,6 +6,15 @@ const idParamSchema = z.object({
   id: z.coerce.number().int().positive()
 });
 
+const departmentIdParamSchema = z.object({
+  id: z.string().min(1)
+});
+
+const departmentMemberParamSchema = z.object({
+  id: z.string().min(1),
+  userId: z.coerce.number().int().positive()
+});
+
 const characterStageParamSchema = z.object({
   id: z.coerce.number().int().positive(),
   stageName: z.string().min(1)
@@ -14,6 +23,11 @@ const characterStageParamSchema = z.object({
 const stageArtistParamSchema = z.object({
   id: z.coerce.number().int().positive(),
   userId: z.coerce.number().int().positive()
+});
+
+const stageDepartmentParamSchema = z.object({
+  id: z.coerce.number().int().positive(),
+  departmentId: z.string().min(1)
 });
 
 const loginSchema = z.object({
@@ -25,6 +39,7 @@ const registerSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
   password: z.string().min(8),
+  departmentName: z.string().max(255).optional(),
   department: z.string().max(255).optional()
 });
 
@@ -38,6 +53,8 @@ const createUserSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
   role: z.enum(["BOSS", "PRODUCTION_MANAGER", "COORDINATOR", "EMPLOYEE"]),
+  departmentId: z.string().min(1).optional().or(z.literal("")),
+  departmentName: z.string().min(2).optional().or(z.literal("")),
   department: z.string().min(2).optional().or(z.literal("")),
   employmentType: z.enum(["INHOUSE", "FREELANCE"]).optional()
 });
@@ -120,14 +137,39 @@ const assignArtistSchema = z.object({
   userId: z.coerce.number().int().positive()
 });
 
+const createDepartmentSchema = z.object({
+  name: z.string().min(2).max(120),
+  description: z.string().max(1000).optional().or(z.literal("")),
+  color: z.string().regex(/^#([0-9A-Fa-f]{6})$/, "Color must be a valid hex code").optional()
+});
+
+const updateDepartmentSchema = z
+  .object({
+    name: z.string().min(2).max(120).optional(),
+    description: z.string().max(1000).optional().or(z.literal("")),
+    color: z.string().regex(/^#([0-9A-Fa-f]{6})$/, "Color must be a valid hex code").optional()
+  })
+  .refine((value) => Object.keys(value).length > 0, "At least one field is required");
+
+const departmentMemberSchema = z.object({
+  userId: z.coerce.number().int().positive()
+});
+
+const assignDepartmentSchema = z.object({
+  departmentId: z.string().min(1)
+});
+
 const linkCharacterSchema = z.object({
   characterId: z.coerce.number().int().positive()
 });
 
 module.exports = {
   idParamSchema,
+  departmentIdParamSchema,
+  departmentMemberParamSchema,
   characterStageParamSchema,
   stageArtistParamSchema,
+  stageDepartmentParamSchema,
   loginSchema,
   registerSchema,
   changePasswordSchema,
@@ -140,5 +182,9 @@ module.exports = {
   issueSchema,
   extendDeadlineSchema,
   assignArtistSchema,
+  createDepartmentSchema,
+  updateDepartmentSchema,
+  departmentMemberSchema,
+  assignDepartmentSchema,
   linkCharacterSchema
 };

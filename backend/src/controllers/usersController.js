@@ -4,6 +4,7 @@ const { AppError, asyncHandler } = require("../utils/http");
 const { MANAGER_ROLES } = require("../utils/constants");
 const { createNotification } = require("../utils/notifications");
 const { logActivity } = require("../utils/activities");
+const { presentUser } = require("../utils/userPresenter");
 
 function isManager(role) {
   return MANAGER_ROLES.includes(role);
@@ -17,10 +18,18 @@ const listUsers = asyncHandler(async (req, res) => {
       name: true,
       email: true,
       role: true,
-      department: true,
+      departmentId: true,
+      departmentName: true,
       employmentType: true,
       isActive: true,
       createdAt: true,
+      department: {
+        select: {
+          id: true,
+          name: true,
+          color: true
+        }
+      },
       _count: {
         select: {
           assignedProjectStages: true
@@ -29,11 +38,20 @@ const listUsers = asyncHandler(async (req, res) => {
     }
   });
 
-  return res.json(users);
+  return res.json(users.map((user) => presentUser(user)));
 });
 
 const createUser = asyncHandler(async (req, res) => {
-  const { name, email, password, role, department, employmentType = "INHOUSE" } = req.body;
+  const {
+    name,
+    email,
+    password,
+    role,
+    departmentId: rawDepartmentId,
+    departmentName: rawDepartmentName,
+    department: legacyDepartment,
+    employmentType = "INHOUSE"
+  } = req.body;
 
   if (!name || !email || !password || !role) {
     throw new AppError("name, email, password and role are required", 400);
@@ -52,13 +70,29 @@ const createUser = asyncHandler(async (req, res) => {
 
   const hashed = await bcrypt.hash(password, 10);
 
+  let departmentId = rawDepartmentId || null;
+  if (departmentId === "") departmentId = null;
+  let departmentName = rawDepartmentName || legacyDepartment || null;
+
+  if (departmentId) {
+    const department = await prisma.department.findUnique({
+      where: { id: departmentId },
+      select: { id: true, name: true }
+    });
+    if (!department) {
+      throw new AppError("Department not found", 404);
+    }
+    departmentName = department.name;
+  }
+
   const user = await prisma.user.create({
     data: {
       name,
       email: email.toLowerCase(),
       password: hashed,
       role,
-      department,
+      departmentId,
+      departmentName,
       employmentType
     },
     select: {
@@ -66,13 +100,21 @@ const createUser = asyncHandler(async (req, res) => {
       name: true,
       email: true,
       role: true,
-      department: true,
+      departmentId: true,
+      departmentName: true,
       employmentType: true,
-      isActive: true
+      isActive: true,
+      department: {
+        select: {
+          id: true,
+          name: true,
+          color: true
+        }
+      }
     }
   });
 
-  return res.status(201).json(user);
+  return res.status(201).json(presentUser(user));
 });
 
 const getUserById = asyncHandler(async (req, res) => {
@@ -88,7 +130,15 @@ const getUserById = asyncHandler(async (req, res) => {
       name: true,
       email: true,
       role: true,
-      department: true,
+      departmentId: true,
+      departmentName: true,
+      department: {
+        select: {
+          id: true,
+          name: true,
+          color: true
+        }
+      },
       employmentType: true,
       isActive: true,
       createdAt: true,
@@ -136,7 +186,7 @@ const getUserById = asyncHandler(async (req, res) => {
   const approvalRate = submittedCount === 0 ? 0 : Number(((approvedCount / submittedCount) * 100).toFixed(2));
 
   return res.json({
-    ...user,
+    ...presentUser(user),
     assignedProjectStages: mergedStages,
     stageAssignments: undefined,
     stats: {
@@ -160,8 +210,8 @@ const updateUser = asyncHandler(async (req, res) => {
   }
 
   const payload = {};
-  const allowedForSelf = ["name", "department"];
-  const allowedForManager = ["name", "email", "role", "department", "employmentType", "isActive", "password"];
+  const allowedForSelf = ["name", "departmentId", "departmentName"];
+  const allowedForManager = ["name", "email", "role", "departmentId", "departmentName", "employmentType", "isActive", "password"];
   const allowed = isManager(req.user.role) ? allowedForManager : allowedForSelf;
 
   for (const key of allowed) {
@@ -172,6 +222,24 @@ const updateUser = asyncHandler(async (req, res) => {
 
   if (payload.email) {
     payload.email = String(payload.email).toLowerCase();
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "departmentId")) {
+    if (payload.departmentId === "") payload.departmentId = null;
+
+    if (payload.departmentId) {
+      const department = await prisma.department.findUnique({
+        where: { id: payload.departmentId },
+        select: { id: true, name: true }
+      });
+
+      if (!department) {
+        throw new AppError("Department not found", 404);
+      }
+      payload.departmentName = department.name;
+    } else if (!Object.prototype.hasOwnProperty.call(payload, "departmentName")) {
+      payload.departmentName = null;
+    }
   }
 
   if (payload.employmentType && !["INHOUSE", "FREELANCE"].includes(payload.employmentType)) {
@@ -193,13 +261,21 @@ const updateUser = asyncHandler(async (req, res) => {
       name: true,
       email: true,
       role: true,
-      department: true,
+      departmentId: true,
+      departmentName: true,
       employmentType: true,
-      isActive: true
+      isActive: true,
+      department: {
+        select: {
+          id: true,
+          name: true,
+          color: true
+        }
+      }
     }
   });
 
-  return res.json(updated);
+  return res.json(presentUser(updated));
 });
 
 const deactivateUser = asyncHandler(async (req, res) => {
@@ -241,7 +317,16 @@ const getWorkload = asyncHandler(async (req, res) => {
       assignments: {
         include: {
           user: {
-            select: { id: true, name: true, employmentType: true, department: true }
+            select: {
+              id: true,
+              name: true,
+              employmentType: true,
+              departmentId: true,
+              departmentName: true,
+              department: {
+                select: { id: true, name: true, color: true }
+              }
+            }
           }
         }
       }
@@ -285,7 +370,16 @@ const assignUserToStage = asyncHandler(async (req, res) => {
       assignments: {
         include: {
           user: {
-            select: { id: true, name: true, employmentType: true, department: true }
+            select: {
+              id: true,
+              name: true,
+              employmentType: true,
+              departmentId: true,
+              departmentName: true,
+              department: {
+                select: { id: true, name: true, color: true }
+              }
+            }
           }
         }
       }
