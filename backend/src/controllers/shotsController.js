@@ -4,9 +4,16 @@ const { MANAGER_ROLES } = require("../utils/constants");
 const { getTrackingDefinitionSnapshot, computeStatusFromChildren } = require("../utils/trackingSetup");
 const { recalculateProjectProgress } = require("../utils/progress");
 const { normalizeStageCode } = require("../utils/stageDefinitions");
+const { createNotification, notifyManagers } = require("../utils/notifications");
 
 function isManager(role) {
   return MANAGER_ROLES.includes(role);
+}
+
+function shotLabel(shot) {
+  if (shot?.name) return shot.name;
+  if (Number.isInteger(shot?.shotNumber)) return `Shot ${String(shot.shotNumber).padStart(3, "0")}`;
+  return "Shot";
 }
 
 async function refreshShotStatus(shotId) {
@@ -258,6 +265,9 @@ const updateShotStage = asyncHandler(async (req, res) => {
   if (!shotStage) throw new AppError("Shot stage not found", 404);
 
   const manager = isManager(req.user.role);
+  const previousStatus = shotStage.status;
+  const previousAssignedUserId = shotStage.assignedUserId;
+  const previousDeadline = shotStage.deadline ? new Date(shotStage.deadline).toISOString() : null;
   if (!manager && shotStage.assignedUserId !== req.user.id) {
     throw new AppError("Forbidden", 403);
   }
@@ -323,6 +333,57 @@ const updateShotStage = asyncHandler(async (req, res) => {
   await refreshShotStatus(updated.shotId);
   await recalculateProjectProgress(shotStage.shot.projectId);
 
+  const stageName = updated.stageDefinition?.name || updated.stageDefinition?.code || "Shot Stage";
+  const shotName = shotLabel(shotStage.shot);
+  const projectName = shotStage.shot.project?.name || "Project";
+
+  if (Object.prototype.hasOwnProperty.call(payload, "assignedUserId") && payload.assignedUserId && payload.assignedUserId !== previousAssignedUserId) {
+    await createNotification({
+      userId: payload.assignedUserId,
+      message: `You were assigned ${stageName} for ${shotName} in ${projectName}.`,
+      type: "ASSIGNED",
+      relatedProjectId: shotStage.shot.projectId
+    });
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "deadline")) {
+    const nextDeadline = payload.deadline ? new Date(payload.deadline).toISOString() : null;
+    if (updated.assignedUserId && previousDeadline !== nextDeadline && nextDeadline) {
+      await createNotification({
+        userId: updated.assignedUserId,
+        message: `Deadline updated for ${stageName} on ${shotName} in ${projectName}.`,
+        type: "DEADLINE_WARNING",
+        relatedProjectId: shotStage.shot.projectId
+      });
+    }
+  }
+
+  if (updated.status === "SUBMITTED" && previousStatus !== "SUBMITTED") {
+    await notifyManagers({
+      message: `${req.user.name} submitted ${stageName} for ${shotName} in ${projectName}.`,
+      type: "APPROVAL_NEEDED",
+      relatedProjectId: shotStage.shot.projectId
+    });
+  }
+
+  if (manager && updated.assignedUserId && updated.status === "APPROVED" && previousStatus !== "APPROVED") {
+    await createNotification({
+      userId: updated.assignedUserId,
+      message: `${stageName} approved for ${shotName} in ${projectName}.`,
+      type: "APPROVED",
+      relatedProjectId: shotStage.shot.projectId
+    });
+  }
+
+  if (manager && updated.assignedUserId && ["REJECTED", "REVISION_REQUIRED"].includes(updated.status) && previousStatus !== updated.status) {
+    await createNotification({
+      userId: updated.assignedUserId,
+      message: `${stageName} was sent back for revision on ${shotName} in ${projectName}.${updated.feedback ? ` Feedback: ${updated.feedback}` : ""}`,
+      type: "REJECTED",
+      relatedProjectId: shotStage.shot.projectId
+    });
+  }
+
   return res.json(updated);
 });
 
@@ -370,6 +431,58 @@ const bulkAssignShotStages = asyncHandler(async (req, res) => {
       assignedUserId: userId ? Number(userId) : null
     }
   });
+
+  if (userId) {
+    const stageRows = await prisma.shotStage.findMany({
+      where: {
+        id: {
+          in: stages.map((stage) => stage.id)
+        }
+      },
+      include: {
+        shot: {
+          include: {
+            project: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          }
+        },
+        stageDefinition: {
+          select: {
+            code: true,
+            name: true
+          }
+        }
+      }
+    });
+
+    const grouped = new Map();
+    for (const row of stageRows) {
+      const key = `${row.shot?.projectId || "0"}::${row.stageDefinition?.code || "SHOT"}`;
+      const current = grouped.get(key) || {
+        projectId: row.shot?.projectId,
+        projectName: row.shot?.project?.name || "Project",
+        stageName: row.stageDefinition?.name || row.stageDefinition?.code || "Shot Stage",
+        count: 0
+      };
+      current.count += 1;
+      grouped.set(key, current);
+    }
+
+    await Promise.all(
+      Array.from(grouped.values()).map((entry) =>
+        createNotification({
+          userId: Number(userId),
+          message: `You were assigned ${entry.count} shot${entry.count > 1 ? "s" : ""} for ${entry.stageName} in ${entry.projectName}.`,
+          type: "ASSIGNED",
+          relatedProjectId: entry.projectId || null
+        })
+      )
+    );
+  }
 
   return res.json({
     success: true,
@@ -534,6 +647,20 @@ const rangeAssignShotStages = asyncHandler(async (req, res) => {
       assignedUserId: userId ? Number(userId) : null
     }
   });
+
+  if (userId) {
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      select: { id: true, name: true }
+    });
+
+    await createNotification({
+      userId: Number(userId),
+      message: `You were assigned ${stages.length} shot${stages.length > 1 ? "s" : ""} for ${stageCode.replaceAll("_", " ")} in ${project?.name || "Project"}.`,
+      type: "ASSIGNED",
+      relatedProjectId: project?.id || null
+    });
+  }
 
   return res.json({
     success: true,

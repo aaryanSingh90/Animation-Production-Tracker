@@ -3,6 +3,7 @@ const { AppError, asyncHandler } = require("../utils/http");
 const { MANAGER_ROLES } = require("../utils/constants");
 const { getTrackingDefinitionSnapshot, computeStatusFromChildren } = require("../utils/trackingSetup");
 const { recalculateProjectProgress } = require("../utils/progress");
+const { createNotification, notifyManagers } = require("../utils/notifications");
 
 function isManager(role) {
   return MANAGER_ROLES.includes(role);
@@ -220,6 +221,9 @@ const updateAssetStage = asyncHandler(async (req, res) => {
   if (!assetStage) throw new AppError("Asset stage not found", 404);
 
   const manager = isManager(req.user.role);
+  const previousStatus = assetStage.status;
+  const previousAssignedUserId = assetStage.assignedUserId;
+  const previousDeadline = assetStage.deadline ? new Date(assetStage.deadline).toISOString() : null;
   if (!manager && assetStage.assignedUserId !== req.user.id) {
     throw new AppError("Forbidden", 403);
   }
@@ -284,6 +288,57 @@ const updateAssetStage = asyncHandler(async (req, res) => {
 
   await refreshAssetStatus(updated.assetId);
   await recalculateProjectProgress(assetStage.asset.projectId);
+
+  const stageName = updated.stageDefinition?.name || updated.stageDefinition?.code || "Asset Stage";
+  const assetName = assetStage.asset?.name || "Asset";
+  const projectName = assetStage.asset.project?.name || "Project";
+
+  if (Object.prototype.hasOwnProperty.call(payload, "assignedUserId") && payload.assignedUserId && payload.assignedUserId !== previousAssignedUserId) {
+    await createNotification({
+      userId: payload.assignedUserId,
+      message: `You were assigned ${stageName} for ${assetName} in ${projectName}.`,
+      type: "ASSIGNED",
+      relatedProjectId: assetStage.asset.projectId
+    });
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "deadline")) {
+    const nextDeadline = payload.deadline ? new Date(payload.deadline).toISOString() : null;
+    if (updated.assignedUserId && previousDeadline !== nextDeadline && nextDeadline) {
+      await createNotification({
+        userId: updated.assignedUserId,
+        message: `Deadline updated for ${stageName} on ${assetName} in ${projectName}.`,
+        type: "DEADLINE_WARNING",
+        relatedProjectId: assetStage.asset.projectId
+      });
+    }
+  }
+
+  if (updated.status === "SUBMITTED" && previousStatus !== "SUBMITTED") {
+    await notifyManagers({
+      message: `${req.user.name} submitted ${stageName} for ${assetName} in ${projectName}.`,
+      type: "APPROVAL_NEEDED",
+      relatedProjectId: assetStage.asset.projectId
+    });
+  }
+
+  if (manager && updated.assignedUserId && updated.status === "APPROVED" && previousStatus !== "APPROVED") {
+    await createNotification({
+      userId: updated.assignedUserId,
+      message: `${stageName} approved for ${assetName} in ${projectName}.`,
+      type: "APPROVED",
+      relatedProjectId: assetStage.asset.projectId
+    });
+  }
+
+  if (manager && updated.assignedUserId && ["REJECTED", "REVISION_REQUIRED"].includes(updated.status) && previousStatus !== updated.status) {
+    await createNotification({
+      userId: updated.assignedUserId,
+      message: `${stageName} was sent back for revision on ${assetName} in ${projectName}.${updated.feedback ? ` Feedback: ${updated.feedback}` : ""}`,
+      type: "REJECTED",
+      relatedProjectId: assetStage.asset.projectId
+    });
+  }
 
   return res.json(updated);
 });

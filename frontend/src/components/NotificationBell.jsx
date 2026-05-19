@@ -13,6 +13,7 @@ import { useNavigate } from "react-router-dom";
 import api from "../lib/api";
 import { useNotificationStore } from "../store/notificationStore";
 import { formatRelative } from "../utils/format";
+import { useAuthStore } from "../store/authStore";
 
 const notificationIconByType = {
   APPROVAL_NEEDED: Clock3,
@@ -28,6 +29,7 @@ const notificationIconByType = {
 export default function NotificationBell() {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const user = useAuthStore((state) => state.user);
   const notifications = useNotificationStore((state) => state.notifications);
   const markRead = useNotificationStore((state) => state.markRead);
   const markAllReadLocal = useNotificationStore((state) => state.markAllRead);
@@ -40,7 +42,17 @@ export default function NotificationBell() {
       markRead(notification.id);
       setOpen(false);
       if (notification.relatedProjectId) {
-        navigate(`/projects/${notification.relatedProjectId}`);
+        if (user?.role === "EMPLOYEE") {
+          const params = new URLSearchParams({ projectId: String(notification.relatedProjectId) });
+          if (notification.relatedStageId) {
+            params.set("stageId", String(notification.relatedStageId));
+          }
+          navigate(`/my-tasks?${params.toString()}`);
+        } else {
+          navigate(`/projects/${notification.relatedProjectId}`);
+        }
+      } else if (user?.role === "EMPLOYEE") {
+        navigate("/my-tasks");
       }
     } catch {
       // no-op

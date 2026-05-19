@@ -1,38 +1,74 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import api from "../lib/api";
 import Loader from "../components/Loader";
 import EmptyState from "../components/EmptyState";
 import StatusBadge from "../components/StatusBadge";
 import IssueModal from "../components/IssueModal";
 import StageCommentThread from "../components/StageCommentThread";
-import { formatDate, getStageDisplayName, labelize } from "../utils/format";
+import { formatDate } from "../utils/format";
+import { stageDepartmentFromCode } from "../utils/stageDepartmentMap";
 import { useToastStore } from "../store/toastStore";
 import { useAuthStore } from "../store/authStore";
+import { useNotificationStore } from "../store/notificationStore";
+
+function endpointForTask(task) {
+  if (task.trackingType === "SHOT") return `/shot-stages/${task.id}`;
+  if (task.trackingType === "ASSET") return `/asset-stages/${task.id}`;
+  return `/stages/${task.id}`;
+}
+
+function issueSupported(task) {
+  return task.trackingType === "PROJECT";
+}
 
 export default function MyTasksPage() {
   const showToast = useToastStore((state) => state.showToast);
   const user = useAuthStore((state) => state.user);
+  const realtimeNotifications = useNotificationStore((state) => state.notifications);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [loading, setLoading] = useState(true);
-  const [projects, setProjects] = useState([]);
+  const [tasks, setTasks] = useState([]);
+  const [summary, setSummary] = useState({
+    total: 0,
+    overdue: 0,
+    inProgress: 0,
+    submitted: 0,
+    approved: 0,
+    rejected: 0
+  });
   const [notifications, setNotifications] = useState([]);
-  const [issueStage, setIssueStage] = useState(null);
+  const [issueTask, setIssueTask] = useState(null);
   const [openCommentsByStage, setOpenCommentsByStage] = useState({});
   const [stageCommentCounts, setStageCommentCounts] = useState({});
+
+  const projectIdFilter = searchParams.get("projectId") || "";
+  const stageIdHighlight = searchParams.get("stageId") || "";
 
   async function fetchData() {
     setLoading(true);
     try {
-      const [projectsRes, notificationsRes] = await Promise.all([api.get("/projects/my"), api.get("/notifications")]);
-      setProjects(projectsRes.data);
+      const [tasksRes, notificationsRes] = await Promise.all([
+        api.get("/projects/my-tasks", {
+          params: {
+            ...(projectIdFilter ? { projectId: Number(projectIdFilter) } : {})
+          }
+        }),
+        api.get("/notifications")
+      ]);
+
+      const rows = tasksRes.data?.tasks || [];
+      setTasks(rows);
+      setSummary(tasksRes.data?.summary || {});
+
       const counts = {};
-      for (const project of projectsRes.data || []) {
-        for (const stage of project.stages || []) {
-          counts[stage.id] = stage._count?.comments || 0;
-        }
+      for (const task of rows) {
+        counts[`${task.resource}:${task.id}`] = task.commentCount || 0;
       }
       setStageCommentCounts(counts);
-      setNotifications(notificationsRes.data.slice(0, 12));
+
+      setNotifications((notificationsRes.data || []).slice(0, 12));
     } catch (error) {
       showToast("error", error.userMessage || error.response?.data?.message || "Failed to load your tasks");
     } finally {
@@ -42,37 +78,55 @@ export default function MyTasksPage() {
 
   useEffect(() => {
     fetchData();
-  }, []);
+    const timer = setInterval(fetchData, 30000);
+    return () => clearInterval(timer);
+  }, [projectIdFilter]);
 
-  const tasks = useMemo(() => {
-    return projects.flatMap((project) =>
-      project.stages.map((stage) => ({
-        ...stage,
-        projectName: project.name,
-        projectId: project.id,
-        assignmentType:
-          stage.assignments?.find((assignment) => assignment.userId === user?.id)?.user?.employmentType ||
-          user?.employmentType ||
-          "INHOUSE"
-      }))
-    );
-  }, [projects, user]);
+  useEffect(() => {
+    if (!realtimeNotifications.length) return;
+    fetchData();
+  }, [realtimeNotifications[0]?.id]);
 
-  const startWork = async (stageId) => {
+  const taskStats = useMemo(() => {
+    const now = new Date();
+    const todayKey = now.toISOString().slice(0, 10);
+
+    const todaysTasks = tasks.filter((task) => {
+      if (!task.deadline) return false;
+      return new Date(task.deadline).toISOString().slice(0, 10) === todayKey;
+    }).length;
+
+    const pendingReviews = tasks.filter((task) => task.status === "SUBMITTED").length;
+    const completed = tasks.filter((task) => task.status === "APPROVED").length;
+    const overdue = tasks.filter((task) => task.deadline && new Date(task.deadline) < now && task.status !== "APPROVED").length;
+
+    return {
+      todaysTasks,
+      pendingReviews,
+      completed,
+      overdue
+    };
+  }, [tasks]);
+
+  const startWork = async (task) => {
     try {
-      await api.put(`/stages/${stageId}`, { status: "IN_PROGRESS" });
-      showToast("success", "Stage moved to in progress");
+      await api.put(endpointForTask(task), { status: "IN_PROGRESS" });
+      showToast("success", "Task moved to in progress");
       await fetchData();
     } catch (error) {
       showToast("error", error.userMessage || error.response?.data?.message || "Unable to start work");
     }
   };
 
-  const submitStage = async (stageId) => {
-    if (!window.confirm("Submit this stage for approval?")) return;
+  const submitTask = async (task) => {
+    if (!window.confirm("Submit this task for approval?")) return;
 
     try {
-      await api.post(`/stages/${stageId}/submit`);
+      if (task.trackingType === "PROJECT") {
+        await api.post(`/stages/${task.id}/submit`);
+      } else {
+        await api.put(endpointForTask(task), { status: "SUBMITTED" });
+      }
       showToast("success", "Submitted for approval");
       await fetchData();
     } catch (error) {
@@ -81,124 +135,214 @@ export default function MyTasksPage() {
   };
 
   const submitIssue = async (payload) => {
-    if (!issueStage) return;
+    if (!issueTask) return;
+
     try {
-      await api.post(`/stages/${issueStage.id}/issue`, payload);
+      await api.post(`/stages/${issueTask.id}/issue`, payload);
       showToast("success", "Issue reported");
-      setIssueStage(null);
+      setIssueTask(null);
       await fetchData();
     } catch (error) {
       showToast("error", error.userMessage || error.response?.data?.message || "Unable to report issue");
     }
   };
 
+  const openNotificationTarget = async (notification) => {
+    try {
+      if (!notification.isRead) {
+        await api.put(`/notifications/${notification.id}/read`);
+        setNotifications((prev) => prev.map((item) => (item.id === notification.id ? { ...item, isRead: true } : item)));
+      }
+
+      const next = new URLSearchParams(searchParams);
+      if (notification.relatedProjectId) {
+        next.set("projectId", String(notification.relatedProjectId));
+      }
+      if (notification.relatedStageId) {
+        next.set("stageId", String(notification.relatedStageId));
+      } else {
+        next.delete("stageId");
+      }
+      setSearchParams(next);
+    } catch {
+      // ignore mark-read errors in list panel
+    }
+  };
+
   if (loading) return <Loader label="Loading your assignments..." />;
 
   return (
-    <div className="grid grid-cols-3 gap-6">
-      <section className="col-span-2 space-y-4 rounded-2xl border border-slate-200 bg-white p-4">
-        <h3 className="text-xl font-bold text-slate-900">My Assigned Stages</h3>
+    <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+      <section className="space-y-4 xl:col-span-2">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <MetricCard label="Assigned Tasks" value={summary.total || 0} tone="text-slate-900" />
+          <MetricCard label="Today" value={taskStats.todaysTasks} tone="text-sky-700" />
+          <MetricCard label="Pending Review" value={taskStats.pendingReviews} tone="text-amber-700" />
+          <MetricCard label="Overdue" value={taskStats.overdue} tone="text-rose-700" />
+        </div>
 
-        {!tasks.length ? (
-          <EmptyState title="No assigned tasks" description="You currently do not have stage assignments." />
-        ) : (
-          <div className="space-y-3">
-            {tasks.map((task) => (
-              <div key={task.id} className="rounded-xl border border-slate-200 p-3">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">{task.projectName}</p>
-                    <p className="text-xs text-slate-600">{getStageDisplayName(task)}</p>
-                  </div>
-                  <StatusBadge status={task.status} />
-                </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="text-xl font-bold text-slate-900">My Assigned Tasks</h3>
+              <p className="text-xs text-slate-500">Project + Shot + Asset assignments are synchronized here.</p>
+            </div>
+            {projectIdFilter ? (
+              <button
+                onClick={() => {
+                  const next = new URLSearchParams(searchParams);
+                  next.delete("projectId");
+                  next.delete("stageId");
+                  setSearchParams(next);
+                }}
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700"
+              >
+                Clear Project Filter
+              </button>
+            ) : null}
+          </div>
 
-                <div className="mt-2 flex items-center gap-4 text-xs text-slate-600">
-                  <span className={task.isDeadlineMissed ? "font-semibold text-red-600" : ""}>Deadline: {formatDate(task.deadline)}</span>
-                  <span
-                    className={`rounded-full px-2 py-1 font-semibold ${
-                      task.assignmentType === "FREELANCE" ? "bg-blue-100 text-blue-700" : "bg-emerald-100 text-emerald-700"
+          {!tasks.length ? (
+            <EmptyState title="No assigned tasks" description="You currently do not have stage, shot, or asset assignments." />
+          ) : (
+            <div className="space-y-3">
+              {tasks.map((task) => {
+                const key = `${task.resource}:${task.id}`;
+                const isHighlighted = stageIdHighlight && String(task.id) === String(stageIdHighlight);
+                const isOverdue = Boolean(task.deadline && new Date(task.deadline) < new Date() && task.status !== "APPROVED");
+                const canStart = ["NOT_STARTED", "REJECTED", "REVISION_REQUIRED"].includes(task.status);
+                const canSubmit = ["IN_PROGRESS", "REJECTED", "REVISION_REQUIRED"].includes(task.status);
+                const taskDepartment = task.departmentName || stageDepartmentFromCode(task.stageCode) || "General";
+
+                return (
+                  <article
+                    key={key}
+                    className={`rounded-xl border p-3 ${
+                      isHighlighted ? "border-sky-300 bg-sky-50/40" : "border-slate-200 bg-white"
                     }`}
                   >
-                    {task.assignmentType === "FREELANCE" ? "Freelance" : "In-house"}
-                  </span>
-                  {task.feedback && <span className="rounded-lg bg-red-50 px-2 py-1 text-red-700">Feedback: {task.feedback}</span>}
-                </div>
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <p className="text-sm font-semibold text-slate-900">{task.projectName}</p>
+                        <p className="text-xs text-slate-600">
+                          {task.stageName} · {task.trackingType}
+                        </p>
+                        <div className="flex flex-wrap gap-2 text-[11px] text-slate-600">
+                          {task.shotCode ? <span className="rounded-md bg-slate-100 px-2 py-0.5">Shot: {task.shotCode}</span> : null}
+                          {task.sequence ? <span className="rounded-md bg-slate-100 px-2 py-0.5">Sequence: {task.sequence}</span> : null}
+                          {task.assetName ? <span className="rounded-md bg-slate-100 px-2 py-0.5">Asset: {task.assetName}</span> : null}
+                          <span className="rounded-md bg-slate-100 px-2 py-0.5">Department: {taskDepartment}</span>
+                          <span className="rounded-md bg-slate-100 px-2 py-0.5">Priority: {task.projectPriority || 0}</span>
+                        </div>
+                      </div>
+                      <StatusBadge status={task.status} />
+                    </div>
 
-                <div className="mt-3 flex gap-2">
-                  <button
-                    onClick={() => startWork(task.id)}
-                    disabled={task.status === "IN_PROGRESS" || task.status === "SUBMITTED" || task.status === "APPROVED"}
-                    className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-50"
-                  >
-                    Start Work
-                  </button>
-                  <button
-                    onClick={() => submitStage(task.id)}
-                    disabled={task.status !== "IN_PROGRESS" && task.status !== "REJECTED"}
-                    className="rounded-lg bg-sky-600 px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
-                  >
-                    Submit for Approval
-                  </button>
-                  <button
-                    onClick={() => setIssueStage(task)}
-                    className="rounded-lg bg-amber-500 px-2.5 py-1.5 text-xs font-semibold text-white"
-                  >
-                    Report Issue
-                  </button>
-                  <button
-                    onClick={() =>
-                      setOpenCommentsByStage((prev) => ({
-                        ...prev,
-                        [task.id]: !prev[task.id]
-                      }))
-                    }
-                    className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-700"
-                  >
-                    {(stageCommentCounts[task.id] ?? task._count?.comments ?? 0) > 0
-                      ? `${stageCommentCounts[task.id] ?? task._count?.comments} comments`
-                      : "Comment"}
-                  </button>
-                </div>
+                    <div className="mt-2 grid gap-2 text-xs text-slate-600 sm:grid-cols-2 lg:grid-cols-4">
+                      <span className={isOverdue ? "font-semibold text-rose-600" : ""}>Deadline: {formatDate(task.deadline)}</span>
+                      <span>Assigned: {formatDate(task.assignedAt)}</span>
+                      <span>Submitted: {formatDate(task.submittedAt)}</span>
+                      <span>Approved: {formatDate(task.approvedAt)}</span>
+                    </div>
 
-                {openCommentsByStage[task.id] && (
-                  <StageCommentThread
-                    stageId={task.id}
-                    currentUser={user}
-                    isManager={false}
-                    onCountChange={(count) =>
-                      setStageCommentCounts((prev) => ({
-                        ...prev,
-                        [task.id]: count
-                      }))
-                    }
-                  />
-                )}
-              </div>
-            ))}
-          </div>
-        )}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        onClick={() => startWork(task)}
+                        disabled={!canStart}
+                        className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-50"
+                      >
+                        Start Work
+                      </button>
+                      <button
+                        onClick={() => submitTask(task)}
+                        disabled={!canSubmit}
+                        className="rounded-lg bg-sky-600 px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                      >
+                        Submit for Review
+                      </button>
+                      {issueSupported(task) ? (
+                        <button
+                          onClick={() => setIssueTask(task)}
+                          className="rounded-lg bg-amber-500 px-2.5 py-1.5 text-xs font-semibold text-white"
+                        >
+                          Report Issue
+                        </button>
+                      ) : null}
+                      <button
+                        onClick={() =>
+                          setOpenCommentsByStage((prev) => ({
+                            ...prev,
+                            [key]: !prev[key]
+                          }))
+                        }
+                        className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-700"
+                      >
+                        {(stageCommentCounts[key] ?? task.commentCount ?? 0) > 0
+                          ? `${stageCommentCounts[key] ?? task.commentCount} comments`
+                          : "Comment"}
+                      </button>
+                    </div>
+
+                    {task.feedback ? <p className="mt-2 rounded-lg bg-rose-50 px-2 py-1 text-xs text-rose-700">Feedback: {task.feedback}</p> : null}
+
+                    {openCommentsByStage[key] ? (
+                      <div className="mt-3">
+                        <StageCommentThread
+                          stageId={task.id}
+                          currentUser={user}
+                          isManager={false}
+                          resource={task.resource}
+                          onCountChange={(count) =>
+                            setStageCommentCounts((prev) => ({
+                              ...prev,
+                              [key]: count
+                            }))
+                          }
+                        />
+                      </div>
+                    ) : null}
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4">
         <h3 className="mb-3 text-lg font-bold text-slate-900">Recent Notifications</h3>
         <div className="space-y-2">
           {notifications.map((notification) => (
-            <div key={notification.id} className={`rounded-xl border px-3 py-2 text-sm ${notification.isRead ? "border-slate-200 bg-white" : "border-sky-200 bg-sky-50"}`}>
+            <button
+              key={notification.id}
+              onClick={() => openNotificationTarget(notification)}
+              className={`w-full rounded-xl border px-3 py-2 text-left text-sm ${
+                notification.isRead ? "border-slate-200 bg-white" : "border-sky-200 bg-sky-50"
+              }`}
+            >
               <p className="text-slate-800">{notification.message}</p>
               <p className="mt-1 text-xs text-slate-500">{formatDate(notification.createdAt)}</p>
-            </div>
+            </button>
           ))}
           {!notifications.length && <p className="text-sm text-slate-500">No notifications yet.</p>}
         </div>
       </section>
 
       <IssueModal
-        open={Boolean(issueStage)}
-        onClose={() => setIssueStage(null)}
+        open={Boolean(issueTask)}
+        onClose={() => setIssueTask(null)}
         onSubmit={submitIssue}
-        stageDeadline={issueStage?.deadline ? issueStage.deadline.slice(0, 10) : ""}
+        stageDeadline={issueTask?.deadline ? String(issueTask.deadline).slice(0, 10) : ""}
       />
+    </div>
+  );
+}
+
+function MetricCard({ label, value, tone }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+      <p className="text-[11px] uppercase tracking-wide text-slate-500">{label}</p>
+      <p className={`mt-1 text-lg font-bold ${tone}`}>{value}</p>
     </div>
   );
 }

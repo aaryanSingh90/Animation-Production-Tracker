@@ -41,6 +41,17 @@ function buildDepartmentLookup() {
   return map;
 }
 
+function deriveSequenceFromShotCode(code) {
+  const value = String(code || "").trim();
+  if (!value) return null;
+
+  const withPrefix = value.match(/^([A-Za-z0-9]+)[_-]SH\d+/i);
+  if (withPrefix?.[1]) return withPrefix[1].toUpperCase();
+  if (value.includes("_")) return value.split("_")[0].toUpperCase();
+  if (value.includes("-")) return value.split("-")[0].toUpperCase();
+  return "MAIN";
+}
+
 async function buildStageRecordsFromInput(stageInputs = []) {
   await ensureDefaultStageTemplates(prisma);
 
@@ -984,6 +995,246 @@ const getMyProjects = asyncHandler(async (req, res) => {
   return res.json(projects);
 });
 
+const getMyTasks = asyncHandler(async (req, res) => {
+  const userId = req.user.id;
+  const projectIdFilter = req.query.projectId ? Number(req.query.projectId) : null;
+  const statusFilter = req.query.status ? String(req.query.status).toUpperCase() : null;
+
+  const [projectStages, shotStages, assetStages] = await Promise.all([
+    prisma.projectStage.findMany({
+      where: {
+        isActive: true,
+        ...(projectIdFilter ? { projectId: projectIdFilter } : {}),
+        ...(statusFilter ? { status: statusFilter } : {}),
+        OR: [
+          { assignedUserId: userId },
+          {
+            assignments: {
+              some: {
+                userId
+              }
+            }
+          }
+        ]
+      },
+      include: {
+        project: {
+          select: {
+            id: true,
+            name: true,
+            priority: true
+          }
+        },
+        stageTemplate: {
+          select: {
+            name: true
+          }
+        },
+        stageDefinition: {
+          select: {
+            code: true,
+            name: true
+          }
+        },
+        assignments: {
+          where: {
+            userId
+          },
+          select: {
+            createdAt: true,
+            user: {
+              select: {
+                employmentType: true
+              }
+            }
+          }
+        },
+        _count: {
+          select: {
+            comments: true
+          }
+        }
+      },
+      orderBy: [{ deadline: "asc" }, { order: "asc" }, { createdAt: "asc" }]
+    }),
+    prisma.shotStage.findMany({
+      where: {
+        assignedUserId: userId,
+        ...(statusFilter ? { status: statusFilter } : {}),
+        shot: {
+          ...(projectIdFilter ? { projectId: projectIdFilter } : {})
+        }
+      },
+      include: {
+        shot: {
+          include: {
+            project: {
+              select: {
+                id: true,
+                name: true,
+                priority: true
+              }
+            }
+          }
+        },
+        stageDefinition: {
+          select: {
+            code: true,
+            name: true
+          }
+        },
+        _count: {
+          select: {
+            comments: true
+          }
+        }
+      },
+      orderBy: [{ deadline: "asc" }, { updatedAt: "desc" }]
+    }),
+    prisma.assetStage.findMany({
+      where: {
+        assignedUserId: userId,
+        ...(statusFilter ? { status: statusFilter } : {}),
+        asset: {
+          ...(projectIdFilter ? { projectId: projectIdFilter } : {})
+        }
+      },
+      include: {
+        asset: {
+          include: {
+            project: {
+              select: {
+                id: true,
+                name: true,
+                priority: true
+              }
+            }
+          }
+        },
+        stageDefinition: {
+          select: {
+            code: true,
+            name: true
+          }
+        },
+        _count: {
+          select: {
+            comments: true
+          }
+        }
+      },
+      orderBy: [{ deadline: "asc" }, { updatedAt: "desc" }]
+    })
+  ]);
+
+  const tasks = [
+    ...projectStages.map((stage) => ({
+      id: stage.id,
+      trackingType: "PROJECT",
+      resource: "project",
+      projectId: stage.projectId,
+      projectName: stage.project.name,
+      projectPriority: stage.project.priority,
+      stageName: stage.customName || stage.stageTemplate?.name || stage.stageDefinition?.name || stage.stageName,
+      stageCode: stage.stageDefinition?.code || stage.stageName,
+      shotId: null,
+      shotNumber: null,
+      shotCode: null,
+      sequence: null,
+      assetId: null,
+      assetName: null,
+      assetType: null,
+      departmentName: stage.departmentName || null,
+      status: stage.status,
+      deadline: stage.deadline,
+      notes: stage.notes,
+      feedback: stage.feedback,
+      assignedAt: stage.assignments[0]?.createdAt || (stage.assignedUserId === userId ? stage.updatedAt : stage.createdAt),
+      submittedAt: stage.submittedAt,
+      approvedAt: stage.approvedAt,
+      commentCount: stage._count?.comments || 0,
+      isOverdue: Boolean(stage.deadline && new Date(stage.deadline) < new Date() && stage.status !== "APPROVED"),
+      assignmentType: stage.assignments[0]?.user?.employmentType || req.user.employmentType || "INHOUSE"
+    })),
+    ...shotStages.map((stage) => {
+      const shotCode = stage.shot?.name || (stage.shot?.shotNumber ? `SH${String(stage.shot.shotNumber).padStart(3, "0")}` : null);
+      return {
+        id: stage.id,
+        trackingType: "SHOT",
+        resource: "shot",
+        projectId: stage.shot?.projectId,
+        projectName: stage.shot?.project?.name || "Project",
+        projectPriority: stage.shot?.project?.priority || 0,
+        stageName: stage.stageDefinition?.name || stage.stageDefinition?.code || "Shot Stage",
+        stageCode: stage.stageDefinition?.code || null,
+        shotId: stage.shotId,
+        shotNumber: stage.shot?.shotNumber || null,
+        shotCode,
+        sequence: deriveSequenceFromShotCode(shotCode),
+        assetId: null,
+        assetName: null,
+        assetType: null,
+        departmentName: null,
+        status: stage.status,
+        deadline: stage.deadline,
+        notes: stage.notes,
+        feedback: stage.feedback,
+        assignedAt: stage.updatedAt,
+        submittedAt: stage.submittedAt,
+        approvedAt: stage.approvedAt,
+        commentCount: stage._count?.comments || 0,
+        isOverdue: Boolean(stage.deadline && new Date(stage.deadline) < new Date() && stage.status !== "APPROVED"),
+        assignmentType: req.user.employmentType || "INHOUSE"
+      };
+    }),
+    ...assetStages.map((stage) => ({
+      id: stage.id,
+      trackingType: "ASSET",
+      resource: "asset",
+      projectId: stage.asset?.projectId,
+      projectName: stage.asset?.project?.name || "Project",
+      projectPriority: stage.asset?.project?.priority || 0,
+      stageName: stage.stageDefinition?.name || stage.stageDefinition?.code || "Asset Stage",
+      stageCode: stage.stageDefinition?.code || null,
+      shotId: null,
+      shotNumber: null,
+      shotCode: null,
+      sequence: null,
+      assetId: stage.assetId,
+      assetName: stage.asset?.name || "Asset",
+      assetType: stage.asset?.type || null,
+      departmentName: null,
+      status: stage.status,
+      deadline: stage.deadline,
+      notes: stage.notes,
+      feedback: stage.feedback,
+      assignedAt: stage.updatedAt,
+      submittedAt: stage.submittedAt,
+      approvedAt: stage.approvedAt,
+      commentCount: stage._count?.comments || 0,
+      isOverdue: Boolean(stage.deadline && new Date(stage.deadline) < new Date() && stage.status !== "APPROVED"),
+      assignmentType: req.user.employmentType || "INHOUSE"
+    }))
+  ].sort((a, b) => {
+    const aTime = a.deadline ? new Date(a.deadline).getTime() : Number.MAX_SAFE_INTEGER;
+    const bTime = b.deadline ? new Date(b.deadline).getTime() : Number.MAX_SAFE_INTEGER;
+    if (aTime !== bTime) return aTime - bTime;
+    return a.projectPriority - b.projectPriority;
+  });
+
+  const now = new Date();
+  const summary = {
+    total: tasks.length,
+    overdue: tasks.filter((task) => task.deadline && new Date(task.deadline) < now && task.status !== "APPROVED").length,
+    inProgress: tasks.filter((task) => task.status === "IN_PROGRESS").length,
+    submitted: tasks.filter((task) => task.status === "SUBMITTED").length,
+    approved: tasks.filter((task) => task.status === "APPROVED").length,
+    rejected: tasks.filter((task) => task.status === "REJECTED" || task.status === "REVISION_REQUIRED").length
+  };
+
+  return res.json({ tasks, summary });
+});
+
 module.exports = {
   listProjects,
   createProject,
@@ -991,5 +1242,6 @@ module.exports = {
   updateProject,
   deleteProject,
   addProjectStage,
-  getMyProjects
+  getMyProjects,
+  getMyTasks
 };

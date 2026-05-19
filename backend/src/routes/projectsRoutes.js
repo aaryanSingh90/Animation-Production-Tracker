@@ -12,6 +12,7 @@ const router = express.Router();
 router.use(authMiddleware);
 
 router.get("/my", projectsController.getMyProjects);
+router.get("/my-tasks", projectsController.getMyTasks);
 router.get("/", requireRoles("BOSS", "PRODUCTION_MANAGER", "COORDINATOR"), projectsController.listProjects);
 router.post("/", requireRoles("BOSS", "PRODUCTION_MANAGER", "COORDINATOR"), validate({ body: createProjectSchema }), projectsController.createProject);
 router.get("/:id", validate({ params: idParamSchema }), projectsController.getProjectById);

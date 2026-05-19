@@ -1,6 +1,7 @@
 const prisma = require("../utils/prisma");
 const { AppError, asyncHandler } = require("../utils/http");
 const { getDepartmentForStage, normalizeStageCode } = require("../constants/stageDepartmentMap");
+const { createNotification } = require("../utils/notifications");
 
 function stageDisplayName(stage) {
   return stage.customName || stage.stageTemplate?.name || stage.stageName;
@@ -183,6 +184,16 @@ const smartAssign = asyncHandler(async (req, res) => {
   const stage = await prisma.projectStage.findUnique({
     where: { id: stageId },
     include: {
+      stageTemplate: {
+        select: {
+          name: true
+        }
+      },
+      stageDefinition: {
+        select: {
+          code: true
+        }
+      },
       project: {
         select: {
           id: true,
@@ -243,6 +254,18 @@ const smartAssign = asyncHandler(async (req, res) => {
       }
     });
 
+    await Promise.all(
+      team.members.map((member) =>
+        createNotification({
+          userId: member.id,
+          message: `You were assigned ${stageDisplayName(stage)} in ${stage.project.name}.`,
+          type: "ASSIGNED",
+          relatedProjectId: stage.projectId,
+          relatedStageId: stage.id
+        })
+      )
+    );
+
     return res.json({
       success: true,
       type: "team",
@@ -289,6 +312,14 @@ const smartAssign = asyncHandler(async (req, res) => {
     data: {
       assignedUserId: stage.assignedUserId || normalizedUserId
     }
+  });
+
+  await createNotification({
+    userId: normalizedUserId,
+    message: `You were assigned ${stageDisplayName(stage)} in ${stage.project.name}.`,
+    type: "ASSIGNED",
+    relatedProjectId: stage.projectId,
+    relatedStageId: stage.id
   });
 
   return res.json({
