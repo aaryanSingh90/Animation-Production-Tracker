@@ -16,6 +16,7 @@ const router = express.Router();
 router.use(authMiddleware);
 
 router.get("/", requireRoles("BOSS", "PRODUCTION_MANAGER", "COORDINATOR"), usersController.listUsers);
+router.get("/workload-summaries", usersController.getWorkloadSummaries);
 router.post("/", requireRoles("BOSS", "PRODUCTION_MANAGER", "COORDINATOR"), validate({ body: createUserSchema }), usersController.createUser);
 router.post(
   "/reset-password",

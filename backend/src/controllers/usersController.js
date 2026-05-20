@@ -7,6 +7,7 @@ const { logActivity } = require("../utils/activities");
 const { presentUser } = require("../utils/userPresenter");
 const {
   isApprovedStatus,
+  isCompleteStatus,
   isLateStatus,
   isPendingReviewStatus,
   isRetakeStatus
@@ -721,6 +722,409 @@ const getWorkload = asyncHandler(async (req, res) => {
   });
 });
 
+function parseSummaryUserIds(rawValue) {
+  return Array.from(
+    new Set(
+      String(rawValue || "")
+        .split(",")
+        .map((value) => Number(value.trim()))
+        .filter((value) => Number.isInteger(value) && value > 0)
+    )
+  ).slice(0, 200);
+}
+
+function labelizeUserRole(role) {
+  if (role === "BOSS") return "Studio Lead";
+  if (role === "PRODUCTION_MANAGER") return "Production Manager";
+  if (role === "COORDINATOR") return "Coordinator";
+  return "Artist";
+}
+
+function buildShotLabel(shot) {
+  return shot?.label || shot?.name || (shot?.shotNumber ? `SH_${String(shot.shotNumber).padStart(3, "0")}` : "Shot");
+}
+
+function buildActiveTaskSummary({ type, label, status, projectId, projectName, startedAt, dueDate, completedAt }) {
+  return {
+    type,
+    label,
+    status,
+    projectId,
+    projectName,
+    startedAt: startedAt || null,
+    dueDate: dueDate || null,
+    completedAt: completedAt || null
+  };
+}
+
+function getAvailabilityState(user, summary) {
+  if (!user?.isActive) return "OFFLINE";
+  if (user?.availabilityStatus === "ON_LEAVE") return "ON_LEAVE";
+  if (user?.availabilityStatus === "OVERLOADED" || summary.workloadPercent >= 85) return "OVERLOADED";
+  if (summary.lateTasks > 0) return "LATE";
+  if (user?.availabilityStatus === "BUSY" || summary.workloadPercent >= 60 || summary.activeTasks >= 8) return "BUSY";
+  return "AVAILABLE";
+}
+
+function calculateWorkloadPercent(summary) {
+  return Math.min(
+    100,
+    summary.activeTasks * 10 +
+      summary.pendingReviews * 6 +
+      summary.lateTasks * 14 +
+      summary.finalApprovals * 4
+  );
+}
+
+const getWorkloadSummaries = asyncHandler(async (req, res) => {
+  const userIds = parseSummaryUserIds(req.query.ids);
+  if (!userIds.length) {
+    return res.json({ items: [] });
+  }
+
+  if (!isManager(req.user.role)) {
+    if (userIds.length !== 1 || userIds[0] !== req.user.id) {
+      throw new AppError("Forbidden", 403);
+    }
+  }
+
+  const users = await prisma.user.findMany({
+    where: { id: { in: userIds } },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      departmentId: true,
+      departmentName: true,
+      employmentType: true,
+      availabilityStatus: true,
+      isActive: true,
+      department: {
+        select: {
+          id: true,
+          name: true,
+          color: true
+        }
+      }
+    }
+  });
+
+  const requestedIds = new Set(users.map((user) => user.id));
+
+  const [projectStages, shotStages, assetStages, audioTasks] = await Promise.all([
+    prisma.projectStage.findMany({
+      where: {
+        isActive: true,
+        OR: [{ assignedUserId: { in: userIds } }, { assignments: { some: { userId: { in: userIds } } } }]
+      },
+      select: {
+        id: true,
+        stageName: true,
+        assignedUserId: true,
+        status: true,
+        startDate: true,
+        actualStartedAt: true,
+        endDate: true,
+        actualDoneAt: true,
+        approvedAt: true,
+        rejectedAt: true,
+        deadline: true,
+        updatedAt: true,
+        projectId: true,
+        project: {
+          select: {
+            id: true,
+            name: true
+          }
+        },
+        assignments: {
+          where: { userId: { in: userIds } },
+          select: { userId: true }
+        }
+      }
+    }),
+    prisma.shotStage.findMany({
+      where: {
+        OR: [{ assignedUserId: { in: userIds } }, { taskAssignments: { some: { employeeId: { in: userIds } } } }]
+      },
+      select: {
+        id: true,
+        status: true,
+        assignedUserId: true,
+        startDate: true,
+        startedAt: true,
+        endDate: true,
+        endedAt: true,
+        actualStartedAt: true,
+        actualDoneAt: true,
+        submittedAt: true,
+        approvedAt: true,
+        deadline: true,
+        updatedAt: true,
+        stageDefinition: {
+          select: { code: true, name: true }
+        },
+        shot: {
+          select: {
+            id: true,
+            label: true,
+            name: true,
+            shotNumber: true,
+            projectId: true,
+            project: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          }
+        },
+        taskAssignments: {
+          where: { employeeId: { in: userIds } },
+          select: { employeeId: true }
+        }
+      }
+    }),
+    prisma.assetStage.findMany({
+      where: {
+        OR: [{ assignedUserId: { in: userIds } }, { taskAssignments: { some: { employeeId: { in: userIds } } } }]
+      },
+      select: {
+        id: true,
+        status: true,
+        assignedUserId: true,
+        startDate: true,
+        startedAt: true,
+        endDate: true,
+        endedAt: true,
+        actualStartedAt: true,
+        actualDoneAt: true,
+        submittedAt: true,
+        approvedAt: true,
+        deadline: true,
+        updatedAt: true,
+        stageDefinition: {
+          select: { code: true, name: true }
+        },
+        asset: {
+          select: {
+            id: true,
+            name: true,
+            projectId: true,
+            project: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          }
+        },
+        taskAssignments: {
+          where: { employeeId: { in: userIds } },
+          select: { employeeId: true }
+        }
+      }
+    }),
+    prisma.audioTask.findMany({
+      where: {
+        OR: [{ assignedUserId: { in: userIds } }, { taskAssignments: { some: { employeeId: { in: userIds } } } }]
+      },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        assignedUserId: true,
+        startDate: true,
+        endDate: true,
+        createdAt: true,
+        updatedAt: true,
+        projectId: true,
+        project: {
+          select: {
+            id: true,
+            name: true
+          }
+        },
+        taskAssignments: {
+          where: { employeeId: { in: userIds } },
+          select: { employeeId: true }
+        }
+      }
+    })
+  ]);
+
+  const summaries = new Map();
+  for (const user of users) {
+    summaries.set(user.id, {
+      userId: user.id,
+      role: labelizeUserRole(user.role),
+      rawRole: user.role,
+      departmentName: user.department?.name || user.departmentName || null,
+      employmentType: user.employmentType,
+      availabilityStatus: user.availabilityStatus || "AVAILABLE",
+      isActive: user.isActive,
+      assignedProjects: 0,
+      activeTasks: 0,
+      lateTasks: 0,
+      pendingReviews: 0,
+      finalApprovals: 0,
+      activeSince: null,
+      expectedFreeDate: null,
+      lastCompletedTask: null,
+      workloadPercent: 0,
+      currentProjects: [],
+      hiddenProjectCount: 0,
+      _projectIds: new Set(),
+      _activeTasks: [],
+      _projectTaskMap: new Map()
+    });
+  }
+
+  function attachTask(userId, task) {
+    if (!requestedIds.has(userId) || !summaries.has(userId)) return;
+    const summary = summaries.get(userId);
+    summary._projectIds.add(task.projectId);
+
+    const isComplete = isCompleteStatus(task.status);
+    const isLate = isLateStatus(task.status, task.dueDate);
+    const isPendingReview = isPendingReviewStatus(task.status);
+
+    if (!isComplete) {
+      summary.activeTasks += 1;
+      summary._activeTasks.push(task);
+      if (!summary.activeSince || (task.startedAt && new Date(task.startedAt) < new Date(summary.activeSince))) {
+        summary.activeSince = task.startedAt || summary.activeSince;
+      }
+      const freeDateCandidate = task.dueDate || task.completedAt || null;
+      if (freeDateCandidate && (!summary.expectedFreeDate || new Date(freeDateCandidate) > new Date(summary.expectedFreeDate))) {
+        summary.expectedFreeDate = freeDateCandidate;
+      }
+
+      const projectKey = `${task.projectId}`;
+      if (!summary._projectTaskMap.has(projectKey)) {
+        summary._projectTaskMap.set(projectKey, {
+          projectId: task.projectId,
+          projectName: task.projectName,
+          tasks: []
+        });
+      }
+      summary._projectTaskMap.get(projectKey).tasks.push(task.label);
+    }
+
+    if (isLate) summary.lateTasks += 1;
+    if (isPendingReview) summary.pendingReviews += 1;
+    if (task.status === "FINAL") summary.finalApprovals += 1;
+
+    if (isComplete && task.completedAt) {
+      if (!summary.lastCompletedTask || new Date(task.completedAt) > new Date(summary.lastCompletedTask.completedAt)) {
+        summary.lastCompletedTask = {
+          label: task.label,
+          projectName: task.projectName,
+          completedAt: task.completedAt
+        };
+      }
+    }
+  }
+
+  for (const stage of projectStages) {
+    const assigneeIds = new Set([
+      ...(stage.assignedUserId ? [stage.assignedUserId] : []),
+      ...stage.assignments.map((assignment) => assignment.userId)
+    ]);
+    const task = buildActiveTaskSummary({
+      type: "PROJECT",
+      label: stage.stageName,
+      status: stage.status,
+      projectId: stage.project.id,
+      projectName: stage.project.name,
+      startedAt: stage.actualStartedAt || stage.startDate,
+      dueDate: stage.deadline || stage.endDate,
+      completedAt: stage.approvedAt || stage.actualDoneAt || stage.updatedAt
+    });
+    assigneeIds.forEach((userId) => attachTask(userId, task));
+  }
+
+  for (const stage of shotStages) {
+    const assigneeIds = new Set([
+      ...(stage.assignedUserId ? [stage.assignedUserId] : []),
+      ...stage.taskAssignments.map((assignment) => assignment.employeeId)
+    ]);
+    const task = buildActiveTaskSummary({
+      type: "SHOT",
+      label: buildShotLabel(stage.shot),
+      status: stage.status,
+      projectId: stage.shot.project.id,
+      projectName: stage.shot.project.name,
+      startedAt: stage.startedAt || stage.actualStartedAt || stage.startDate,
+      dueDate: stage.deadline || stage.endDate,
+      completedAt: stage.approvedAt || stage.actualDoneAt || stage.endedAt || stage.updatedAt
+    });
+    assigneeIds.forEach((userId) => attachTask(userId, task));
+  }
+
+  for (const stage of assetStages) {
+    const assigneeIds = new Set([
+      ...(stage.assignedUserId ? [stage.assignedUserId] : []),
+      ...stage.taskAssignments.map((assignment) => assignment.employeeId)
+    ]);
+    const task = buildActiveTaskSummary({
+      type: "ASSET",
+      label: stage.asset?.name || stage.stageDefinition?.name || "Asset",
+      status: stage.status,
+      projectId: stage.asset.project.id,
+      projectName: stage.asset.project.name,
+      startedAt: stage.startedAt || stage.actualStartedAt || stage.startDate,
+      dueDate: stage.deadline || stage.endDate,
+      completedAt: stage.approvedAt || stage.actualDoneAt || stage.endedAt || stage.updatedAt
+    });
+    assigneeIds.forEach((userId) => attachTask(userId, task));
+  }
+
+  for (const taskRow of audioTasks) {
+    const assigneeIds = new Set([
+      ...(taskRow.assignedUserId ? [taskRow.assignedUserId] : []),
+      ...taskRow.taskAssignments.map((assignment) => assignment.employeeId)
+    ]);
+    const task = buildActiveTaskSummary({
+      type: "AUDIO",
+      label: taskRow.name || "Audio Task",
+      status: taskRow.status,
+      projectId: taskRow.project.id,
+      projectName: taskRow.project.name,
+      startedAt: taskRow.startDate || taskRow.createdAt,
+      dueDate: taskRow.endDate,
+      completedAt: taskRow.endDate || taskRow.updatedAt
+    });
+    assigneeIds.forEach((userId) => attachTask(userId, task));
+  }
+
+  const items = users.map((user) => {
+    const summary = summaries.get(user.id);
+    const projectGroups = Array.from(summary._projectTaskMap.values())
+      .sort((left, right) => right.tasks.length - left.tasks.length || left.projectName.localeCompare(right.projectName));
+    const currentProjects = projectGroups.slice(0, 3).map((group) => ({
+      projectId: group.projectId,
+      projectName: group.projectName,
+      tasks: group.tasks.slice(0, 2),
+      hiddenTaskCount: Math.max(group.tasks.length - 2, 0)
+    }));
+    summary.assignedProjects = summary._projectIds.size;
+    summary.hiddenProjectCount = Math.max(projectGroups.length - currentProjects.length, 0);
+    summary.currentProjects = currentProjects;
+    summary.workloadPercent = calculateWorkloadPercent(summary);
+    summary.liveStatus = getAvailabilityState(user, summary);
+
+    delete summary._projectIds;
+    delete summary._projectTaskMap;
+    delete summary._activeTasks;
+
+    return summary;
+  });
+
+  return res.json({ items });
+});
+
 const assignUserToStage = asyncHandler(async (req, res) => {
   const userId = Number(req.params.id);
   const stageId = Number(req.body.stageId || req.body.projectStageId);
@@ -812,5 +1216,6 @@ module.exports = {
   setEmployeeActiveStatus,
   deactivateUser,
   getWorkload,
+  getWorkloadSummaries,
   assignUserToStage
 };

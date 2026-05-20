@@ -1,6 +1,7 @@
 const { z } = require("zod");
 
-const isoDate = z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/));
+const localDateTime = z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?$/, "Invalid datetime value");
+const isoDate = z.string().datetime().or(localDateTime).or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/));
 const stageStatusEnum = z.enum([
   "YTS",
   "IP",
