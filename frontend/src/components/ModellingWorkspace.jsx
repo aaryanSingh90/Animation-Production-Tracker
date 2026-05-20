@@ -25,7 +25,7 @@ import Loader from "./Loader";
 import Modal from "./Modal";
 import StatusBadge from "./StatusBadge";
 import FlexibleAssignmentField from "./FlexibleAssignmentField";
-import { formatDateInput, formatDateTimeInput, formatDurationMinutes, getDepartmentLabel, initials, todayDateInput } from "../utils/format";
+import { formatDate, formatDateInput, formatDurationMinutes, getDepartmentLabel, initials, todayDateInput } from "../utils/format";
 import { STAGE_STATUSES, getStatusOptionLabel, isCompleteStatus, isLateStatus } from "../utils/constants";
 import { buildAssetCategoryPath } from "../utils/stageRouting";
 import {
@@ -111,7 +111,6 @@ function createInitialForm(sectionKey) {
     name: "",
     status: "YTS",
     assignments: [],
-    priority: "3",
     startedAt: todayDateInput(),
     endedAt: "",
     notes: "",
@@ -230,6 +229,27 @@ function patchAssetStage(asset, stageId, patch) {
 
 function getStageAssignments(stage) {
   return stage?.taskAssignments?.length ? stage.taskAssignments : normalizeAssignmentList(stage);
+}
+
+function resolvePreferredDepartment(users, recommendedDepartment) {
+  if (recommendedDepartment && countUsersByDepartment(users, recommendedDepartment) > 0) return recommendedDepartment;
+  return buildDepartmentOptions(users, recommendedDepartment)[0] || "";
+}
+
+function buildLeadAssignment(users, employeeId) {
+  const resolvedId = Number(employeeId || 0);
+  if (!resolvedId) return [];
+  const employee = users.find((user) => Number(user.id) === resolvedId) || null;
+  if (!employee) return [];
+  return [
+    {
+      employeeId: resolvedId,
+      roleType: "LEAD",
+      departmentId: employee.departmentId || null,
+      employee,
+      department: employee.department || employee.departmentInfo || null
+    }
+  ];
 }
 
 function WorkspaceMetric({ label, value, caption, tone = "text-slate-900" }) {
@@ -561,14 +581,189 @@ function SummaryCard({ projectId, projectName, stageCode, stageLabel, breadcrumb
   );
 }
 
-function PriorityPill({ priority }) {
-  const level = Number(priority || 3);
-  const tone = level <= 2 ? "border-rose-200 bg-rose-50 text-rose-700" : level === 3 ? "border-amber-200 bg-amber-50 text-amber-700" : "border-slate-200 bg-slate-100 text-slate-600";
-  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${tone}`}>P{level}</span>;
-}
-
 function DurationPill({ minutes }) {
   return <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${getDurationTone(minutes)}`}>{formatDurationMinutes(minutes)}</span>;
+}
+
+function AssignedArtistsSummary({ assignments, users, compact = false }) {
+  const normalizedAssignments = normalizeAssignmentList(assignments);
+  if (!normalizedAssignments.length) {
+    return <span className="text-xs font-medium text-slate-400">Unassigned</span>;
+  }
+
+  return (
+    <div className={`flex flex-wrap gap-1.5 ${compact ? "max-w-full" : ""}`}>
+      {normalizedAssignments.slice(0, compact ? 2 : 3).map((assignment) => {
+        const employee = assignment.employee || users.find((user) => Number(user.id) === Number(assignment.employeeId)) || null;
+        if (!employee) return null;
+        return (
+          <span key={assignment.employeeId} className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700">
+            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-900 text-[9px] font-bold text-white">
+              {initials(employee.name)}
+            </span>
+            <span className="truncate">{employee.name}</span>
+          </span>
+        );
+      })}
+      {normalizedAssignments.length > (compact ? 2 : 3) ? (
+        <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-600">
+          +{normalizedAssignments.length - (compact ? 2 : 3)}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function QuickCreateRow({ section, users, recommendedDepartment, disabled, onCreate }) {
+  const departmentOptions = useMemo(() => buildDepartmentOptions(users, recommendedDepartment), [users, recommendedDepartment]);
+  const [draft, setDraft] = useState(() => ({
+    name: "",
+    department: resolvePreferredDepartment(users, recommendedDepartment),
+    employeeId: "",
+    status: "YTS",
+    startedAt: todayDateInput(),
+    endedAt: ""
+  }));
+
+  useEffect(() => {
+    setDraft({
+      name: "",
+      department: resolvePreferredDepartment(users, recommendedDepartment),
+      employeeId: "",
+      status: "YTS",
+      startedAt: todayDateInput(),
+      endedAt: ""
+    });
+  }, [section.key, users, recommendedDepartment]);
+
+  const artists = useMemo(() => {
+    const scoped = filterUsersByDepartment(users, draft.department);
+    return scoped.sort((left, right) => String(left.name || "").localeCompare(String(right.name || "")));
+  }, [draft.department, users]);
+
+  const canCreate =
+    Boolean(String(draft.name || "").trim()) &&
+    Boolean(String(draft.status || "").trim()) &&
+    Boolean(String(draft.startedAt || "").trim()) &&
+    Boolean(String(draft.employeeId || "").trim());
+
+  async function handleCreate() {
+    if (!canCreate || disabled) return;
+
+    await onCreate({
+      name: String(draft.name || "").trim(),
+      status: draft.status || "YTS",
+      assignments: buildLeadAssignment(users, draft.employeeId),
+      startedAt: draft.startedAt || todayDateInput(),
+      endedAt: draft.endedAt || ""
+    });
+
+    setDraft((prev) => ({
+      name: "",
+      department: prev.department,
+      employeeId: "",
+      status: "YTS",
+      startedAt: todayDateInput(),
+      endedAt: ""
+    }));
+  }
+
+  return (
+    <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/40">
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">{section.title} production table</p>
+          <h3 className="mt-1 text-base font-bold text-slate-900">Quick add {section.singular.toLowerCase()} row</h3>
+        </div>
+        <span className="text-xs text-slate-500">Create rows fast without opening the full modal.</span>
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_180px_220px_180px_160px_160px_auto]">
+        <input
+          value={draft.name}
+          onChange={(event) => setDraft((prev) => ({ ...prev, name: event.target.value }))}
+          placeholder={`${section.singular} name`}
+          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+          disabled={disabled}
+        />
+        <select
+          value={draft.department}
+          onChange={(event) => setDraft((prev) => ({ ...prev, department: event.target.value, employeeId: "" }))}
+          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+          disabled={disabled}
+        >
+          <option value="">All departments</option>
+          {departmentOptions.map((department) => (
+            <option key={department} value={department}>
+              {department}{department === recommendedDepartment ? " · Recommended" : ""}
+            </option>
+          ))}
+        </select>
+        <select
+          value={draft.employeeId}
+          onChange={(event) => setDraft((prev) => ({ ...prev, employeeId: event.target.value }))}
+          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+          disabled={disabled}
+        >
+          <option value="">{artists.length ? "Assign artist" : "No employees found"}</option>
+          {artists.map((artist) => (
+            <option key={artist.id} value={artist.id}>
+              {artist.name} · {getEmploymentLabel(artist.employmentType)}
+            </option>
+          ))}
+        </select>
+        <select
+          value={draft.status}
+          onChange={(event) => setDraft((prev) => ({ ...prev, status: event.target.value }))}
+          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+          disabled={disabled}
+        >
+          {STAGE_STATUSES.map((status) => (
+            <option key={status} value={status}>
+              {getStatusOptionLabel(status)}
+            </option>
+          ))}
+        </select>
+        <input
+          type="date"
+          value={draft.startedAt || todayDateInput()}
+          onChange={(event) => setDraft((prev) => ({ ...prev, startedAt: event.target.value || todayDateInput() }))}
+          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+          disabled={disabled}
+        />
+        <input
+          type="date"
+          value={draft.endedAt}
+          onChange={(event) => setDraft((prev) => ({ ...prev, endedAt: event.target.value }))}
+          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+          disabled={disabled}
+        />
+        <button
+          type="button"
+          onClick={handleCreate}
+          disabled={!canCreate || disabled}
+          className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white ${section.button} disabled:cursor-not-allowed disabled:opacity-50`}
+        >
+          <Plus className="h-4 w-4" /> Create
+        </button>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+        <span>Required: name, artist, status, start date.</span>
+        {!artists.length && draft.department ? (
+          <button
+            type="button"
+            onClick={() => setDraft((prev) => ({ ...prev, department: "", employeeId: "" }))}
+            className="font-semibold text-slate-700 underline-offset-2 hover:underline"
+          >
+            Select another department
+          </button>
+        ) : (
+          <span>End date stays optional.</span>
+        )}
+      </div>
+    </section>
+  );
 }
 
 function WorkspaceToolbar({
@@ -592,31 +787,40 @@ function WorkspaceToolbar({
 }) {
   return (
     <div className="space-y-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/40">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">{stageLabel} control room</p>
           <h3 className="text-lg font-bold text-slate-900">{section.title} production table</h3>
         </div>
-        <button
-          type="button"
-          onClick={onOpenCreate}
-          className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm ${section.button}`}
-        >
-          <Plus className="h-4 w-4" /> Add {section.singular}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={onSelectVisible}
+            className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+          >
+            {allVisibleSelected ? "Clear visible" : `Select visible (${visibleCount})`}
+          </button>
+          <button
+            type="button"
+            onClick={onOpenCreate}
+            className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm ${section.button}`}
+          >
+            <Plus className="h-4 w-4" /> Add {section.singular}
+          </button>
+        </div>
       </div>
 
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1.4fr)_180px_220px_120px_140px_170px_120px_auto]">
-        <label className="relative">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,1.4fr)_180px_220px_150px_180px_140px]">
+        <label className="relative block">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             value={filters.search}
             onChange={(event) => onFilterChange({ search: event.target.value, page: 1 })}
             placeholder={`Search ${section.title.toLowerCase()}`}
-            className="w-full rounded-xl border border-slate-300 px-10 py-2.5 text-sm"
+            className="h-11 w-full rounded-xl border border-slate-300 bg-white px-10 py-2.5 text-sm shadow-sm outline-none transition placeholder:text-slate-400 focus:border-slate-400"
           />
         </label>
-        <select value={filters.status} onChange={(event) => onFilterChange({ status: event.target.value, page: 1 })} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
+        <select value={filters.status} onChange={(event) => onFilterChange({ status: event.target.value, page: 1 })} className="h-11 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400">
           <option value="">All statuses</option>
           {STAGE_STATUSES.map((status) => (
             <option key={status} value={status}>
@@ -624,47 +828,38 @@ function WorkspaceToolbar({
             </option>
           ))}
         </select>
-        <select value={filters.artistId} onChange={(event) => onFilterChange({ artistId: event.target.value, page: 1 })} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
+        <select value={filters.artistId} onChange={(event) => onFilterChange({ artistId: event.target.value, page: 1 })} className="h-11 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400">
           <option value="">All artists</option>
-          {users.map((artist) => (
+          {[...users].sort((left, right) => String(left.name || "").localeCompare(String(right.name || ""))).map((artist) => (
             <option key={artist.id} value={artist.id}>
               {artist.name}
             </option>
           ))}
         </select>
-        <select value={filters.priority} onChange={(event) => onFilterChange({ priority: event.target.value, page: 1 })} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
-          <option value="">All priorities</option>
-          {[1, 2, 3, 4, 5].map((priority) => (
-            <option key={priority} value={priority}>
-              P{priority}
-            </option>
-          ))}
-        </select>
-        <label className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-700">
-          <input type="checkbox" checked={Boolean(filters.overdueOnly)} onChange={(event) => onFilterChange({ overdueOnly: event.target.checked, page: 1 })} />
-          Overdue only
-        </label>
-        <select value={filters.archived} onChange={(event) => onFilterChange({ archived: event.target.value, page: 1 })} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
+        <select value={filters.archived} onChange={(event) => onFilterChange({ archived: event.target.value, page: 1 })} className="h-11 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400">
           <option value="active">Active only</option>
           <option value="archived">Archived only</option>
           <option value="all">Active + Archived</option>
         </select>
-        <select value={filters.sortBy} onChange={(event) => onFilterChange({ sortBy: event.target.value, page: 1 })} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
+        <select value={filters.sortBy} onChange={(event) => onFilterChange({ sortBy: event.target.value, page: 1 })} className="h-11 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400">
           <option value="order">Sort: Pipeline order</option>
           <option value="name">Sort: Name</option>
-          <option value="priority">Sort: Priority</option>
           <option value="artist">Sort: Artist</option>
           <option value="status">Sort: Status</option>
           <option value="duration">Sort: Duration</option>
           <option value="latest">Sort: Latest</option>
         </select>
-        <button
-          type="button"
-          onClick={onSelectVisible}
-          className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+        <select
+          value={String(filters.pageSize)}
+          onChange={(event) => onFilterChange({ pageSize: Number(event.target.value), page: 1 })}
+          className="h-11 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400"
         >
-          {allVisibleSelected ? "Clear visible" : `Select visible (${visibleCount})`}
-        </button>
+          {PAGE_SIZE_OPTIONS.map((size) => (
+            <option key={size} value={size}>
+              View: {size} rows
+            </option>
+          ))}
+        </select>
       </div>
 
       {selectedCount > 0 && (
@@ -715,13 +910,10 @@ function DesktopRow({
   asset,
   stage,
   users,
-  recommendedDepartment,
   selected,
   nowTick,
   disabled,
   onToggleSelect,
-  onUpdateAsset,
-  onUpdateStage,
   onMove,
   onEdit,
   onDuplicate,
@@ -729,16 +921,7 @@ function DesktopRow({
   onDelete
 }) {
   const duration = resolveDurationMinutes(stage, nowTick);
-  const [notesDraft, setNotesDraft] = useState(stage?.notes || "");
-  const [nameDraft, setNameDraft] = useState(asset.name || "");
-
-  useEffect(() => {
-    setNotesDraft(stage?.notes || "");
-  }, [stage?.id, stage?.notes]);
-
-  useEffect(() => {
-    setNameDraft(asset.name || "");
-  }, [asset.id, asset.name]);
+  const leadAssignment = getLeadAssignment(getStageAssignments(stage), stage?.assignedUser);
 
   return (
     <tr className="border-t border-slate-100 align-top hover:bg-slate-50/70">
@@ -746,119 +929,26 @@ function DesktopRow({
         <input type="checkbox" checked={selected} onChange={() => onToggleSelect(asset.id)} className="h-4 w-4 rounded border-slate-300" />
       </td>
       <td className="px-3 py-3">
-        <input
-          value={nameDraft}
-          onChange={(event) => setNameDraft(event.target.value)}
-          onBlur={() => {
-            const nextName = nameDraft.trim();
-            if (nextName && nextName !== asset.name) onUpdateAsset(asset.id, { name: nextName });
-            if (!nextName) setNameDraft(asset.name || "");
-          }}
-          className="w-full min-w-[220px] rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-900"
-        />
-      </td>
-      <td className="px-3 py-3">
-        <select
-          value={stage?.status || "YTS"}
-          onChange={(event) => onUpdateStage(asset.id, stage.id, { status: event.target.value }, { status: event.target.value })}
-          className="w-full min-w-[190px] rounded-xl border border-slate-300 px-3 py-2 text-sm"
-          disabled={disabled}
-        >
-          {STAGE_STATUSES.map((status) => (
-            <option key={status} value={status}>
-              {getStatusOptionLabel(status)}
-            </option>
-          ))}
-        </select>
-      </td>
-      <td className="px-3 py-3">
-        <div className="min-w-[280px]">
-          <FlexibleAssignmentField
-            users={users}
-            recommendedDepartment={recommendedDepartment}
-            assignments={getStageAssignments(stage)}
-            onChange={(assignments) => {
-              const lead = getLeadAssignment(assignments);
-              onUpdateStage(
-                asset.id,
-                stage.id,
-                { assignments, assignedUserId: lead?.employeeId || null },
-                {
-                  assignedUser: lead?.employee || users.find((user) => user.id === lead?.employeeId) || null,
-                  taskAssignments: assignments.map((assignment) => ({
-                    ...assignment,
-                    employee: users.find((user) => user.id === assignment.employeeId) || assignment.employee || null
-                  }))
-                }
-              );
-            }}
-            disabled={disabled}
-          />
+        <div className="min-w-0">
+          <p className="font-semibold text-slate-900">{asset.name}</p>
+          <p className="mt-1 text-xs text-slate-500">{asset.isArchived ? "Archived asset" : "Active production row"}</p>
         </div>
       </td>
       <td className="px-3 py-3">
-        <input
-          type="datetime-local"
-          value={formatDateTimeInput(resolveStageStart(stage))}
-          onChange={(event) =>
-            onUpdateStage(
-              asset.id,
-              stage.id,
-              { startedAt: event.target.value || null, startDate: event.target.value || null },
-              { startedAt: event.target.value || null, startDate: event.target.value || null }
-            )
-          }
-          className="w-full min-w-[190px] rounded-xl border border-slate-300 px-3 py-2 text-sm"
-          disabled={disabled}
-        />
+        <StatusBadge status={stage?.status || "YTS"} />
       </td>
       <td className="px-3 py-3">
-        <input
-          type="datetime-local"
-          value={formatDateTimeInput(resolveStageEnd(stage))}
-          onChange={(event) =>
-            onUpdateStage(
-              asset.id,
-              stage.id,
-              { endedAt: event.target.value || null, endDate: event.target.value || null },
-              { endedAt: event.target.value || null, endDate: event.target.value || null }
-            )
-          }
-          className="w-full min-w-[190px] rounded-xl border border-slate-300 px-3 py-2 text-sm"
-          disabled={disabled}
-        />
+        <div className="min-w-0 space-y-2">
+          <AssignedArtistsSummary assignments={getStageAssignments(stage)} users={users} compact />
+          {leadAssignment?.employee ? (
+            <p className="text-xs text-slate-500">{getDepartmentLabel(leadAssignment.employee)}</p>
+          ) : null}
+        </div>
       </td>
+      <td className="px-3 py-3 text-sm text-slate-700">{formatDate(resolveStageStart(stage))}</td>
+      <td className="px-3 py-3 text-sm text-slate-700">{formatDate(resolveStageEnd(stage))}</td>
       <td className="px-3 py-3">
         <DurationPill minutes={duration} />
-      </td>
-      <td className="px-3 py-3">
-        <select
-          value={String(asset.priority || 3)}
-          onChange={(event) => onUpdateAsset(asset.id, { priority: Number(event.target.value) })}
-          className="w-full min-w-[110px] rounded-xl border border-slate-300 px-3 py-2 text-sm"
-          disabled={disabled}
-        >
-          {[1, 2, 3, 4, 5].map((priority) => (
-            <option key={priority} value={priority}>
-              P{priority}
-            </option>
-          ))}
-        </select>
-      </td>
-      <td className="px-3 py-3">
-        <textarea
-          value={notesDraft}
-          onChange={(event) => setNotesDraft(event.target.value)}
-          onBlur={() => {
-            if ((stage?.notes || "") !== notesDraft) {
-              onUpdateStage(asset.id, stage.id, { notes: notesDraft || null }, { notes: notesDraft || null });
-            }
-          }}
-          rows={2}
-          className="min-h-[46px] w-full min-w-[220px] rounded-xl border border-slate-300 px-3 py-2 text-sm"
-          placeholder="Notes"
-          disabled={disabled}
-        />
       </td>
       <td className="px-3 py-3">
         <div className="flex flex-wrap gap-2">
@@ -886,17 +976,17 @@ function DesktopRow({
   );
 }
 
-function MobileCard({ asset, stage, users, recommendedDepartment, nowTick, disabled, onUpdateStage, onUpdateAsset, onEdit, onDuplicate, onArchive, onDelete }) {
+function MobileCard({ asset, stage, users, nowTick, disabled, onEdit, onDuplicate, onArchive, onDelete }) {
   const duration = resolveDurationMinutes(stage, nowTick);
+  const leadAssignment = getLeadAssignment(getStageAssignments(stage), stage?.assignedUser);
 
   return (
     <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/40">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-sm font-bold text-slate-900">{asset.name}</p>
-          <div className="mt-1 flex flex-wrap gap-2">
+          <div className="mt-2 flex flex-wrap gap-2">
             <StatusBadge status={stage?.status || "YTS"} />
-            <PriorityPill priority={asset.priority} />
             <DurationPill minutes={duration} />
           </div>
         </div>
@@ -906,73 +996,25 @@ function MobileCard({ asset, stage, users, recommendedDepartment, nowTick, disab
       </div>
 
       <div className="mt-4 grid gap-3">
-        <FlexibleAssignmentField
-          users={users}
-          recommendedDepartment={recommendedDepartment}
-          assignments={getStageAssignments(stage)}
-          onChange={(assignments) => {
-            const lead = getLeadAssignment(assignments);
-            onUpdateStage(
-              asset.id,
-              stage.id,
-              { assignments, assignedUserId: lead?.employeeId || null },
-              {
-                assignedUser: lead?.employee || users.find((user) => user.id === lead?.employeeId) || null,
-                taskAssignments: assignments.map((assignment) => ({
-                  ...assignment,
-                  employee: users.find((user) => user.id === assignment.employeeId) || assignment.employee || null
-                }))
-              }
-            );
-          }}
-          disabled={disabled}
-        />
-
-        <div className="grid grid-cols-2 gap-3">
-          <input
-            type="datetime-local"
-            value={formatDateTimeInput(resolveStageStart(stage))}
-            onChange={(event) =>
-              onUpdateStage(
-                asset.id,
-                stage.id,
-                { startedAt: event.target.value || null, startDate: event.target.value || null },
-                { startedAt: event.target.value || null, startDate: event.target.value || null }
-              )
-            }
-            className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
-            disabled={disabled}
-          />
-          <input
-            type="datetime-local"
-            value={formatDateTimeInput(resolveStageEnd(stage))}
-            onChange={(event) =>
-              onUpdateStage(
-                asset.id,
-                stage.id,
-                { endedAt: event.target.value || null, endDate: event.target.value || null },
-                { endedAt: event.target.value || null, endDate: event.target.value || null }
-              )
-            }
-            className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
-            disabled={disabled}
-          />
+        <div className="space-y-2">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Assigned Artists</p>
+          <AssignedArtistsSummary assignments={getStageAssignments(stage)} users={users} />
+          {leadAssignment?.employee ? <p className="text-xs text-slate-500">{getDepartmentLabel(leadAssignment.employee)}</p> : null}
         </div>
 
-        <textarea
-          defaultValue={stage?.notes || ""}
-          onBlur={(event) => {
-            const nextNotes = event.target.value || "";
-            if ((stage?.notes || "") !== nextNotes) {
-              onUpdateStage(asset.id, stage.id, { notes: nextNotes || null }, { notes: nextNotes || null });
-            }
-          }}
-          rows={2}
-          className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-          placeholder="Notes"
-        />
+        <div className="grid grid-cols-2 gap-3 text-sm text-slate-600">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Start</p>
+            <p className="mt-1 text-slate-900">{formatDate(resolveStageStart(stage))}</p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">End</p>
+            <p className="mt-1 text-slate-900">{formatDate(resolveStageEnd(stage))}</p>
+          </div>
+        </div>
 
         <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => onEdit(asset)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Edit</button>
           <button type="button" onClick={() => onDuplicate(asset)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Duplicate</button>
           <button type="button" onClick={() => onArchive(asset, !asset.isArchived)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">
             {asset.isArchived ? "Restore" : "Archive"}
@@ -1012,8 +1054,6 @@ export default function ModellingWorkspace({
     search: "",
     status: "",
     artistId: "",
-    priority: "",
-    overdueOnly: false,
     archived: "active",
     sortBy: "order",
     page: 1,
@@ -1090,6 +1130,7 @@ export default function ModellingWorkspace({
   }, [assetsBySection, normalizedStageCode, nowTick, sectionKeys]);
 
   const sectionAssets = useMemo(() => (activeSection ? assetsBySection[activeSection.key] || [] : []), [activeSection, assetsBySection]);
+  const hasAnySectionAssets = sectionAssets.length > 0;
 
   const detailEntries = useMemo(() => {
     if (!activeSection) return [];
@@ -1109,20 +1150,18 @@ export default function ModellingWorkspace({
           !filters.artistId ||
           getStageAssignments(entry.stage).some((assignment) => Number(assignment.employeeId || assignment.employee?.id) === Number(filters.artistId)) ||
           entry.stage.assignedUser?.id === Number(filters.artistId);
-        const matchesPriority = !filters.priority || Number(entry.asset.priority || 3) === Number(filters.priority);
         const matchesArchived = filters.archived === "all" || (filters.archived === "archived" ? entry.asset.isArchived : !entry.asset.isArchived);
-        const matchesOverdue = !filters.overdueOnly || isOverdue(entry.stage);
-        return matchesSearch && matchesStatus && matchesArtist && matchesPriority && matchesArchived && matchesOverdue;
+        return matchesSearch && matchesStatus && matchesArtist && matchesArchived;
       });
 
     const sorted = [...filtered].sort((left, right) => {
       switch (filters.sortBy) {
         case "name":
           return String(left.asset.name || "").localeCompare(String(right.asset.name || ""));
-        case "priority":
-          return Number(left.asset.priority || 3) - Number(right.asset.priority || 3);
         case "artist":
-          return String(left.stage.assignedUser?.name || "").localeCompare(String(right.stage.assignedUser?.name || ""));
+          return String(getLeadAssignment(getStageAssignments(left.stage), left.stage.assignedUser)?.employee?.name || left.stage.assignedUser?.name || "").localeCompare(
+            String(getLeadAssignment(getStageAssignments(right.stage), right.stage.assignedUser)?.employee?.name || right.stage.assignedUser?.name || "")
+          );
         case "status":
           return String(left.stage.status || "").localeCompare(String(right.stage.status || ""));
         case "duration":
@@ -1190,7 +1229,6 @@ export default function ModellingWorkspace({
         name: asset.name || "",
         status: stage?.status || "YTS",
         assignments: getStageAssignments(stage),
-        priority: String(asset.priority || 3),
         startedAt: formatDateInput(resolveStageStart(stage)) || todayDateInput(),
         endedAt: formatDateInput(resolveStageEnd(stage)),
         notes: stage?.notes || "",
@@ -1222,7 +1260,6 @@ export default function ModellingWorkspace({
       name,
       type: section.type,
       subCategory: section.subCategory,
-      priority: Number(values.priority || 3),
       status: values.status || "YTS",
       ...(String(values.description || "").trim() ? { description: String(values.description).trim() } : {}),
       ...(String(values.referenceImageUrl || "").trim() ? { referenceImageUrl: String(values.referenceImageUrl).trim() } : {})
@@ -1286,7 +1323,6 @@ export default function ModellingWorkspace({
         const stage = getStageForCode(editor.asset, normalizedStageCode);
         await api.patch(`/assets/${editor.asset.id}`, {
           name: editor.form.name.trim(),
-          priority: Number(editor.form.priority || 3),
           ...(String(editor.form.description || "").trim()
             ? { description: String(editor.form.description).trim() }
             : { description: "" }),
@@ -1351,9 +1387,8 @@ export default function ModellingWorkspace({
         name: `${asset.name} Copy`,
         status: stage?.status || "YTS",
         assignments: getStageAssignments(stage),
-        priority: String(asset.priority || 3),
-        startedAt: formatDateTimeInput(resolveStageStart(stage)),
-        endedAt: formatDateTimeInput(resolveStageEnd(stage)),
+        startedAt: formatDateInput(resolveStageStart(stage)) || todayDateInput(),
+        endedAt: formatDateInput(resolveStageEnd(stage)),
         notes: stage?.notes || "",
         description: asset.description || "",
         referenceImageUrl: asset.referenceImageUrl || ""
@@ -1535,15 +1570,35 @@ export default function ModellingWorkspace({
         stageLabel={displayStageLabel}
       />
 
+      <QuickCreateRow
+        section={activeSection}
+        users={activeUsers}
+        recommendedDepartment={recommendedDepartment}
+        disabled={busy}
+        onCreate={async (values) => {
+          setBusy(true);
+          try {
+            await createAsset(activeSection.key, values);
+            showToast?.("success", `${activeSection.singular} created`);
+          } catch (err) {
+            showToast?.("error", err.userMessage || err.response?.data?.message || err.message || `Unable to create ${activeSection.singular.toLowerCase()}`);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
+
       {!detailEntries.length ? (
-        <section className="rounded-[2rem] border border-dashed border-slate-300 bg-white px-6 py-14 text-center shadow-sm shadow-slate-200/40">
-          <div className={`mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br ${activeSection.accent}`}>
-            <Plus className="h-7 w-7 text-slate-800" />
+        <section className="rounded-3xl border border-dashed border-slate-300 bg-white px-6 py-8 text-center shadow-sm shadow-slate-200/40">
+          <div className={`mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br ${activeSection.accent}`}>
+            <Plus className="h-5 w-5 text-slate-800" />
           </div>
-          <h3 className="mt-5 text-2xl font-bold text-slate-900">{activeSection.emptyTitle}</h3>
-          <p className="mt-2 text-sm text-slate-500">Create the first row, then manage artists, duration, status, notes, and approvals from this workspace.</p>
-          <button type="button" onClick={() => openCreate(activeSection.key)} className={`mt-5 inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white ${activeSection.button}`}>
-            <Plus className="h-4 w-4" /> {activeSection.emptyAction}
+          <h3 className="mt-4 text-xl font-bold text-slate-900">{hasAnySectionAssets ? `No ${activeSection.title} match current filters` : activeSection.emptyTitle}</h3>
+          <p className="mt-1.5 text-sm text-slate-500">
+            {hasAnySectionAssets ? "Adjust the filter bar or create a new row for this lane." : `Create your first ${activeSection.singular.toLowerCase()} asset.`}
+          </p>
+          <button type="button" onClick={() => openCreate(activeSection.key)} className={`mt-4 inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white ${activeSection.button}`}>
+            <Plus className="h-4 w-4" /> {hasAnySectionAssets ? `Add ${activeSection.singular}` : activeSection.emptyAction}
           </button>
         </section>
       ) : (
@@ -1554,14 +1609,12 @@ export default function ModellingWorkspace({
                 <thead className="sticky top-0 z-10 bg-slate-950 text-white">
                   <tr>
                     <th className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.18em]">Select</th>
-                    <th className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.18em]">Asset Name</th>
+                    <th className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.18em]">{activeSection.singular} Name</th>
                     <th className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.18em]">Status</th>
                     <th className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.18em]">Assigned Artist</th>
                     <th className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.18em]">Start Date</th>
                     <th className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.18em]">End Date</th>
-                    <th className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.18em]">Duration</th>
-                    <th className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.18em]">Priority</th>
-                    <th className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.18em]">Notes</th>
+                    <th className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.18em]">Time Consumption</th>
                     <th className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.18em]">Actions</th>
                   </tr>
                 </thead>
@@ -1572,13 +1625,10 @@ export default function ModellingWorkspace({
                       asset={asset}
                       stage={stage}
                       users={activeUsers}
-                      recommendedDepartment={recommendedDepartment}
                       selected={selectedIds.includes(asset.id)}
                       nowTick={nowTick}
                       disabled={busy}
                       onToggleSelect={(assetId) => setSelectedIds((prev) => (prev.includes(assetId) ? prev.filter((id) => id !== assetId) : [...prev, assetId]))}
-                      onUpdateAsset={persistAssetUpdate}
-                      onUpdateStage={persistStageUpdate}
                       onMove={moveAsset}
                       onEdit={openEdit}
                       onDuplicate={duplicateAsset}
@@ -1598,11 +1648,8 @@ export default function ModellingWorkspace({
                 asset={asset}
                 stage={stage}
                 users={activeUsers}
-                recommendedDepartment={recommendedDepartment}
                 nowTick={nowTick}
                 disabled={busy}
-                onUpdateStage={persistStageUpdate}
-                onUpdateAsset={persistAssetUpdate}
                 onEdit={openEdit}
                 onDuplicate={duplicateAsset}
                 onArchive={toggleArchive}
@@ -1618,11 +1665,6 @@ export default function ModellingWorkspace({
               <span>Page {currentPage} of {totalPages}</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <select value={String(filters.pageSize)} onChange={(event) => updateFilters({ pageSize: Number(event.target.value), page: 1 })} className="rounded-xl border border-slate-300 px-3 py-2 text-sm">
-                {PAGE_SIZE_OPTIONS.map((size) => (
-                  <option key={size} value={size}>{size} / page</option>
-                ))}
-              </select>
               <button type="button" onClick={() => updateFilters({ page: Math.max(1, currentPage - 1) })} disabled={currentPage <= 1} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-40">Previous</button>
               <button type="button" onClick={() => updateFilters({ page: Math.min(totalPages, currentPage + 1) })} disabled={currentPage >= totalPages} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-40">Next</button>
             </div>
@@ -1643,7 +1685,7 @@ export default function ModellingWorkspace({
             </div>
 
             <ModalSection title="Section 1 — Basic Info" description="Only the essentials stay up front so managers can create assets fast.">
-              <div className="grid gap-3 md:grid-cols-[minmax(0,1.5fr)_220px_160px]">
+              <div className="grid gap-3 md:grid-cols-[minmax(0,1.7fr)_220px]">
                 <label className="space-y-1.5">
                   <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Asset Name *</span>
                   <input
@@ -1668,20 +1710,6 @@ export default function ModellingWorkspace({
                     ))}
                   </select>
                   <InlineError>{editorErrors.status}</InlineError>
-                </label>
-                <label className="space-y-1.5">
-                  <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Priority</span>
-                  <select
-                    value={editor.form.priority}
-                    onChange={(event) => updateEditorField("priority", event.target.value)}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
-                  >
-                    {[1, 2, 3, 4, 5].map((priority) => (
-                      <option key={priority} value={priority}>
-                        P{priority}
-                      </option>
-                    ))}
-                  </select>
                 </label>
               </div>
             </ModalSection>
@@ -1782,7 +1810,7 @@ export default function ModellingWorkspace({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
               <p className="font-semibold">Required: Name, status, assigned artist, start date.</p>
-              <p className="mt-0.5 text-amber-800">End date, notes, description, reference URL, and priority stay optional.</p>
+              <p className="mt-0.5 text-amber-800">End date, notes, description, and reference URL stay optional.</p>
             </div>
             <div className="flex gap-2">
               <button type="button" onClick={closeEditor} className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700">
