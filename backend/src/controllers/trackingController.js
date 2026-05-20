@@ -534,9 +534,9 @@ const getStageShotsWorkspace = asyncHandler(async (req, res) => {
                 color: true
               }
             }
-          },
-          ...TASK_ASSIGNMENT_INCLUDE
-        }
+          }
+        },
+        ...TASK_ASSIGNMENT_INCLUDE
       },
       orderBy,
       skip: (page - 1) * pageSize,
@@ -646,9 +646,9 @@ const getStageAssetsWorkspace = asyncHandler(async (req, res) => {
                 color: true
               }
             }
-          },
-          ...TASK_ASSIGNMENT_INCLUDE
-        }
+          }
+        },
+        ...TASK_ASSIGNMENT_INCLUDE
       },
       orderBy: [{ asset: { order: "asc" } }, { asset: { name: "asc" } }, { createdAt: "asc" }],
       skip: (page - 1) * pageSize,
