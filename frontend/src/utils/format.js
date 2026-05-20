@@ -11,6 +11,10 @@ export function formatDateInput(value) {
   return format(new Date(value), "yyyy-MM-dd");
 }
 
+export function todayDateInput() {
+  return format(new Date(), "yyyy-MM-dd");
+}
+
 export function formatDateTimeInput(value) {
   if (!value) return "";
   return format(new Date(value), "yyyy-MM-dd'T'HH:mm");

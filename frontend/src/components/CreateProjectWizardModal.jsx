@@ -38,6 +38,7 @@ import {
 import Modal from "./Modal";
 import api from "../lib/api";
 import { useToastStore } from "../store/toastStore";
+import { todayDateInput } from "../utils/format";
 
 const STEPS = [
   { id: 1, title: "Project Details", subtitle: "Core production info" },
@@ -274,7 +275,7 @@ export default function CreateProjectWizardModal({
     priority: 1,
     audioReceivedDate: "",
     totalShots: 0,
-    startDate: "",
+    startDate: todayDateInput(),
     dueDate: "",
     lightingMode: "SHOT",
     renderingMode: "PROJECT",
@@ -362,7 +363,7 @@ export default function CreateProjectWizardModal({
       priority: 1,
       audioReceivedDate: "",
       totalShots: 0,
-      startDate: "",
+      startDate: todayDateInput(),
       dueDate: "",
       lightingMode: "SHOT",
       renderingMode: "PROJECT",
