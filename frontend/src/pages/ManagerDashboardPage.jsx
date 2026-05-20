@@ -53,19 +53,29 @@ export default function ManagerDashboardPage() {
     async function fetchData() {
       setLoading(true);
       try {
-        const [projectsRes, approvalsRes, usersRes, clientsRes] = await Promise.all([
+        const [projectsRes, approvalsRes, usersRes, clientsRes] = await Promise.allSettled([
           api.get("/projects"),
           api.get("/approvals"),
           api.get("/users"),
           api.get("/clients")
         ]);
 
+        if (projectsRes.status !== "fulfilled") {
+          throw projectsRes.reason;
+        }
+
         if (cancelled) return;
 
-        setProjects(projectsRes.data || []);
-        setPendingApprovals((approvalsRes.data || []).length);
-        setUsers(usersRes.data || []);
-        setClients(clientsRes.data || []);
+        setProjects(projectsRes.value.data || []);
+        setPendingApprovals(approvalsRes.status === "fulfilled" ? (approvalsRes.value.data || []).length : 0);
+        setUsers(usersRes.status === "fulfilled" ? usersRes.value.data || [] : []);
+        setClients(clientsRes.status === "fulfilled" ? clientsRes.value.data || [] : []);
+      } catch (_error) {
+        if (cancelled) return;
+        setProjects([]);
+        setPendingApprovals(0);
+        setUsers([]);
+        setClients([]);
       } finally {
         if (!cancelled) setLoading(false);
       }

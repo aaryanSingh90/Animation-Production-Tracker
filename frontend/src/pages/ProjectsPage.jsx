@@ -86,11 +86,16 @@ export default function ProjectsPage() {
 
   async function fetchStageTemplates() {
     try {
-      const [templatesRes, clientsRes] = await Promise.all([api.get("/stage-templates"), api.get("/clients")]);
-      const data = templatesRes.data;
+      const [templatesRes, clientsRes] = await Promise.allSettled([api.get("/stage-templates"), api.get("/clients")]);
+
+      if (templatesRes.status !== "fulfilled") {
+        throw templatesRes.reason;
+      }
+
+      const data = templatesRes.value.data;
       setStageTemplates(data.templates || []);
       setPipelineTemplates(data.pipelineTemplates || []);
-      setClients(clientsRes.data || []);
+      setClients(clientsRes.status === "fulfilled" ? clientsRes.value.data || [] : []);
     } catch (err) {
       showToast("error", err.userMessage || err.response?.data?.message || "Failed to load stage templates");
     }
