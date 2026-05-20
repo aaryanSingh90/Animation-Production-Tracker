@@ -17,6 +17,8 @@ import Loader from "./Loader";
 import Modal from "./Modal";
 import StageCommentThread from "./StageCommentThread";
 import StatusBadge from "./StatusBadge";
+import useEmployeeAvailabilitySummaries from "../hooks/useEmployeeAvailabilitySummaries";
+import { EmployeeAvailabilityHoverCard } from "./EmployeeAvailabilityHoverCard";
 import { formatDateTimeInput, formatDurationMinutes, getDepartmentLabel, initials } from "../utils/format";
 import {
   STAGE_STATUSES,
@@ -30,8 +32,10 @@ import {
   getEmploymentBadgeClasses,
   getEmploymentLabel,
   getLeadAssignment,
-  normalizeAssignmentList
+  normalizeAssignmentList,
+  sortUsersBySmartAvailability
 } from "../utils/assignments";
+import { formatEmployeeAvailabilityLabel, getEmployeeAvailabilityMeta, getOverloadWarning } from "../utils/employeeAvailability";
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
 const SHOT_STAGE_CODES = ["ANIMATICS", "ANIMATION", "FX", "LIGHTING", "COMPOSITING", "EDITING"];
@@ -115,7 +119,7 @@ function getDurationTone(minutes) {
 
 function DurationPill({ minutes }) {
   return (
-    <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${getDurationTone(minutes)}`}>
+    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getDurationTone(minutes)}`}>
       {formatDurationMinutes(minutes)}
     </span>
   );
@@ -141,29 +145,29 @@ function getStatusTone(status) {
 
 function StageStatusPill({ status }) {
   return (
-    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${getStatusTone(status)}`}>
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getStatusTone(status)}`}>
       {getStatusOptionLabel(status)}
     </span>
   );
 }
 
-function WorkspaceStatChip({ label, value, accent = "text-white" }) {
+function ToolbarStat({ label, value, tone = "text-slate-100" }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 backdrop-blur">
+    <div className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 backdrop-blur">
       <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">{label}</p>
-      <p className={`mt-1 text-sm font-semibold ${accent}`}>{value}</p>
+      <p className={`mt-0.5 text-xs font-semibold ${tone}`}>{value}</p>
     </div>
   );
 }
 
 function SectionCard({ eyebrow, title, description, action, children, className = "" }) {
   return (
-    <section className={`rounded-3xl border border-slate-200/80 bg-white/90 p-4 shadow-sm shadow-slate-200/50 backdrop-blur ${className}`}>
-      <div className="mb-3 flex items-start justify-between gap-3">
+    <section className={`rounded-[22px] border border-slate-200/80 bg-white/90 p-3 shadow-sm shadow-slate-200/40 backdrop-blur ${className}`}>
+      <div className="mb-2 flex items-start justify-between gap-3">
         <div>
           {eyebrow ? <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">{eyebrow}</p> : null}
-          <h4 className="mt-1 text-sm font-semibold text-slate-950 md:text-base">{title}</h4>
-          {description ? <p className="mt-1 text-xs text-slate-500">{description}</p> : null}
+          <h4 className="mt-1 text-sm font-semibold text-slate-950">{title}</h4>
+          {description ? <p className="mt-1 text-[11px] text-slate-500">{description}</p> : null}
         </div>
         {action}
       </div>
@@ -265,6 +269,51 @@ function formatWorkspaceDateTime(value) {
   }
 }
 
+function formatWorkspaceShortDate(value) {
+  if (!value) return "--";
+  try {
+    return new Intl.DateTimeFormat("en-GB", {
+      day: "2-digit",
+      month: "short"
+    }).format(new Date(value));
+  } catch {
+    return "--";
+  }
+}
+
+function buildShotId(shotNumber) {
+  if (!Number.isFinite(Number(shotNumber))) return "SH_---";
+  return `SH_${String(Number(shotNumber)).padStart(3, "0")}`;
+}
+
+function RowMeta({ label, value, emphasize = false, children }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-400">{label}</p>
+      {children || <p className={`mt-0.5 truncate text-xs ${emphasize ? "font-semibold text-slate-950" : "text-slate-600"}`}>{value}</p>}
+    </div>
+  );
+}
+
+function IconToolbarButton({ title, onClick, disabled, tone = "slate", children }) {
+  const toneClasses =
+    tone === "danger"
+      ? "border-rose-200 text-rose-600 hover:bg-rose-50"
+      : "border-slate-200 text-slate-600 hover:bg-slate-100";
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={`inline-flex h-8 w-8 items-center justify-center rounded-xl border bg-white transition ${toneClasses} disabled:opacity-40`}
+    >
+      {children}
+    </button>
+  );
+}
+
 function buildHistoryItems(row) {
   return [
     { label: "Started", value: resolveStageStart(row) },
@@ -332,49 +381,58 @@ function resolvePreferredDepartment(users, recommendedDepartment) {
   return buildDepartmentOptions(users, recommendedDepartment)[0] || "";
 }
 
-function sortUsersForWorkspace(users, recommendedDepartment) {
-  return [...users].sort((left, right) => {
-    const leftRecommended = getDepartmentLabel(left) === recommendedDepartment ? 0 : 1;
-    const rightRecommended = getDepartmentLabel(right) === recommendedDepartment ? 0 : 1;
-    if (leftRecommended !== rightRecommended) return leftRecommended - rightRecommended;
-    const leftType = left.employmentType === "INHOUSE" ? 0 : 1;
-    const rightType = right.employmentType === "INHOUSE" ? 0 : 1;
-    if (leftType !== rightType) return leftType - rightType;
-    return String(left.name || "").localeCompare(String(right.name || ""));
-  });
+function sortUsersForWorkspace(users, recommendedDepartment, summariesByUserId) {
+  return sortUsersBySmartAvailability(users, summariesByUserId, recommendedDepartment);
 }
 
-function CreateArtistCard({ user, assigned, shotCount, disabled, onAssign }) {
+function CreateArtistCard({ user, summary, assigned, shotCount, disabled, onAssign }) {
+  const meta = getEmployeeAvailabilityMeta(summary?.liveStatus || user.availabilityStatus || "AVAILABLE");
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300">
-      <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-900 text-sm font-bold text-white">
-          {initials(user.name)}
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-slate-900">{user.name}</p>
-          <p className="truncate text-xs text-slate-500">{getDepartmentLabel(user)}</p>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <span className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${getEmploymentBadgeClasses(user.employmentType)}`}>
-              {user.employmentType === "FREELANCE" ? "FREELANCE" : "IN-HOUSE"}
-            </span>
-            <span className="text-[11px] text-slate-500">{shotCount} active shot{shotCount === 1 ? "" : "s"}</span>
+    <EmployeeAvailabilityHoverCard user={user} summary={summary} roleLabel="Artist" className="block">
+      <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-900 text-sm font-bold text-white">
+            {initials(user.name)}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-slate-900">{user.name}</p>
+                <p className="truncate text-xs text-slate-500">{getDepartmentLabel(user)}</p>
+              </div>
+              <span className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${meta.tone}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
+                {formatEmployeeAvailabilityLabel(summary?.liveStatus || user.availabilityStatus || "AVAILABLE")}
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${getEmploymentBadgeClasses(user.employmentType)}`}>
+                {user.employmentType === "FREELANCE" ? "FREELANCE" : "IN-HOUSE"}
+              </span>
+              <span className="text-[11px] text-slate-500">
+                {shotCount} active shot{shotCount === 1 ? "" : "s"} · {summary?.workloadPercent ?? 0}% load
+              </span>
+            </div>
           </div>
         </div>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onAssign(user);
+          }}
+          disabled={disabled || assigned}
+          className={`mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition ${
+            assigned
+              ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+              : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+          } disabled:opacity-60`}
+        >
+          {assigned ? "Assigned" : "Assign"}
+        </button>
       </div>
-      <button
-        type="button"
-        onClick={() => onAssign(user)}
-        disabled={disabled || assigned}
-        className={`mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition ${
-          assigned
-            ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
-            : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-        } disabled:opacity-60`}
-      >
-        {assigned ? "Assigned" : "Assign"}
-      </button>
-    </div>
+    </EmployeeAvailabilityHoverCard>
   );
 }
 
@@ -392,6 +450,7 @@ function ShotCreateAssignmentPicker({
 }) {
   const normalizedAssignments = useMemo(() => normalizeAssignmentList(assignments), [assignments]);
   const departmentOptions = useMemo(() => buildDepartmentOptions(users, recommendedDepartment), [users, recommendedDepartment]);
+  const summariesByUserId = useEmployeeAvailabilitySummaries(users);
   const activeShotCountByUserId = useMemo(() => {
     const counts = new Map();
     rows.forEach((row) => {
@@ -408,15 +467,25 @@ function ShotCreateAssignmentPicker({
   const filteredUsers = useMemo(() => {
     const scoped = filterUsersByDepartment(users, department);
     const query = String(search || "").trim().toLowerCase();
-    if (!query) return scoped;
-    return scoped.filter((user) =>
-      [user.name, user.email, getDepartmentLabel(user), getEmploymentLabel(user.employmentType)]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(query)
-    );
-  }, [department, search, users]);
+    const filtered = !query
+      ? scoped
+      : scoped.filter((user) =>
+          [user.name, user.email, getDepartmentLabel(user), getEmploymentLabel(user.employmentType)]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase()
+            .includes(query)
+        );
+    return sortUsersBySmartAvailability(filtered, summariesByUserId, department || recommendedDepartment);
+  }, [department, recommendedDepartment, search, summariesByUserId, users]);
+
+  const highlightedWarning = useMemo(() => {
+    const found = normalizedAssignments.find((assignment) => getOverloadWarning(summariesByUserId[Number(assignment.employeeId)]));
+    if (!found) return "";
+    const employee = found.employee || users.find((user) => Number(user.id) === Number(found.employeeId));
+    if (!employee) return "";
+    return `${employee.name}: ${getOverloadWarning(summariesByUserId[Number(found.employeeId)])}`;
+  }, [normalizedAssignments, summariesByUserId, users]);
 
   function commit(nextAssignments) {
     onAssignmentsChange?.(ensureSingleLead(nextAssignments));
@@ -481,6 +550,7 @@ function ShotCreateAssignmentPicker({
             <CreateArtistCard
               key={user.id}
               user={user}
+              summary={summariesByUserId[Number(user.id)]}
               assigned={normalizedAssignments.some((assignment) => assignment.employeeId === Number(user.id))}
               shotCount={activeShotCountByUserId.get(Number(user.id)) || 0}
               disabled={disabled}
@@ -510,24 +580,30 @@ function ShotCreateAssignmentPicker({
               const employee = assignment.employee || users.find((user) => Number(user.id) === Number(assignment.employeeId)) || null;
               if (!employee) return null;
               return (
-                <div key={assignment.employeeId} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs text-slate-700">
-                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-900 text-[10px] font-bold text-white">
-                    {initials(employee.name)}
-                  </span>
-                  <span className="font-semibold text-slate-900">{employee.name}</span>
-                  <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getEmploymentBadgeClasses(employee.employmentType)}`}>
-                    {employee.employmentType === "FREELANCE" ? "FREELANCE" : "IN-HOUSE"}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => handleRemove(assignment.employeeId)}
-                    className="rounded-full p-1 text-slate-500 transition hover:bg-white hover:text-slate-900"
-                    disabled={disabled}
-                    aria-label={`Remove ${employee.name}`}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
+                <EmployeeAvailabilityHoverCard key={assignment.employeeId} user={employee} summary={summariesByUserId[Number(assignment.employeeId)]} roleLabel={assignment.roleType === "LEAD" ? "Lead Artist" : "Support Artist"} className="block">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs text-slate-700">
+                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-900 text-[10px] font-bold text-white">
+                      {initials(employee.name)}
+                    </span>
+                    <span className="font-semibold text-slate-900">{employee.name}</span>
+                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getEmploymentBadgeClasses(employee.employmentType)}`}>
+                      {employee.employmentType === "FREELANCE" ? "FREELANCE" : "IN-HOUSE"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        handleRemove(assignment.employeeId);
+                      }}
+                      className="rounded-full p-1 text-slate-500 transition hover:bg-white hover:text-slate-900"
+                      disabled={disabled}
+                      aria-label={`Remove ${employee.name}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </EmployeeAvailabilityHoverCard>
               );
             })
           ) : (
@@ -537,6 +613,11 @@ function ShotCreateAssignmentPicker({
           )}
         </div>
       </div>
+      {highlightedWarning ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          {highlightedWarning}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -553,6 +634,7 @@ export default function ShotPipelineWorkspace({
   currentUser
 }) {
   const activeUsers = useMemo(() => users.filter((user) => user?.isActive !== false), [users]);
+  const summariesByUserId = useEmployeeAvailabilitySummaries(activeUsers);
   const normalizedStageCode = String(stageCode || "").toUpperCase();
   const displayStageLabel = stageLabel || normalizedStageCode;
   const isEditingStage = normalizedStageCode === "EDITING";
@@ -662,8 +744,8 @@ export default function ShotPipelineWorkspace({
   }, [stageSummary, pagination.total, rows, nowTick]);
 
   const assignableUsers = useMemo(
-    () => sortUsersForWorkspace(activeUsers, recommendedDepartment),
-    [activeUsers, recommendedDepartment]
+    () => sortUsersForWorkspace(activeUsers, recommendedDepartment, summariesByUserId),
+    [activeUsers, recommendedDepartment, summariesByUserId]
   );
 
   const groupedRows = useMemo(() => {
@@ -703,6 +785,11 @@ export default function ShotPipelineWorkspace({
       Boolean(String(createForm.startedAt || "").trim()),
     [createForm.assignments, createForm.frameRange, createForm.startedAt, createForm.status]
   );
+
+  const quickCreateSecondsPreview = useMemo(() => {
+    const parsed = parseFrameRange(quickCreateForm.frameRange);
+    return parsed ? `${resolveSeconds(parsed.frameStart, parsed.frameEnd)}s` : "--";
+  }, [quickCreateForm.frameRange]);
 
   const quickCreateCanSubmit = useMemo(() => {
     return Boolean(parseFrameRange(quickCreateForm.frameRange)) && Boolean(quickCreateForm.artistId) && Boolean(quickCreateForm.status);
@@ -1081,33 +1168,85 @@ export default function ShotPipelineWorkspace({
 
   return (
     <div className="space-y-4">
-      <section className="sticky top-3 z-20 overflow-hidden rounded-[28px] border border-slate-900/90 bg-slate-950 text-white shadow-2xl shadow-slate-950/20 backdrop-blur">
-        <div className="grid gap-4 border-b border-white/10 px-4 py-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.35fr)_auto] xl:items-start">
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">{displayStageLabel} Workspace</p>
-            <h2 className="mt-1 truncate text-2xl font-semibold tracking-tight text-white">{overview?.project?.name || "Project"}</h2>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <WorkspaceStatChip label="Sequences" value={groupBySequence ? groupedRows.length : "Flat"} accent="text-slate-100" />
-              <WorkspaceStatChip label="Shots" value={headerStats.total} accent="text-slate-100" />
-              <WorkspaceStatChip label="Artists" value={headerStats.assignedArtists} accent="text-cyan-200" />
-              <WorkspaceStatChip label="Timing" value={formatDurationMinutes(headerStats.visibleDuration)} accent="text-amber-200" />
+      <section className="sticky top-3 z-20 overflow-hidden rounded-[24px] border border-slate-900/90 bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.12),_transparent_30%),linear-gradient(180deg,_rgba(15,23,42,0.98),_rgba(2,6,23,0.98))] text-white shadow-2xl shadow-slate-950/20 backdrop-blur">
+        <div className="space-y-3 px-4 py-3">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400">{displayStageLabel} Production Workspace</p>
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <h2 className="truncate text-xl font-semibold tracking-tight text-white">{overview?.project?.name || "Project"}</h2>
+                <span className="text-xs text-slate-400">{groupBySequence ? `${groupedRows.length} sequences` : "Flat shot view"}</span>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <ToolbarStat label="Shots" value={headerStats.total} />
+                <ToolbarStat label="IP" value={headerStats.inProgress} tone="text-sky-200" />
+                <ToolbarStat label="Final" value={headerStats.final} tone="text-emerald-200" />
+                <ToolbarStat label="Late" value={headerStats.overdue} tone="text-rose-200" />
+                <ToolbarStat label="Crew" value={headerStats.assignedArtists} tone="text-cyan-200" />
+                <ToolbarStat label="Time" value={formatDurationMinutes(headerStats.visibleDuration)} tone="text-amber-200" />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+              <select
+                value={filters.sortBy}
+                onChange={(event) => setFilters((prev) => ({ ...prev, sortBy: event.target.value, page: 1 }))}
+                className="rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white focus:border-sky-400 focus:outline-none"
+              >
+                <option value="shotNumber" className="text-slate-900">Sort: Shot</option>
+                <option value="artist" className="text-slate-900">Sort: Artist</option>
+                <option value="status" className="text-slate-900">Sort: Status</option>
+                <option value="deadline" className="text-slate-900">Sort: Deadline</option>
+                <option value="duration" className="text-slate-900">Sort: Duration</option>
+                <option value="latest" className="text-slate-900">Sort: Latest</option>
+              </select>
+              <button
+                type="button"
+                onClick={() => setFilters((prev) => ({ ...prev, sortDir: prev.sortDir === "asc" ? "desc" : "asc", page: 1 }))}
+                className="rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-[11px] font-semibold tracking-[0.16em] text-slate-200 transition hover:bg-white/10"
+              >
+                {String(filters.sortDir).toUpperCase()}
+              </button>
+              <div className="inline-flex rounded-xl border border-white/10 bg-white/[0.06] p-1">
+                <button
+                  type="button"
+                  onClick={() => setGroupBySequence(true)}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${groupBySequence ? "bg-white text-slate-950" : "text-slate-200 hover:bg-white/10"}`}
+                >
+                  Sequence
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGroupBySequence(false)}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${!groupBySequence ? "bg-white text-slate-950" : "text-slate-200 hover:bg-white/10"}`}
+                >
+                  Flat
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={openCreateModal}
+                className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-slate-100"
+              >
+                <Plus className="h-4 w-4" /> Create Shot
+              </button>
             </div>
           </div>
 
-          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.35fr)_170px_180px_150px]">
-            <label className="relative sm:col-span-2 xl:col-span-1">
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[minmax(0,1.45fr)_170px_220px_150px_auto]">
+            <label className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
               <input
                 value={filters.search}
                 onChange={(event) => setFilters((prev) => ({ ...prev, search: event.target.value, page: 1 }))}
-                placeholder="Search shot, sequence, output, or artist"
-                className="w-full rounded-2xl border border-white/10 bg-white/5 px-10 py-2.5 text-sm text-white placeholder:text-slate-500 focus:border-sky-400 focus:outline-none"
+                placeholder="Search shot, sequence, artist, or output"
+                className="w-full rounded-xl border border-white/10 bg-white/[0.06] px-10 py-2 text-sm text-white placeholder:text-slate-500 focus:border-sky-400 focus:outline-none"
               />
             </label>
             <select
               value={filters.status}
               onChange={(event) => setFilters((prev) => ({ ...prev, status: event.target.value, page: 1 }))}
-              className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white focus:border-sky-400 focus:outline-none"
+              className="rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white focus:border-sky-400 focus:outline-none"
             >
               <option value="" className="text-slate-900">All statuses</option>
               {STAGE_STATUSES.map((status) => (
@@ -1117,67 +1256,38 @@ export default function ShotPipelineWorkspace({
             <select
               value={filters.artistId}
               onChange={(event) => setFilters((prev) => ({ ...prev, artistId: event.target.value, page: 1 }))}
-              className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white focus:border-sky-400 focus:outline-none"
+              className="rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white focus:border-sky-400 focus:outline-none"
             >
               <option value="" className="text-slate-900">All artists</option>
               {assignableUsers.map((artist) => (
                 <option key={artist.id} value={artist.id} className="text-slate-900">
-                  {artist.name}
+                  {artist.name} · {getDepartmentLabel(artist)} · {formatEmployeeAvailabilityLabel(summariesByUserId[Number(artist.id)]?.liveStatus || artist.availabilityStatus || "AVAILABLE")}
                 </option>
               ))}
             </select>
-            <label className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-slate-200">
-              <input type="checkbox" checked={filters.overdueOnly} onChange={(event) => setFilters((prev) => ({ ...prev, overdueOnly: event.target.checked, page: 1 }))} className="rounded border-white/20 bg-slate-900" />
-              Delayed
+            <label className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-slate-200">
+              <input
+                type="checkbox"
+                checked={filters.overdueOnly}
+                onChange={(event) => setFilters((prev) => ({ ...prev, overdueOnly: event.target.checked, page: 1 }))}
+                className="rounded border-white/20 bg-slate-900"
+              />
+              Delayed only
             </label>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-start gap-2 xl:justify-end">
-            <select
-              value={filters.sortBy}
-              onChange={(event) => setFilters((prev) => ({ ...prev, sortBy: event.target.value, page: 1 }))}
-              className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white focus:border-sky-400 focus:outline-none"
-            >
-              <option value="shotNumber" className="text-slate-900">Sort: Shot</option>
-              <option value="artist" className="text-slate-900">Sort: Artist</option>
-              <option value="status" className="text-slate-900">Sort: Status</option>
-              <option value="deadline" className="text-slate-900">Sort: Deadline</option>
-              <option value="duration" className="text-slate-900">Sort: Duration</option>
-              <option value="latest" className="text-slate-900">Sort: Latest</option>
-            </select>
             <button
               type="button"
-              onClick={() => setFilters((prev) => ({ ...prev, sortDir: prev.sortDir === "asc" ? "desc" : "asc", page: 1 }))}
-              className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2.5 text-xs font-semibold tracking-[0.16em] text-slate-200 transition hover:bg-white/10"
+              onClick={() => setSelectedIds(allVisibleSelected ? [] : rowIds)}
+              className="rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm font-semibold text-slate-100 transition hover:bg-white/10"
             >
-              {String(filters.sortDir).toUpperCase()}
-            </button>
-            <button
-              type="button"
-              onClick={() => setGroupBySequence((prev) => !prev)}
-              className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm font-semibold text-slate-100 transition hover:bg-white/10"
-            >
-              {groupBySequence ? "Flat View" : "Sequence View"}
-            </button>
-            <button
-              type="button"
-              onClick={openCreateModal}
-              className="inline-flex items-center gap-2 rounded-2xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-slate-100"
-            >
-              <Plus className="h-4 w-4" /> Create Shot
+              {allVisibleSelected ? "Clear Selection" : `Select ${rowIds.length}`}
             </button>
           </div>
-        </div>
 
-        <div className="flex flex-wrap gap-2 px-4 py-3 text-xs text-slate-300">
-          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5">24 fps auto-seconds</span>
-          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5">{headerStats.inProgress} in progress</span>
-          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5">{headerStats.final} final</span>
-          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5">{headerStats.overdue} delayed</span>
-          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5">{headerStats.completion}% completion</span>
-          <button type="button" onClick={() => setSelectedIds(allVisibleSelected ? [] : rowIds)} className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 font-semibold text-slate-100 transition hover:bg-white/10">
-            {allVisibleSelected ? "Clear Selection" : `Select ${rowIds.length}`}
-          </button>
+          <div className="flex flex-wrap gap-1.5 text-[11px] text-slate-300">
+            <span className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1">24 fps auto-seconds</span>
+            <span className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1">{headerStats.completion}% completion</span>
+            <span className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1">{pagination.total} visible rows</span>
+          </div>
         </div>
       </section>
 
@@ -1212,24 +1322,24 @@ export default function ShotPipelineWorkspace({
         </section>
       ) : null}
 
-      <section className="rounded-[28px] border border-slate-200 bg-white px-4 py-4 shadow-sm shadow-slate-200/40">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
+      <section className="rounded-[22px] border border-slate-200/80 bg-white/95 px-3 py-3 shadow-sm shadow-slate-200/30">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 pb-2">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Quick create</p>
-            <h3 className="text-lg font-semibold text-slate-950">Add shots without opening the modal</h3>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Quick Create</p>
+            <h3 className="text-sm font-semibold text-slate-950">Add shots inline</h3>
           </div>
-          <div className="flex flex-wrap gap-2 text-xs text-slate-600">
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5">Defaults to current time</span>
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5">24 fps auto-seconds</span>
+          <div className="flex flex-wrap gap-1.5 text-[11px] text-slate-500">
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">Press Enter to create</span>
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">Defaults to now</span>
           </div>
         </div>
 
-        <form onSubmit={createQuickShot} className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1fr)_180px_260px_200px_auto]">
+        <form onSubmit={createQuickShot} className="mt-3 grid gap-2 xl:grid-cols-[minmax(0,1.15fr)_150px_260px_170px_auto]">
           <input
             value={quickCreateForm.name}
             onChange={(event) => setQuickCreateForm((prev) => ({ ...prev, name: event.target.value }))}
-            placeholder="Shot label: INTRO or SEQ_A_SH010"
-            className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400"
+            placeholder="Shot label or sequence tag"
+            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
           />
           <input
             value={quickCreateForm.frameRange}
@@ -1238,7 +1348,7 @@ export default function ShotPipelineWorkspace({
               setQuickCreateError("");
             }}
             placeholder="101-148"
-            className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400"
+            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
           />
           <select
             value={quickCreateForm.artistId}
@@ -1246,19 +1356,19 @@ export default function ShotPipelineWorkspace({
               setQuickCreateForm((prev) => ({ ...prev, artistId: event.target.value }));
               setQuickCreateError("");
             }}
-            className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900"
+            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
           >
             <option value="">Assign lead artist</option>
             {assignableUsers.map((artist) => (
               <option key={artist.id} value={artist.id}>
-                {artist.name} · {getDepartmentLabel(artist)} · {artist.employmentType === "FREELANCE" ? "Freelance" : "In-house"}
+                {artist.name} · {getDepartmentLabel(artist)} · {formatEmployeeAvailabilityLabel(summariesByUserId[Number(artist.id)]?.liveStatus || artist.availabilityStatus || "AVAILABLE")} · {summariesByUserId[Number(artist.id)]?.activeTasks ?? 0} active
               </option>
             ))}
           </select>
           <select
             value={quickCreateForm.status}
             onChange={(event) => setQuickCreateForm((prev) => ({ ...prev, status: event.target.value }))}
-            className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900"
+            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
           >
             {STAGE_STATUSES.map((status) => (
               <option key={status} value={status}>{getStatusOptionLabel(status)}</option>
@@ -1267,36 +1377,34 @@ export default function ShotPipelineWorkspace({
           <button
             type="submit"
             disabled={!quickCreateCanSubmit || busy}
-            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
           >
             <Plus className="h-4 w-4" /> Create
           </button>
         </form>
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5">
-            Auto preview: {parseFrameRange(quickCreateForm.frameRange) ? `${resolveSeconds(parseFrameRange(quickCreateForm.frameRange).frameStart, parseFrameRange(quickCreateForm.frameRange).frameEnd)} sec` : "--"}
-          </span>
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5">Start date: {formatWorkspaceDateTime(quickCreateForm.startedAt)}</span>
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">Preview {quickCreateSecondsPreview}</span>
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">Start {formatWorkspaceDateTime(quickCreateForm.startedAt)}</span>
         </div>
-        {quickCreateError ? <p className="mt-2 text-xs font-medium text-rose-600">{quickCreateError}</p> : null}
+        {quickCreateError ? <p className="mt-2 text-[11px] font-medium text-rose-600">{quickCreateError}</p> : null}
       </section>
 
       {error ? (
-        <div className="flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+        <div className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
           <AlertCircle size={16} />
           {error}
         </div>
       ) : null}
 
       {!rows.length && !error ? (
-        <section className="rounded-[28px] border border-dashed border-slate-300 bg-white px-6 py-10 text-center shadow-sm shadow-slate-200/30">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-lg shadow-slate-950/20">
-            <Plus className="h-6 w-6" />
+        <section className="rounded-[22px] border border-dashed border-slate-300 bg-white px-5 py-6 text-center shadow-sm shadow-slate-200/20">
+          <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-slate-950 text-white shadow-lg shadow-slate-950/15">
+            <Plus className="h-4 w-4" />
           </div>
-          <h3 className="mt-4 text-lg font-semibold text-slate-950">No {displayStageLabel} shots yet</h3>
-          <p className="mt-1 text-sm text-slate-500">Create the first shot row to start staffing, timing, and review for this workspace.</p>
-          <div className="mt-4 flex flex-wrap justify-center gap-2">
-            <button type="button" onClick={openCreateModal} className="rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800">Open Create Shot</button>
+          <h3 className="mt-3 text-base font-semibold text-slate-950">No {displayStageLabel} shots yet</h3>
+          <p className="mt-1 text-sm text-slate-500">Create the first shot row to start staffing, timing, and reviews.</p>
+          <div className="mt-3 flex flex-wrap justify-center gap-2">
+            <button type="button" onClick={openCreateModal} className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">Open Create Shot</button>
           </div>
         </section>
       ) : null}
@@ -1314,14 +1422,14 @@ export default function ShotPipelineWorkspace({
             const collapsed = groupBySequence ? Boolean(collapsedSequences[group.key]) : false;
 
             return (
-              <section key={group.key} className="rounded-[28px] border border-slate-200 bg-white shadow-sm shadow-slate-200/40">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-4">
+              <section key={group.key} className="overflow-hidden rounded-[22px] border border-slate-200/80 bg-white shadow-sm shadow-slate-200/30">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 bg-slate-50/70 px-3 py-3">
                   <div className="flex items-center gap-3">
                     {groupBySequence ? (
                       <button
                         type="button"
                         onClick={() => toggleSequence(group.key)}
-                        className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-300 bg-slate-50 text-slate-700 transition hover:bg-slate-100"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:bg-slate-100"
                         aria-label={collapsed ? `Expand ${group.label}` : `Collapse ${group.label}`}
                       >
                         {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
@@ -1329,20 +1437,28 @@ export default function ShotPipelineWorkspace({
                     ) : null}
                     <div>
                       <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">{groupBySequence ? "Sequence group" : "All shots"}</p>
-                      <h3 className="text-xl font-semibold tracking-tight text-slate-950">{group.label}</h3>
+                      <h3 className="text-lg font-semibold tracking-tight text-slate-950">{group.label}</h3>
                     </div>
                   </div>
-                  <div className="flex flex-wrap gap-2 text-xs text-slate-600">
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5">{sequenceStats.total} shots</span>
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5">{sequenceStats.inProgress} IP</span>
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5">{sequenceStats.final} final</span>
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5">{sequenceStats.delayed} delayed</span>
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5">{formatDurationMinutes(sequenceStats.duration)}</span>
+                  <div className="flex flex-wrap gap-1.5 text-[11px] text-slate-600">
+                    <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1">{sequenceStats.total} shots</span>
+                    <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1">{sequenceStats.inProgress} IP</span>
+                    <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1">{sequenceStats.final} final</span>
+                    <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1">{sequenceStats.delayed} late</span>
+                    <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1">{formatDurationMinutes(sequenceStats.duration)}</span>
                   </div>
                 </div>
 
                 {!collapsed ? (
-                  <div className="space-y-3 p-3">
+                  <div className="divide-y divide-slate-200/70">
+                    <div className="hidden xl:grid xl:grid-cols-[28px_minmax(0,1.65fr)_minmax(0,1.15fr)_minmax(0,0.95fr)_auto] xl:items-center xl:gap-3 xl:bg-slate-950/[0.03] xl:px-3 xl:py-2">
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Pick</span>
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Shot / Sequence / Frames</span>
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Status / Artist</span>
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Dates / Time</span>
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Actions</span>
+                    </div>
+                    <div className="space-y-2 p-2">
                     {group.rows.map((row) => {
                       const duration = resolveDurationMinutes(row, nowTick);
                       const commentCount = commentCountsByStageId[row.stageId] || 0;
@@ -1360,113 +1476,114 @@ export default function ShotPipelineWorkspace({
                       const leadDepartment = assignmentSummary.leadUser ? getDepartmentLabel(assignmentSummary.leadUser) : "No department";
 
                       return (
-                        <article key={row.id} className="overflow-hidden rounded-[24px] border border-slate-200 bg-gradient-to-br from-white via-white to-slate-50 shadow-sm shadow-slate-200/40 transition duration-200 hover:-translate-y-[1px] hover:shadow-md hover:shadow-slate-200/50">
-                          <div className="grid gap-3 px-4 py-4 xl:grid-cols-[minmax(0,2.6fr)_minmax(0,1.55fr)_minmax(0,1.1fr)_auto] xl:items-center">
+                        <article key={row.id} className="overflow-hidden rounded-[18px] border border-slate-200/80 bg-white shadow-sm shadow-slate-200/20 transition hover:border-slate-300 hover:bg-slate-50/70">
+                          <div className="grid gap-3 px-3 py-3 md:grid-cols-[28px_minmax(0,1.3fr)_minmax(0,1fr)] xl:grid-cols-[28px_minmax(0,1.65fr)_minmax(0,1.15fr)_minmax(0,0.95fr)_auto] xl:items-center">
+                            <div className="pt-1">
+                              <input
+                                type="checkbox"
+                                checked={selectedIds.includes(row.id)}
+                                onChange={() => setSelectedIds((prev) => (prev.includes(row.id) ? prev.filter((id) => id !== row.id) : [...prev, row.id]))}
+                                className="rounded border-slate-300"
+                              />
+                            </div>
+
                             <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <input
-                                  type="checkbox"
-                                  checked={selectedIds.includes(row.id)}
-                                  onChange={() => setSelectedIds((prev) => (prev.includes(row.id) ? prev.filter((id) => id !== row.id) : [...prev, row.id]))}
-                                  className="rounded border-slate-300"
-                                />
-                                <p className="truncate text-base font-semibold text-slate-950 md:text-lg">{deriveShotLabel(row.shot)}</p>
-                                <span className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-600">
+                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                <p className="text-sm font-semibold tracking-[0.03em] text-slate-950">{buildShotId(row.shot?.shotNumber)}</p>
+                                <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-600">
                                   {row.sequence || "MAIN"}
                                 </span>
-                              </div>
-                              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-                                <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-700">
-                                  #{row.shot?.shotNumber || "--"}
-                                </span>
-                                <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-900">
-                                  {frameRangeLabel}
-                                </span>
-                                <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 font-semibold text-violet-800">
-                                  {frameCount ? `${frameCount}f` : "--"} {seconds ? `→ ${seconds}s` : ""}
-                                </span>
-                                {commentCount > 0 ? (
-                                  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-slate-600">
-                                    {commentCount} comment{commentCount > 1 ? "s" : ""}
-                                  </span>
+                                {deriveShotLabel(row.shot) !== buildShotId(row.shot?.shotNumber) ? (
+                                  <p className="min-w-0 truncate text-xs text-slate-500">{deriveShotLabel(row.shot)}</p>
                                 ) : null}
+                              </div>
+                              <div className="mt-1 grid gap-2 text-xs text-slate-600 sm:grid-cols-3">
+                                <RowMeta label="Frame Range" value={frameRangeLabel} emphasize />
+                                <RowMeta
+                                  label="Seconds"
+                                  children={
+                                    <div className="mt-0.5 inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-800">
+                                      <span>{frameCount ? `${frameCount}f` : "--"}</span>
+                                      <span>→</span>
+                                      <span>{seconds ? `${seconds}s` : "--"}</span>
+                                    </div>
+                                  }
+                                />
+                                <RowMeta
+                                  label="Notes"
+                                  value={
+                                    commentCount > 0
+                                      ? `${commentCount} comment${commentCount > 1 ? "s" : ""}`
+                                      : row.notes
+                                        ? "Notes added"
+                                        : "Clear"
+                                  }
+                                />
                               </div>
                             </div>
 
-                            <div className="min-w-0 space-y-3">
-                              <div className="flex flex-wrap items-center gap-2">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-1.5">
                                 <StageStatusPill status={row.stageStatus} />
-                                {isDelayed ? <span className="rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700">Late</span> : null}
+                                {isDelayed ? <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700">Late</span> : null}
                               </div>
                               {assignmentSummary.leadUser ? (
-                                <div className="flex min-w-0 items-center gap-3">
-                                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-950 text-[11px] font-bold text-white">
-                                    {initials(assignmentSummary.leadUser.name || "U")}
-                                  </span>
-                                  <div className="min-w-0">
-                                    <p className="truncate text-sm font-semibold text-slate-950">{assignmentSummary.leadUser.name}</p>
-                                    <p className="truncate text-xs text-slate-500">
-                                      {leadDepartment} · {assignmentSummary.supportCount > 0 ? `${assignmentSummary.supportCount} support` : "Lead artist"}
-                                    </p>
+                                <EmployeeAvailabilityHoverCard user={assignmentSummary.leadUser} summary={summariesByUserId[Number(assignmentSummary.leadUser.id)]} roleLabel="Lead Artist" className="mt-2 block">
+                                  <div className="flex min-w-0 items-center gap-2.5">
+                                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-slate-950 text-[10px] font-bold text-white">
+                                      {initials(assignmentSummary.leadUser.name || "U")}
+                                    </span>
+                                    <div className="min-w-0">
+                                      <p className="truncate text-sm font-semibold text-slate-950">{assignmentSummary.leadUser.name}</p>
+                                      <p className="truncate text-[11px] text-slate-500">
+                                        {leadDepartment} · {assignmentSummary.supportCount > 0 ? `${assignmentSummary.supportCount} support` : "Lead artist"}
+                                      </p>
+                                    </div>
                                   </div>
-                                </div>
+                                </EmployeeAvailabilityHoverCard>
                               ) : (
-                                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                                  Lead artist not assigned yet.
+                                <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-800">
+                                  Lead artist not assigned.
                                 </div>
                               )}
                             </div>
 
-                            <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1">
-                              <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2.5">
-                                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Start</p>
-                                <p className="mt-1 text-sm font-semibold text-slate-900">{formatWorkspaceDateTime(resolveStageStart(row))}</p>
-                              </div>
-                              <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2.5">
-                                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">End</p>
-                                <p className="mt-1 text-sm font-semibold text-slate-900">{formatWorkspaceDateTime(resolveStageEnd(row))}</p>
-                              </div>
-                              <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2.5">
-                                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Time</p>
-                                <div className="mt-1"><DurationPill minutes={duration} /></div>
-                              </div>
+                            <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-3">
+                              <RowMeta label="Start" value={formatWorkspaceShortDate(resolveStageStart(row))} emphasize />
+                              <RowMeta label="End" value={formatWorkspaceShortDate(resolveStageEnd(row))} emphasize />
+                              <RowMeta label="Time" children={<div className="mt-0.5"><DurationPill minutes={duration} /></div>} />
                             </div>
 
-                            <div className="flex flex-wrap items-center justify-start gap-2 xl:justify-end">
-                              <button type="button" onClick={() => moveShot(row, -1)} className="rounded-2xl border border-slate-300 p-2 text-slate-600 transition hover:bg-slate-100" disabled={busy} title="Move up">
-                                <ArrowUp className="h-4 w-4" />
-                              </button>
-                              <button type="button" onClick={() => moveShot(row, 1)} className="rounded-2xl border border-slate-300 p-2 text-slate-600 transition hover:bg-slate-100" disabled={busy} title="Move down">
-                                <ArrowDown className="h-4 w-4" />
-                              </button>
-                              <button type="button" onClick={() => duplicateShot(row)} className="rounded-2xl border border-slate-300 p-2 text-slate-600 transition hover:bg-slate-100" disabled={busy} title="Duplicate">
-                                <Copy className="h-4 w-4" />
-                              </button>
-                              <button type="button" onClick={() => setDeleteState({ open: true, shot: row, many: [] })} className="rounded-2xl border border-rose-200 p-2 text-rose-600 transition hover:bg-rose-50" disabled={busy} title="Delete">
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => toggleExpanded(row.stageId)}
-                                className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
-                              >
-                                {expanded ? "Collapse" : "Expand"}
-                                {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                              </button>
+                            <div className="flex items-center gap-1.5 xl:justify-end">
+                              <IconToolbarButton title="Move up" onClick={() => moveShot(row, -1)} disabled={busy}>
+                                <ArrowUp className="h-3.5 w-3.5" />
+                              </IconToolbarButton>
+                              <IconToolbarButton title="Move down" onClick={() => moveShot(row, 1)} disabled={busy}>
+                                <ArrowDown className="h-3.5 w-3.5" />
+                              </IconToolbarButton>
+                              <IconToolbarButton title="Duplicate" onClick={() => duplicateShot(row)} disabled={busy}>
+                                <Copy className="h-3.5 w-3.5" />
+                              </IconToolbarButton>
+                              <IconToolbarButton title="Delete" onClick={() => setDeleteState({ open: true, shot: row, many: [] })} disabled={busy} tone="danger">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </IconToolbarButton>
+                              <IconToolbarButton title={expanded ? "Collapse" : "Expand"} onClick={() => toggleExpanded(row.stageId)} disabled={busy}>
+                                {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                              </IconToolbarButton>
                             </div>
                           </div>
 
                           {expanded ? (
-                            <div className="border-t border-slate-200 bg-slate-50/80 px-4 py-4">
-                              <div className="mb-4 flex flex-wrap gap-2">
-                                <button type="button" onClick={() => handleStatusChange(row, "TEST", "Shot marked as test")} className="rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-800 transition hover:bg-cyan-100" disabled={busy}>Mark Test</button>
+                            <div className="border-t border-slate-200 bg-slate-50/70 px-3 py-3">
+                              <div className="mb-3 flex flex-wrap gap-1.5">
+                                <button type="button" onClick={() => handleStatusChange(row, "TEST", "Shot marked as test")} className="rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-[11px] font-semibold text-cyan-800 transition hover:bg-cyan-100" disabled={busy}>Mark Test</button>
                                 {canReview
                                   ? REVIEW_ACTIONS.map((action) => (
                                       <button
                                         key={action.status}
                                         type="button"
                                         onClick={() => handleStatusChange(row, action.status, `${action.label} applied`)}
-                                        className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition hover:brightness-95 ${
+                                        className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition hover:brightness-95 ${
                                           action.status === "APPROVED"
                                             ? "border-violet-200 bg-violet-50 text-violet-700"
                                             : action.status === "FINAL"
@@ -1479,11 +1596,11 @@ export default function ShotPipelineWorkspace({
                                       </button>
                                     ))
                                   : null}
-                                <button type="button" onClick={() => toggleComments(row.stageId)} className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100">
+                                <button type="button" onClick={() => toggleComments(row.stageId)} className="rounded-full border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-100">
                                   {commentsOpen ? "Hide Comments" : commentCount > 0 ? `Comments (${commentCount})` : "Comments"}
                                 </button>
                                 {isEditingStage ? (
-                                  <button type="button" onClick={() => openOutputEditor(row.shot)} className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100">
+                                  <button type="button" onClick={() => openOutputEditor(row.shot)} className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-100">
                                     <NotebookPen className="h-4 w-4" /> Output Details
                                   </button>
                                 ) : null}
@@ -1721,6 +1838,7 @@ export default function ShotPipelineWorkspace({
                         </article>
                       );
                     })}
+                  </div>
                   </div>
                 ) : null}
               </section>
