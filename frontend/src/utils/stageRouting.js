@@ -72,6 +72,27 @@ export const STAGE_SLUG_TO_WORKSPACE_VARIANT = {
   "bg-modeling": "BG"
 };
 
+export const MODELLING_CATEGORY_SLUG_TO_VARIANT = {
+  characters: "CHARACTER",
+  blendshapes: "CHARACTER_BLENDSHAPES",
+  props: "PROP",
+  bg: "BG"
+};
+
+export const MODELLING_VARIANT_TO_CATEGORY_SLUG = {
+  CHARACTER: "characters",
+  CHARACTER_BLENDSHAPES: "blendshapes",
+  PROP: "props",
+  BG: "bg"
+};
+
+export const MODELLING_VARIANT_TO_LABEL = {
+  CHARACTER: "Characters",
+  CHARACTER_BLENDSHAPES: "Character Blendshapes",
+  PROP: "Props",
+  BG: "BG Assets"
+};
+
 export function stageCodeFromSlug(slug) {
   return STAGE_SLUG_TO_CODE[String(slug || "").toLowerCase()] || null;
 }
@@ -98,6 +119,18 @@ export function stageWorkspaceVariantFromSlug(slug) {
   return STAGE_SLUG_TO_WORKSPACE_VARIANT[String(slug || "").toLowerCase()] || null;
 }
 
+export function modellingCategoryVariantFromSlug(slug) {
+  return MODELLING_CATEGORY_SLUG_TO_VARIANT[String(slug || "").toLowerCase()] || null;
+}
+
+export function modellingCategorySlugFromVariant(variant) {
+  return MODELLING_VARIANT_TO_CATEGORY_SLUG[String(variant || "").toUpperCase()] || null;
+}
+
+export function modellingCategoryLabelFromVariant(variant) {
+  return MODELLING_VARIANT_TO_LABEL[String(variant || "").toUpperCase()] || "Modelling";
+}
+
 export function buildStageWorkspacePath(projectId, stageSlugOrCode) {
   const rawValue = String(stageSlugOrCode || "").trim();
   if (!rawValue) return `/projects/${projectId}`;
@@ -108,4 +141,16 @@ export function buildStageWorkspacePath(projectId, stageSlugOrCode) {
     : stageSlugFromCode(rawValue.toUpperCase()) || normalizedSlug;
 
   return `/projects/${projectId}/workspace/${slug}`;
+}
+
+export function buildModellingCategoryPath(projectId, variantOrSlug) {
+  const rawValue = String(variantOrSlug || "").trim();
+  if (!rawValue) return `/projects/${projectId}/workspace/modelling`;
+
+  const normalized = rawValue.toLowerCase();
+  const slug = MODELLING_CATEGORY_SLUG_TO_VARIANT[normalized]
+    ? normalized
+    : modellingCategorySlugFromVariant(rawValue.toUpperCase()) || normalized;
+
+  return `/projects/${projectId}/modelling/${slug}`;
 }

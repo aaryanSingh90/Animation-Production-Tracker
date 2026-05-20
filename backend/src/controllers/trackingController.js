@@ -29,6 +29,10 @@ function isManagerRole(role) {
   return MANAGER_ROLES.includes(role);
 }
 
+function isAudioStageRow(stage) {
+  return normalizeOverviewStageCode(stage?.stageDefinition?.code || stage?.stageName) === "AUDIO";
+}
+
 async function assertProjectAccess(projectId, user) {
   const baseProject = await prisma.project.findUnique({
     where: { id: projectId },
@@ -57,6 +61,13 @@ async function assertProjectAccess(projectId, user) {
                   }
                 }
               ]
+            }
+          }
+        },
+        {
+          audioTasks: {
+            some: {
+              assignedUserId: user.id
             }
           }
         },
@@ -118,6 +129,16 @@ const getProjectOverview = asyncHandler(async (req, res) => {
           }
         }
       },
+      audioTasks: {
+        include: {
+          assignedUser: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        }
+      },
       shots: {
         include: {
           stages: {
@@ -157,16 +178,25 @@ const getProjectOverview = asyncHandler(async (req, res) => {
   const snapshot = await getTrackingDefinitionSnapshot({ prisma, project });
 
   const projectStages = project.stages || [];
+  const audioTasks = project.audioTasks || [];
+  const projectStagesWithoutAudio = audioTasks.length ? projectStages.filter((stage) => !isAudioStageRow(stage)) : projectStages;
+  const projectLevelRows = [
+    ...projectStagesWithoutAudio,
+    ...audioTasks.map((task) => ({
+      ...task,
+      deadline: task.endDate
+    }))
+  ];
   const shotStages = project.shots.flatMap((shot) => shot.stages || []);
   const assetStages = project.assets.flatMap((asset) => asset.stages || []);
 
-  const delayedTasks = [...projectStages, ...shotStages, ...assetStages].filter((stage) => isLateStatus(stage.status, stage.deadline));
+  const delayedTasks = [...projectLevelRows, ...shotStages, ...assetStages].filter((stage) => isLateStatus(stage.status, stage.deadline));
 
-  const pendingApprovals = [...projectStages, ...shotStages, ...assetStages].filter((stage) => isPendingReviewStatus(stage.status));
+  const pendingApprovals = [...projectLevelRows, ...shotStages, ...assetStages].filter((stage) => isPendingReviewStatus(stage.status));
 
   const stageSummaryMap = new Map();
 
-  for (const stage of projectStages) {
+  for (const stage of projectStagesWithoutAudio) {
     const code = normalizeOverviewStageCode(stage.stageDefinition?.code || stage.stageName);
     if (!stageSummaryMap.has(code)) {
       stageSummaryMap.set(code, {
@@ -187,6 +217,21 @@ const getProjectOverview = asyncHandler(async (req, res) => {
     if (isPendingReviewStatus(stage.status)) bucket.submitted += 1;
     if (stage.status === "IP") bucket.inProgress += 1;
     if (isLateStatus(stage.status, stage.deadline)) bucket.delayed += 1;
+  }
+
+  if (audioTasks.length) {
+    const code = "AUDIO";
+    stageSummaryMap.set(code, {
+      stageCode: code,
+      stageName: "Audio",
+      trackingMode: "PROJECT",
+      total: audioTasks.length,
+      approved: audioTasks.filter((task) => isCompleteStatus(task.status)).length,
+      submitted: audioTasks.filter((task) => isPendingReviewStatus(task.status)).length,
+      inProgress: audioTasks.filter((task) => task.status === "IP").length,
+      delayed: audioTasks.filter((task) => isLateStatus(task.status, task.endDate)).length,
+      status: audioTasks[0]?.status || "YTS"
+    });
   }
 
   for (const stage of shotStages) {
@@ -239,8 +284,8 @@ const getProjectOverview = asyncHandler(async (req, res) => {
     if (isLateStatus(stage.status, stage.deadline)) bucket.delayed += 1;
   }
 
-  const projectStageProgress = projectStages.length
-    ? Math.round((projectStages.filter((stage) => isCompleteStatus(stage.status)).length / projectStages.length) * 100)
+  const projectStageProgress = projectLevelRows.length
+    ? Math.round((projectLevelRows.filter((stage) => isCompleteStatus(stage.status)).length / projectLevelRows.length) * 100)
     : 0;
 
   const shotStageProgress = shotStages.length
@@ -281,11 +326,11 @@ const getProjectOverview = asyncHandler(async (req, res) => {
   }));
 
   const completed =
-    projectStages.filter((stage) => isCompleteStatus(stage.status)).length +
+    projectLevelRows.filter((stage) => isCompleteStatus(stage.status)).length +
     shotStages.filter((stage) => isCompleteStatus(stage.status)).length +
     assetStages.filter((stage) => isCompleteStatus(stage.status)).length;
 
-  const total = projectStages.length + shotStages.length + assetStages.length;
+  const total = projectLevelRows.length + shotStages.length + assetStages.length;
   const overallProgress = total ? Math.round((completed / total) * 100) : 0;
 
   return res.json({
@@ -296,6 +341,7 @@ const getProjectOverview = asyncHandler(async (req, res) => {
       priority: project.priority,
       totalShots: project.totalShots,
       totalAssets: project.assets.length,
+      totalAudioTasks: audioTasks.length,
       lightingMode: project.lightingMode,
       renderingMode: project.renderingMode,
       activeStageCodes: project.activeStageCodes,

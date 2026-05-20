@@ -25,7 +25,7 @@ function buildBreadcrumbs(location) {
     return [{ label: "Dashboard", to: "/dashboard" }];
   }
 
-  const [root, second, third] = segments;
+  const [root, second, third, fourth] = segments;
 
   if (root === "dashboard") {
     return [{ label: "Dashboard", to: "/dashboard" }];
@@ -51,6 +51,9 @@ function buildBreadcrumbs(location) {
 
     if (third === "workspace" && segments[3]) {
       base.push({ label: stageLabelFromSlug(segments[3]) });
+    } else if (third === "modelling" && fourth) {
+      base.push({ label: "Modelling", to: `/projects/${second}/workspace/modelling` });
+      base.push({ label: stageLabelFromSlug(fourth) });
     } else if (third) {
       base.push({ label: stageLabelFromSlug(third) });
     }

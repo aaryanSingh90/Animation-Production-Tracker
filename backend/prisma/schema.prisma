@@ -124,6 +124,7 @@ model User {
   assignedCharacterStages CharacterStage[]   @relation("UserCharacterStages")
   assignedShotStages      ShotStage[]        @relation("UserShotStages")
   assignedAssetStages     AssetStage[]       @relation("UserAssetStages")
+  assignedAudioTasks      AudioTask[]        @relation("UserAudioTasks")
   teamProjectAssignments  TeamProject[]      @relation("TeamProjectAssigner")
   shotStageComments       ShotStageComment[]
   assetStageComments      AssetStageComment[]
@@ -166,6 +167,7 @@ model Project {
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   stages            ProjectStage[]
+  audioTasks        AudioTask[]
   shots             Shot[]
   assets            Asset[]
   projectCharacters ProjectCharacter[]
@@ -220,6 +222,26 @@ model ProjectStage {
   @@index([projectId, order])
   @@index([projectId, isActive])
   @@index([stageDefinitionId])
+}
+
+model AudioTask {
+  id             String         @id @default(cuid())
+  projectId      Int
+  name           String
+  assignedUserId Int?
+  status         PipelineStatus @default(YTS)
+  startDate      DateTime?
+  endDate        DateTime?
+  notes          String?
+  order          Int            @default(0)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  project        Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignedUser   User?          @relation("UserAudioTasks", fields: [assignedUserId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, order])
+  @@index([assignedUserId])
+  @@index([projectId, status])
 }
 
 model Character {
@@ -454,7 +476,9 @@ model Asset {
   subCategory       AssetSubCategory?
   description       String?
   referenceImageUrl String?
+  priority          Int         @default(3)
   order             Int         @default(0)
+  isArchived        Boolean     @default(false)
   status            PipelineStatus @default(YTS)
   project           Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
   stages            AssetStage[]
@@ -462,6 +486,7 @@ model Asset {
   updatedAt         DateTime    @updatedAt
 
   @@index([projectId, type])
+  @@index([projectId, subCategory, isArchived])
 }
 
 model AssetStage {
@@ -472,6 +497,10 @@ model AssetStage {
   status            PipelineStatus  @default(YTS)
   startDate         DateTime?
   endDate           DateTime?
+  startedAt         DateTime?
+  endedAt           DateTime?
+  durationMinutes   Int?
+  isTimerRunning    Boolean         @default(false)
   actualStartedAt   DateTime?
   actualDoneAt      DateTime?
   timeConsumedMin   Int?

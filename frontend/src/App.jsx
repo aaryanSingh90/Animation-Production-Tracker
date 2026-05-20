@@ -124,6 +124,14 @@ export default function App() {
             }
           />
           <Route
+            path="/projects/:projectId/modelling/:categorySlug"
+            element={
+              <ManagerLayout>
+                <ProjectStageWorkspacePage />
+              </ManagerLayout>
+            }
+          />
+          <Route
             path="/projects/:projectId/:stageSlug"
             element={
               <ManagerLayout>

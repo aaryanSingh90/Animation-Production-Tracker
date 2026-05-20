@@ -31,6 +31,13 @@ function deriveSubCategory(type, subCategory) {
   return null;
 }
 
+function normalizeArchivedFilter(value) {
+  const normalized = String(value || "active").toLowerCase();
+  if (normalized === "archived") return true;
+  if (normalized === "all") return null;
+  return false;
+}
+
 async function refreshAssetStatus(assetId) {
   const stages = await prisma.assetStage.findMany({
     where: { assetId },
@@ -54,10 +61,12 @@ const listProjectAssets = asyncHandler(async (req, res) => {
   const subCategory = req.query.subCategory;
   const search = req.query.search;
   const artistId = req.query.artistId ? Number(req.query.artistId) : null;
+  const archivedFilter = normalizeArchivedFilter(req.query.archived);
   const sortBy = String(req.query.sortBy || "order");
   const sortDir = String(req.query.sortDir || "asc").toLowerCase() === "desc" ? "desc" : "asc";
 
   const where = { projectId };
+  if (archivedFilter !== null) where.isArchived = archivedFilter;
   if (status) where.status = status;
   if (type) where.type = type;
   if (subCategory) where.subCategory = subCategory;
@@ -78,11 +87,13 @@ const listProjectAssets = asyncHandler(async (req, res) => {
   const orderBy =
     sortBy === "name"
       ? [{ name: sortDir }, { order: "asc" }, { createdAt: "asc" }]
-      : sortBy === "status"
-        ? [{ status: sortDir }, { order: "asc" }, { createdAt: "asc" }]
-        : sortBy === "updatedAt"
-          ? [{ updatedAt: sortDir }, { order: "asc" }]
-          : [{ type: "asc" }, { order: sortDir }, { createdAt: "asc" }];
+        : sortBy === "status"
+          ? [{ status: sortDir }, { order: "asc" }, { createdAt: "asc" }]
+          : sortBy === "priority"
+            ? [{ priority: sortDir }, { order: "asc" }, { createdAt: "asc" }]
+          : sortBy === "updatedAt"
+            ? [{ updatedAt: sortDir }, { order: "asc" }]
+            : [{ type: "asc" }, { order: sortDir }, { createdAt: "asc" }];
 
   const [total, items] = await Promise.all([
     prisma.asset.count({ where }),
@@ -143,6 +154,7 @@ const createProjectAsset = asyncHandler(async (req, res) => {
       subCategory: deriveSubCategory(type, req.body.subCategory),
       description: req.body.description || null,
       referenceImageUrl: req.body.referenceImageUrl || null,
+      priority: Number(req.body.priority || 3),
       order,
       status: normalizePipelineStatus(req.body.status, "YTS")
     }
@@ -194,7 +206,7 @@ const updateAsset = asyncHandler(async (req, res) => {
   if (!existing) throw new AppError("Asset not found", 404);
 
   const payload = {};
-  const fields = ["name", "type", "subCategory", "description", "referenceImageUrl", "status", "order"];
+  const fields = ["name", "type", "subCategory", "description", "referenceImageUrl", "status", "order", "priority", "isArchived"];
   for (const field of fields) {
     if (Object.prototype.hasOwnProperty.call(req.body, field)) {
       payload[field] = req.body[field] || null;
@@ -212,6 +224,9 @@ const updateAsset = asyncHandler(async (req, res) => {
     if (!Object.prototype.hasOwnProperty.call(payload, "subCategory")) {
       payload.subCategory = deriveSubCategory(payload.type, null);
     }
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "priority") && payload.priority != null) {
+    payload.priority = Number(payload.priority);
   }
 
   const updated = await prisma.asset.update({
@@ -306,9 +321,35 @@ const updateAssetStage = asyncHandler(async (req, res) => {
   if (Object.prototype.hasOwnProperty.call(req.body, "endDate")) {
     payload.endDate = req.body.endDate ? new Date(req.body.endDate) : null;
   }
+  if (Object.prototype.hasOwnProperty.call(req.body, "startedAt")) {
+    payload.startedAt = req.body.startedAt ? new Date(req.body.startedAt) : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body, "endedAt")) {
+    payload.endedAt = req.body.endedAt ? new Date(req.body.endedAt) : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body, "durationMinutes")) {
+    payload.durationMinutes = req.body.durationMinutes != null ? Number(req.body.durationMinutes) : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body, "isTimerRunning")) {
+    payload.isTimerRunning = Boolean(req.body.isTimerRunning);
+  }
 
-  if (payload.status === "IP" && !assetStage.actualStartedAt) {
-    payload.actualStartedAt = new Date();
+  if (payload.startedAt && !payload.startDate) {
+    payload.startDate = payload.startedAt;
+  }
+  if (payload.endedAt && !payload.endDate) {
+    payload.endDate = payload.endedAt;
+  }
+
+  if (payload.status === "IP" && !assetStage.actualStartedAt && !payload.startedAt) {
+    const startedAt = new Date();
+    payload.startedAt = startedAt;
+    payload.startDate = payload.startDate || startedAt;
+    payload.actualStartedAt = startedAt;
+    payload.isTimerRunning = true;
+  } else if (payload.startedAt && !assetStage.actualStartedAt) {
+    payload.actualStartedAt = payload.startedAt;
+    payload.isTimerRunning = payload.endedAt ? false : true;
   }
 
   if (isPendingReviewStatus(payload.status)) {
@@ -324,10 +365,27 @@ const updateAssetStage = asyncHandler(async (req, res) => {
     payload.approvedAt = null;
   }
 
-  if (isCompleteStatus(payload.status) && assetStage.actualStartedAt && !assetStage.actualDoneAt) {
+  const effectiveStartedAt = payload.startedAt || assetStage.startedAt || assetStage.actualStartedAt || payload.startDate || assetStage.startDate;
+  const explicitEndedAt = payload.endedAt || payload.endDate || null;
+
+  if (isCompleteStatus(payload.status) && effectiveStartedAt && !assetStage.actualDoneAt && !explicitEndedAt) {
     const doneAt = new Date();
+    payload.endedAt = doneAt;
+    payload.endDate = payload.endDate || doneAt;
     payload.actualDoneAt = doneAt;
-    payload.timeConsumedMin = Math.max(1, Math.round((doneAt.getTime() - new Date(assetStage.actualStartedAt).getTime()) / 60000));
+    payload.durationMinutes = Math.max(1, Math.round((doneAt.getTime() - new Date(effectiveStartedAt).getTime()) / 60000));
+    payload.timeConsumedMin = payload.durationMinutes;
+    payload.isTimerRunning = false;
+  } else if (effectiveStartedAt && explicitEndedAt) {
+    const endedAt = new Date(explicitEndedAt);
+    payload.endedAt = endedAt;
+    payload.endDate = payload.endDate || endedAt;
+    payload.actualDoneAt = endedAt;
+    payload.durationMinutes = Math.max(1, Math.round((endedAt.getTime() - new Date(effectiveStartedAt).getTime()) / 60000));
+    payload.timeConsumedMin = payload.durationMinutes;
+    payload.isTimerRunning = false;
+  } else if (effectiveStartedAt && !payload.endedAt && !assetStage.endedAt && !isCompleteStatus(payload.status || assetStage.status)) {
+    payload.isTimerRunning = Object.prototype.hasOwnProperty.call(payload, "isTimerRunning") ? payload.isTimerRunning : true;
   }
 
   const updated = await prisma.assetStage.update({

@@ -11,6 +11,11 @@ export function formatDateInput(value) {
   return format(new Date(value), "yyyy-MM-dd");
 }
 
+export function formatDateTimeInput(value) {
+  if (!value) return "";
+  return format(new Date(value), "yyyy-MM-dd'T'HH:mm");
+}
+
 export function formatRelative(value) {
   if (!value) return "";
   return formatDistanceToNow(new Date(value), { addSuffix: true });
@@ -33,6 +38,25 @@ export function labelize(value) {
 export function initials(name = "") {
   const parts = name.split(" ").filter(Boolean);
   return (parts[0]?.[0] || "") + (parts[1]?.[0] || "");
+}
+
+export function formatDurationMinutes(value) {
+  const minutes = Number(value);
+  if (!Number.isFinite(minutes) || minutes <= 0) return "-";
+  if (minutes < 60) return `${minutes} min`;
+
+  const totalHours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  if (totalHours < 24) {
+    return remainingMinutes ? `${totalHours} hr ${remainingMinutes} min` : `${totalHours} hr`;
+  }
+
+  const days = Math.floor(totalHours / 24);
+  const remainingHours = totalHours % 24;
+  if (remainingHours > 0) {
+    return `${days} day${days === 1 ? "" : "s"} ${remainingHours} hr`;
+  }
+  return `${days} day${days === 1 ? "" : "s"}`;
 }
 
 export function getDepartmentLabel(user) {

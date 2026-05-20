@@ -202,6 +202,10 @@ const updateStageSchema = z
     deadline: isoDate.nullable().optional(),
     startDate: isoDate.nullable().optional(),
     endDate: isoDate.nullable().optional(),
+    startedAt: isoDate.nullable().optional(),
+    endedAt: isoDate.nullable().optional(),
+    durationMinutes: z.coerce.number().int().min(0).nullable().optional(),
+    isTimerRunning: z.boolean().optional(),
     assignedUserId: z.coerce.number().int().positive().nullable().optional(),
     notes: z.string().max(5000).optional(),
     feedback: z.string().max(5000).optional().nullable(),
@@ -355,6 +359,7 @@ const createAssetSchema = z.object({
   subCategory: z.enum(["CHARACTER", "CHARACTER_BLENDSHAPES", "PROP", "BG"]).optional(),
   description: z.string().max(2000).optional().or(z.literal("")),
   referenceImageUrl: z.string().url().optional().or(z.literal("")),
+  priority: z.coerce.number().int().min(1).max(5).optional(),
   status: stageStatusEnum.optional()
 });
 
@@ -363,12 +368,47 @@ const updateAssetSchema = z
     name: z.string().min(1).max(255).optional(),
     type: z.enum(["CHARACTER", "PROP", "BG", "ENVIRONMENT"]).optional(),
     subCategory: z.enum(["CHARACTER", "CHARACTER_BLENDSHAPES", "PROP", "BG"]).optional().nullable(),
+    priority: z.coerce.number().int().min(1).max(5).optional(),
     order: z.coerce.number().int().min(0).optional(),
+    isArchived: z.boolean().optional(),
     description: z.string().max(2000).optional().or(z.literal("")),
     referenceImageUrl: z.string().url().optional().or(z.literal("")),
     status: stageStatusEnum.optional()
   })
   .refine((value) => Object.keys(value).length > 0, "At least one field is required");
+
+const createAudioTaskSchema = z.object({
+  projectId: z.coerce.number().int().positive(),
+  name: z.string().min(1).max(255),
+  assignedUserId: z.coerce.number().int().positive().nullable().optional(),
+  status: stageStatusEnum.optional(),
+  startDate: isoDate.nullable().optional(),
+  endDate: isoDate.nullable().optional(),
+  notes: z.string().max(5000).optional().or(z.literal("")),
+  order: z.coerce.number().int().min(0).optional()
+});
+
+const updateAudioTaskSchema = z
+  .object({
+    name: z.string().min(1).max(255).optional(),
+    assignedUserId: z.coerce.number().int().positive().nullable().optional(),
+    status: stageStatusEnum.optional(),
+    startDate: isoDate.nullable().optional(),
+    endDate: isoDate.nullable().optional(),
+    notes: z.string().max(5000).optional().or(z.literal("")),
+    order: z.coerce.number().int().min(0).optional()
+  })
+  .refine((value) => Object.keys(value).length > 0, "At least one field is required");
+
+const audioTaskQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).optional(),
+  pageSize: z.coerce.number().int().min(1).max(1000).optional(),
+  status: stageStatusEnum.optional(),
+  artistId: z.coerce.number().int().positive().optional(),
+  search: z.string().max(255).optional(),
+  sortBy: z.enum(["name", "createdAt", "startDate", "endDate", "status"]).optional(),
+  sortDir: z.enum(["asc", "desc"]).optional()
+});
 
 const stageWorkspaceQuerySchema = z.object({
   page: z.coerce.number().int().min(1).optional(),
@@ -518,6 +558,9 @@ module.exports = {
   updateShotSchema,
   createAssetSchema,
   updateAssetSchema,
+  createAudioTaskSchema,
+  updateAudioTaskSchema,
+  audioTaskQuerySchema,
   stageWorkspaceQuerySchema,
   bulkShotAssignSchema,
   rangeShotAssignSchema,

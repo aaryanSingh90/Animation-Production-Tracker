@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { AlertCircle, ChevronDown, ChevronRight } from "lucide-react";
 import api from "../lib/api";
 import Loader from "../components/Loader";
+import AudioWorkspace from "../components/AudioWorkspace";
 import ModellingWorkspace from "../components/ModellingWorkspace";
 import EmptyState from "../components/EmptyState";
 import Modal from "../components/Modal";
@@ -17,7 +18,13 @@ import {
   isLateStatus,
   isPendingReviewStatus
 } from "../utils/constants";
-import { stageCodeFromSlug, stageLabelFromSlug, stageWorkspaceVariantFromSlug } from "../utils/stageRouting";
+import {
+  modellingCategoryLabelFromVariant,
+  modellingCategoryVariantFromSlug,
+  stageCodeFromSlug,
+  stageLabelFromSlug,
+  stageWorkspaceVariantFromSlug
+} from "../utils/stageRouting";
 import { isDepartmentMatch, stageDepartmentFromCode } from "../utils/stageDepartmentMap";
 import { useToastStore } from "../store/toastStore";
 import { useAuthStore } from "../store/authStore";
@@ -204,13 +211,14 @@ function EditingOutputEditor({ shot, disabled, onSave }) {
 }
 
 export default function ProjectStageWorkspacePage() {
-  const { projectId, stageSlug } = useParams();
+  const { projectId, stageSlug, categorySlug } = useParams();
   const showToast = useToastStore((state) => state.showToast);
   const currentUser = useAuthStore((state) => state.user);
 
-  const stageCode = stageCodeFromSlug(stageSlug);
-  const workspaceVariant = stageWorkspaceVariantFromSlug(stageSlug);
-  const workspaceTitle = stageLabelFromSlug(stageSlug);
+  const derivedStageSlug = categorySlug ? "modelling" : stageSlug;
+  const stageCode = categorySlug ? "MODELLING" : stageCodeFromSlug(stageSlug);
+  const workspaceVariant = categorySlug ? modellingCategoryVariantFromSlug(categorySlug) : stageWorkspaceVariantFromSlug(stageSlug);
+  const workspaceTitle = categorySlug ? modellingCategoryLabelFromVariant(workspaceVariant) : stageLabelFromSlug(derivedStageSlug);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -763,6 +771,19 @@ export default function ProjectStageWorkspacePage() {
   }
 
   if (loading && !overview) return <Loader label="Loading stage workspace..." />;
+
+  if (stageCode === "AUDIO") {
+    return (
+      <AudioWorkspace
+        projectId={projectId}
+        overview={overview}
+        stageSummary={stageSummary}
+        eligibleUsers={eligibleUsers}
+        requiredDepartment={requiredDepartment}
+        showToast={showToast}
+      />
+    );
+  }
 
   if (stageCode === "MODELLING") {
     return (
