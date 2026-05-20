@@ -414,7 +414,12 @@ export default function ProjectStageWorkspacePage() {
       const [overviewRes, usersRes] = await Promise.all([api.get(`/projects/${projectId}/overview`), api.get("/users")]);
 
       setOverview(overviewRes.data);
-      setUsers((usersRes.data || []).filter((user) => user.isActive && user.role === "EMPLOYEE"));
+      setUsers(
+        (usersRes.data || []).filter((user) => {
+          if (user?.isActive === false) return false;
+          return user?.role !== "BOSS";
+        })
+      );
 
       const resolvedSummary =
         (overviewRes.data?.stageSummaries || []).find(

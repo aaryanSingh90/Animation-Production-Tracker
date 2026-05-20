@@ -7,8 +7,15 @@ import Modal from "./Modal";
 import StatusBadge from "./StatusBadge";
 import FlexibleAssignmentField from "./FlexibleAssignmentField";
 import { STAGE_STATUSES, getStatusOptionLabel, isCompleteStatus, isLateStatus } from "../utils/constants";
-import { formatDateInput, initials } from "../utils/format";
-import { getLeadAssignment, normalizeAssignmentList } from "../utils/assignments";
+import { formatDateInput, getDepartmentLabel, initials } from "../utils/format";
+import {
+  buildDepartmentOptions,
+  countUsersByDepartment,
+  filterUsersByDepartment,
+  getLeadAssignment,
+  normalizeAssignmentList
+} from "../utils/assignments";
+import { isDepartmentMatch } from "../utils/stageDepartmentMap";
 
 function sortAudioRows(rows, sortBy, sortDir) {
   const direction = sortDir === "asc" ? 1 : -1;
@@ -27,6 +34,13 @@ function sortAudioRows(rows, sortBy, sortDir) {
 
 function getAudioAssignments(item) {
   return item?.taskAssignments?.length ? item.taskAssignments : normalizeAssignmentList(item);
+}
+
+function getAudioAssignedUsers(item, users) {
+  const usersById = new Map((users || []).map((user) => [user.id, user]));
+  return getAudioAssignments(item)
+    .map((assignment) => assignment.employee || usersById.get(Number(assignment.employeeId)) || null)
+    .filter(Boolean);
 }
 
 function AudioDesktopRow({
@@ -291,11 +305,22 @@ function AudioMobileCard({
 
 export default function AudioWorkspace({ projectId, overview, stageSummary, users = [], recommendedDepartment, showToast }) {
   const activeUsers = useMemo(() => users.filter((user) => user?.isActive !== false), [users]);
+  const departmentOptions = useMemo(
+    () => buildDepartmentOptions(activeUsers, recommendedDepartment),
+    [activeUsers, recommendedDepartment]
+  );
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [items, setItems] = useState([]);
   const [error, setError] = useState("");
-  const [filters, setFilters] = useState({ search: "", status: "", artistId: "", sortBy: "latest", sortDir: "desc" });
+  const [filters, setFilters] = useState({
+    search: "",
+    status: "",
+    department: "",
+    artistId: "",
+    sortBy: "latest",
+    sortDir: "desc"
+  });
   const [selectedIds, setSelectedIds] = useState([]);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [quickAddForm, setQuickAddForm] = useState({ name: "", assignments: [], status: "YTS", startDate: "", endDate: "", notes: "" });
@@ -307,6 +332,29 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
   useEffect(() => {
     loadAudioTasks();
   }, [projectId]);
+
+  useEffect(() => {
+    setFilters((current) => {
+      if (current.department) return current;
+      if (recommendedDepartment && countUsersByDepartment(activeUsers, recommendedDepartment) > 0) {
+        return { ...current, department: recommendedDepartment };
+      }
+      return current;
+    });
+  }, [activeUsers, recommendedDepartment]);
+
+  const filteredArtists = useMemo(
+    () => filterUsersByDepartment(activeUsers, filters.department),
+    [activeUsers, filters.department]
+  );
+
+  useEffect(() => {
+    if (!filters.artistId) return;
+    const stillVisible = filteredArtists.some((artist) => Number(artist.id) === Number(filters.artistId));
+    if (!stillVisible) {
+      setFilters((current) => ({ ...current, artistId: "" }));
+    }
+  }, [filteredArtists, filters.artistId]);
 
   async function loadAudioTasks(withLoader = true) {
     if (withLoader) setLoading(true);
@@ -334,15 +382,30 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
       const searchNeedle = String(filters.search || "").trim().toLowerCase();
       const matchesSearch = !searchNeedle || String(item.name || "").toLowerCase().includes(searchNeedle);
       const matchesStatus = !filters.status || item.status === filters.status;
+      const assignedUsers = getAudioAssignedUsers(item, activeUsers);
+      const matchesDepartment =
+        !filters.department ||
+        !assignedUsers.length ||
+        assignedUsers.some((user) => isDepartmentMatch(filters.department, getDepartmentLabel(user)));
       const matchesArtist =
         !filters.artistId ||
         getAudioAssignments(item).some((assignment) => Number(assignment.employeeId || assignment.employee?.id) === Number(filters.artistId)) ||
         item.assignedUser?.id === Number(filters.artistId);
-      return matchesSearch && matchesStatus && matchesArtist;
+      return matchesSearch && matchesStatus && matchesDepartment && matchesArtist;
     });
 
     return sortAudioRows(filtered, filters.sortBy, filters.sortDir);
-  }, [items, filters]);
+  }, [activeUsers, items, filters]);
+
+  const assignedEmployees = useMemo(() => {
+    const unique = new Map();
+    for (const item of items) {
+      for (const employee of getAudioAssignedUsers(item, activeUsers)) {
+        if (!unique.has(employee.id)) unique.set(employee.id, employee);
+      }
+    }
+    return Array.from(unique.values());
+  }, [activeUsers, items]);
 
   const metrics = useMemo(() => {
     const completed = items.filter((item) => isCompleteStatus(item.status)).length;
@@ -353,10 +416,11 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
       total: items.length,
       completed,
       assignedArtists,
+      availableArtists: filteredArtists.length,
       late: items.filter((item) => isLateStatus(item.status, item.endDate)).length,
       completionPercent: items.length ? Math.round((completed / items.length) * 100) : stageSummary?.completionPercent || 0
     };
-  }, [items, stageSummary?.completionPercent]);
+  }, [filteredArtists.length, items, stageSummary?.completionPercent]);
 
   const allVisibleSelected = Boolean(visibleItems.length) && visibleItems.every((item) => selectedIds.includes(item.id));
 
@@ -610,7 +674,7 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
           </Link>
         </div>
 
-        <div className="mt-5 grid gap-3 md:grid-cols-4">
+        <div className="mt-5 grid gap-3 xl:grid-cols-5 md:grid-cols-2">
           <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Completion</p>
             <p className="mt-1 text-2xl font-bold text-slate-950">{metrics.completionPercent}%</p>
@@ -627,18 +691,26 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
             <p className="mt-1 text-xs text-slate-500">Voice, dubbing, and approval work items</p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Available Staff</p>
+            <p className="mt-1 text-2xl font-bold text-slate-950">{metrics.availableArtists}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              {filters.department ? `${filters.department} ready for assignment` : "All active departments available"}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Late</p>
             <p className="mt-1 text-2xl font-bold text-rose-700">{metrics.late}</p>
             <p className="mt-1 text-xs text-slate-500">Rows past end date without completion</p>
           </div>
         </div>
 
-        {activeUsers.length > 0 && (
+        {assignedEmployees.length > 0 && (
           <div className="mt-4 flex flex-wrap gap-2">
-            {activeUsers.slice(0, 10).map((artist) => (
+            {assignedEmployees.slice(0, 12).map((artist) => (
               <span key={artist.id} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700">
                 <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-900 text-[10px] font-bold text-white">{initials(artist.name)}</span>
-                {artist.name}
+                <span className="font-semibold text-slate-900">{artist.name}</span>
+                <span className="text-slate-500">{getDepartmentLabel(artist)}</span>
               </span>
             ))}
           </div>
@@ -692,7 +764,7 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
         )}
 
         <div className="space-y-3 border-b border-slate-200 px-4 py-4">
-          <div className="grid gap-2 lg:grid-cols-[minmax(0,1.5fr)_220px_220px_220px_auto]">
+          <div className="grid gap-2 xl:grid-cols-[minmax(0,1.4fr)_220px_220px_220px_220px_auto]">
             <label className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input value={filters.search} onChange={(event) => setFilters((prev) => ({ ...prev, search: event.target.value }))} placeholder="Search audio tasks" className="w-full rounded-xl border border-slate-300 pl-9 pr-3 py-2 text-sm" />
@@ -703,10 +775,18 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
                 <option key={status} value={status}>{getStatusOptionLabel(status)}</option>
               ))}
             </select>
+            <select value={filters.department} onChange={(event) => setFilters((prev) => ({ ...prev, department: event.target.value }))} className="rounded-xl border border-slate-300 px-3 py-2 text-sm">
+              <option value="">All departments</option>
+              {departmentOptions.map((department) => (
+                <option key={department} value={department}>
+                  {department}{department === recommendedDepartment ? " · Recommended" : ""}
+                </option>
+              ))}
+            </select>
             <select value={filters.artistId} onChange={(event) => setFilters((prev) => ({ ...prev, artistId: event.target.value }))} className="rounded-xl border border-slate-300 px-3 py-2 text-sm">
               <option value="">All artists</option>
-              {activeUsers.map((artist) => (
-                <option key={artist.id} value={artist.id}>{artist.name}</option>
+              {filteredArtists.map((artist) => (
+                <option key={artist.id} value={artist.id}>{artist.name} · {getDepartmentLabel(artist)}</option>
               ))}
             </select>
             <div className="flex gap-2">
@@ -725,6 +805,25 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
               {allVisibleSelected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
               {allVisibleSelected ? "Clear" : "Select"} visible ({visibleItems.length})
             </button>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold text-slate-900">{filteredArtists.length}</span>
+              <span>assignable employees in</span>
+              <span className="rounded-full border border-slate-200 bg-white px-2 py-1 font-semibold text-slate-700">
+                {filters.department || "All departments"}
+              </span>
+            </div>
+            {!filteredArtists.length ? (
+              <button
+                type="button"
+                onClick={() => setFilters((prev) => ({ ...prev, department: "" }))}
+                className="font-semibold text-slate-700 underline-offset-2 hover:underline"
+              >
+                Select Another Department
+              </button>
+            ) : null}
           </div>
 
           {selectedIds.length > 0 && (

@@ -37,6 +37,10 @@ export function filterUsersByDepartment(users = [], departmentName = "") {
   return users.filter((user) => isDepartmentMatch(departmentName, getUserDepartmentName(user)));
 }
 
+export function countUsersByDepartment(users = [], departmentName = "") {
+  return filterUsersByDepartment(users, departmentName).length;
+}
+
 export function normalizeAssignmentList(source, fallbackAssignedUser = null) {
   if (Array.isArray(source)) {
     return source

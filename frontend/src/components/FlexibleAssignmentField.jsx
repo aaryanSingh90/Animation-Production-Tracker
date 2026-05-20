@@ -3,6 +3,7 @@ import { Plus, Search, Users, X } from "lucide-react";
 import { getDepartmentLabel, initials } from "../utils/format";
 import {
   buildDepartmentOptions,
+  countUsersByDepartment,
   filterUsersByDepartment,
   getEmploymentBadgeClasses,
   getEmploymentLabel,
@@ -40,22 +41,30 @@ export default function FlexibleAssignmentField({
 }) {
   const normalizedAssignments = useMemo(() => coerceAssignments(assignments, users), [assignments, users]);
   const departmentOptions = useMemo(() => buildDepartmentOptions(users, recommendedDepartment), [users, recommendedDepartment]);
+  const assignedDepartment = useMemo(
+    () => (normalizedAssignments[0]?.employee ? getDepartmentLabel(normalizedAssignments[0].employee) : ""),
+    [normalizedAssignments]
+  );
+  const recommendedDepartmentCount = useMemo(
+    () => countUsersByDepartment(users, recommendedDepartment),
+    [users, recommendedDepartment]
+  );
+  const defaultDepartment = assignedDepartment || (recommendedDepartmentCount > 0 ? recommendedDepartment : "");
 
-  const [selectedDepartment, setSelectedDepartment] = useState(recommendedDepartment || "");
+  const [selectedDepartment, setSelectedDepartment] = useState(defaultDepartment);
   const [search, setSearch] = useState("");
   const [candidateId, setCandidateId] = useState("");
 
   useEffect(() => {
-    if (selectedDepartment) return;
-    const currentDepartment = normalizedAssignments[0]?.employee ? getDepartmentLabel(normalizedAssignments[0].employee) : "";
-    if (currentDepartment) {
-      setSelectedDepartment(currentDepartment);
+    if (!selectedDepartment && defaultDepartment) {
+      setSelectedDepartment(defaultDepartment);
       return;
     }
-    if (recommendedDepartment) {
-      setSelectedDepartment(recommendedDepartment);
+
+    if (selectedDepartment === recommendedDepartment && !recommendedDepartmentCount && !assignedDepartment) {
+      setSelectedDepartment("");
     }
-  }, [normalizedAssignments, recommendedDepartment, selectedDepartment]);
+  }, [assignedDepartment, defaultDepartment, recommendedDepartment, recommendedDepartmentCount, selectedDepartment]);
 
   const filteredUsers = useMemo(() => {
     const byDepartment = filterUsersByDepartment(users, selectedDepartment);
@@ -64,8 +73,10 @@ export default function FlexibleAssignmentField({
     return byDepartment.filter((user) => {
       const haystack = [
         user.name,
+        user.email,
         getDepartmentLabel(user),
-        user.employmentType === "FREELANCE" ? "freelance" : "in-house"
+        user.employmentType === "FREELANCE" ? "freelance" : "in-house",
+        user.role
       ]
         .filter(Boolean)
         .join(" ")
@@ -132,31 +143,45 @@ export default function FlexibleAssignmentField({
 
   return (
     <div className={`space-y-2 ${className}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-medium text-slate-500">
+        <span>
+          {selectedDepartment || "All departments"} · {filteredUsers.length} available employee{filteredUsers.length === 1 ? "" : "s"}
+        </span>
+        {recommendedDepartment && !recommendedDepartmentCount ? (
+          <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-700">
+            {recommendedDepartment} has no active staff
+          </span>
+        ) : null}
+      </div>
       <div className="grid gap-2 md:grid-cols-[minmax(0,180px)_minmax(0,1fr)_auto]">
-        <select
-          value={selectedDepartment}
-          onChange={(event) => {
-            setSelectedDepartment(event.target.value);
-            setCandidateId("");
-          }}
-          className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
-          disabled={disabled}
-        >
-          <option value="">All departments</option>
-          {departmentOptions.map((department) => (
-            <option key={department} value={department}>
-              {department}{department === recommendedDepartment ? " · Recommended" : ""}
-            </option>
-          ))}
-        </select>
+        <label className="space-y-1">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Department</span>
+          <select
+            value={selectedDepartment}
+            onChange={(event) => {
+              setSelectedDepartment(event.target.value);
+              setCandidateId("");
+            }}
+            className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+            disabled={disabled}
+          >
+            <option value="">All departments</option>
+            {departmentOptions.map((department) => (
+              <option key={department} value={department}>
+                {department}{department === recommendedDepartment ? " · Recommended" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
 
         <div className="space-y-2">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Artist Search</p>
           <label className="relative block">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search artists, department, type"
+              placeholder="Search by name, department, email, type"
               className="w-full rounded-xl border border-slate-300 px-10 py-2 text-sm"
               disabled={disabled}
             />
@@ -189,6 +214,11 @@ export default function FlexibleAssignmentField({
       {!filteredUsers.length && (
         <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-500">
           <p>No employees found in this department.</p>
+          {!selectedDepartment && recommendedDepartment && !recommendedDepartmentCount ? (
+            <p className="mt-1 text-[11px] text-slate-500">
+              The recommended department does not currently have active employees, so we&apos;re showing all available staff.
+            </p>
+          ) : null}
           <button
             type="button"
             onClick={() => setSelectedDepartment("")}
