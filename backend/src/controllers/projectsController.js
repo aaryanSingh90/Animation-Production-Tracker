@@ -385,47 +385,106 @@ const listProjects = asyncHandler(async (req, res) => {
       throw error;
     }
 
-    const legacyProjects = await prisma.project.findMany({
-      where,
-      include: {
-        stages: {
-          where: { isActive: true },
-          include: {
-            stageTemplate: true,
-            _count: {
-              select: { comments: true }
-            },
-            assignedUser: {
-              select: { id: true, name: true }
-            },
-            assignments: {
-              include: {
-                user: {
-                  select: {
-                    id: true,
-                    name: true,
-                    departmentId: true,
-                    departmentName: true,
-                    department: {
-                      select: { id: true, name: true, color: true }
-                    },
-                    employmentType: true
+    try {
+      const legacyProjects = await prisma.project.findMany({
+        where,
+        include: {
+          stages: {
+            where: { isActive: true },
+            include: {
+              stageTemplate: true,
+              _count: {
+                select: { comments: true }
+              },
+              assignedUser: {
+                select: { id: true, name: true }
+              },
+              assignments: {
+                include: {
+                  user: {
+                    select: {
+                      id: true,
+                      name: true,
+                      departmentId: true,
+                      departmentName: true,
+                      department: {
+                        select: { id: true, name: true, color: true }
+                      },
+                      employmentType: true
+                    }
                   }
                 }
               }
-            }
+            },
+            orderBy: [{ order: "asc" }, { createdAt: "asc" }]
           },
-          orderBy: [{ order: "asc" }, { createdAt: "asc" }]
-        },
-        projectCharacters: {
-          include: {
-            character: true
+          projectCharacters: {
+            include: {
+              character: true
+            }
           }
         }
-      }
-    });
+      });
 
-    projects = legacyProjects.map(withLegacyTrackingDefaults);
+      projects = legacyProjects.map(withLegacyTrackingDefaults);
+    } catch (legacyError) {
+      if (!isMissingTrackingSchemaError(legacyError)) {
+        throw legacyError;
+      }
+
+      const fallbackWhere = {};
+      if (search) {
+        fallbackWhere.name = {
+          contains: search,
+          mode: "insensitive"
+        };
+      }
+      if (artistId) {
+        fallbackWhere.stages = {
+          some: {
+            assignedUserId: Number(artistId)
+          }
+        };
+      }
+
+      const ultraLegacyProjects = await prisma.project.findMany({
+        where: fallbackWhere,
+        select: {
+          id: true,
+          name: true,
+          priority: true,
+          audioReceivedDate: true,
+          description: true,
+          progressPercent: true,
+          overallStatus: true,
+          createdAt: true,
+          updatedAt: true,
+          stages: {
+            select: {
+              id: true,
+              projectId: true,
+              stageName: true,
+              status: true,
+              deadline: true,
+              assignedUserId: true,
+              submittedAt: true,
+              approvedAt: true,
+              rejectedAt: true,
+              notes: true,
+              feedback: true,
+              createdAt: true,
+              updatedAt: true,
+              assignedUser: {
+                select: { id: true, name: true }
+              }
+            },
+            orderBy: { createdAt: "asc" }
+          }
+        }
+      });
+
+      projects = ultraLegacyProjects.map(withUltraLegacyTrackingDefaults);
+    }
   }
 
   let filtered = projects;
@@ -485,6 +544,31 @@ function withLegacyTrackingDefaults(project) {
       shots: count.shots ?? (Array.isArray(project.shots) ? project.shots.length : 0),
       assets: count.assets ?? (Array.isArray(project.assets) ? project.assets.length : 0)
     }
+  };
+}
+
+function withUltraLegacyTrackingDefaults(project) {
+  if (!project) return project;
+  return {
+    id: project.id,
+    name: project.name,
+    priority: project.priority,
+    audioReceivedDate: project.audioReceivedDate || null,
+    description: project.description || null,
+    progressPercent: Number(project.progressPercent || 0),
+    overallStatus: project.overallStatus || "ON_TRACK",
+    createdAt: project.createdAt,
+    updatedAt: project.updatedAt,
+    stages: (project.stages || []).map((stage) => ({
+      ...stage,
+      assignments: [],
+      _count: { comments: 0 },
+      isActive: true
+    })),
+    shots: [],
+    assets: [],
+    projectCharacters: [],
+    _count: { shots: 0, assets: 0 }
   };
 }
 
@@ -1187,132 +1271,172 @@ const getMyTasks = asyncHandler(async (req, res) => {
   const projectIdFilter = req.query.projectId ? Number(req.query.projectId) : null;
   const statusFilter = req.query.status ? String(req.query.status).toUpperCase() : null;
 
-  const [projectStages, shotStages, assetStages] = await Promise.all([
-    prisma.projectStage.findMany({
-      where: {
-        isActive: true,
-        ...(projectIdFilter ? { projectId: projectIdFilter } : {}),
-        ...(statusFilter ? { status: statusFilter } : {}),
-        OR: [
-          { assignedUserId: userId },
-          {
-            assignments: {
-              some: {
-                userId
+  let projectStages = [];
+  let shotStages = [];
+  let assetStages = [];
+
+  try {
+    [projectStages, shotStages, assetStages] = await Promise.all([
+      prisma.projectStage.findMany({
+        where: {
+          isActive: true,
+          ...(projectIdFilter ? { projectId: projectIdFilter } : {}),
+          ...(statusFilter ? { status: statusFilter } : {}),
+          OR: [
+            { assignedUserId: userId },
+            {
+              assignments: {
+                some: {
+                  userId
+                }
               }
             }
+          ]
+        },
+        include: {
+          project: {
+            select: {
+              id: true,
+              name: true,
+              priority: true
+            }
+          },
+          stageTemplate: {
+            select: {
+              name: true
+            }
+          },
+          stageDefinition: {
+            select: {
+              code: true,
+              name: true
+            }
+          },
+          assignments: {
+            where: {
+              userId
+            },
+            select: {
+              createdAt: true,
+              user: {
+                select: {
+                  employmentType: true
+                }
+              }
+            }
+          },
+          _count: {
+            select: {
+              comments: true
+            }
           }
-        ]
+        },
+        orderBy: [{ deadline: "asc" }, { order: "asc" }, { createdAt: "asc" }]
+      }),
+      prisma.shotStage.findMany({
+        where: {
+          assignedUserId: userId,
+          ...(statusFilter ? { status: statusFilter } : {}),
+          shot: {
+            ...(projectIdFilter ? { projectId: projectIdFilter } : {})
+          }
+        },
+        include: {
+          shot: {
+            include: {
+              project: {
+                select: {
+                  id: true,
+                  name: true,
+                  priority: true
+                }
+              }
+            }
+          },
+          stageDefinition: {
+            select: {
+              code: true,
+              name: true
+            }
+          },
+          _count: {
+            select: {
+              comments: true
+            }
+          }
+        },
+        orderBy: [{ deadline: "asc" }, { updatedAt: "desc" }]
+      }),
+      prisma.assetStage.findMany({
+        where: {
+          assignedUserId: userId,
+          ...(statusFilter ? { status: statusFilter } : {}),
+          asset: {
+            ...(projectIdFilter ? { projectId: projectIdFilter } : {})
+          }
+        },
+        include: {
+          asset: {
+            include: {
+              project: {
+                select: {
+                  id: true,
+                  name: true,
+                  priority: true
+                }
+              }
+            }
+          },
+          stageDefinition: {
+            select: {
+              code: true,
+              name: true
+            }
+          },
+          _count: {
+            select: {
+              comments: true
+            }
+          }
+        },
+        orderBy: [{ deadline: "asc" }, { updatedAt: "desc" }]
+      })
+    ]);
+  } catch (error) {
+    if (!isMissingTrackingSchemaError(error)) {
+      throw error;
+    }
+
+    projectStages = await prisma.projectStage.findMany({
+      where: {
+        ...(projectIdFilter ? { projectId: projectIdFilter } : {}),
+        ...(statusFilter ? { status: statusFilter } : {}),
+        assignedUserId: userId
       },
-      include: {
+      select: {
+        id: true,
+        projectId: true,
+        stageName: true,
+        status: true,
+        deadline: true,
+        notes: true,
+        feedback: true,
+        assignedUserId: true,
+        submittedAt: true,
+        approvedAt: true,
+        createdAt: true,
+        updatedAt: true,
         project: {
           select: {
             id: true,
             name: true,
             priority: true
           }
-        },
-        stageTemplate: {
-          select: {
-            name: true
-          }
-        },
-        stageDefinition: {
-          select: {
-            code: true,
-            name: true
-          }
-        },
-        assignments: {
-          where: {
-            userId
-          },
-          select: {
-            createdAt: true,
-            user: {
-              select: {
-                employmentType: true
-              }
-            }
-          }
-        },
-        _count: {
-          select: {
-            comments: true
-          }
         }
       },
-      orderBy: [{ deadline: "asc" }, { order: "asc" }, { createdAt: "asc" }]
-    }),
-    prisma.shotStage.findMany({
-      where: {
-        assignedUserId: userId,
-        ...(statusFilter ? { status: statusFilter } : {}),
-        shot: {
-          ...(projectIdFilter ? { projectId: projectIdFilter } : {})
-        }
-      },
-      include: {
-        shot: {
-          include: {
-            project: {
-              select: {
-                id: true,
-                name: true,
-                priority: true
-              }
-            }
-          }
-        },
-        stageDefinition: {
-          select: {
-            code: true,
-            name: true
-          }
-        },
-        _count: {
-          select: {
-            comments: true
-          }
-        }
-      },
-      orderBy: [{ deadline: "asc" }, { updatedAt: "desc" }]
-    }),
-    prisma.assetStage.findMany({
-      where: {
-        assignedUserId: userId,
-        ...(statusFilter ? { status: statusFilter } : {}),
-        asset: {
-          ...(projectIdFilter ? { projectId: projectIdFilter } : {})
-        }
-      },
-      include: {
-        asset: {
-          include: {
-            project: {
-              select: {
-                id: true,
-                name: true,
-                priority: true
-              }
-            }
-          }
-        },
-        stageDefinition: {
-          select: {
-            code: true,
-            name: true
-          }
-        },
-        _count: {
-          select: {
-            comments: true
-          }
-        }
-      },
-      orderBy: [{ deadline: "asc" }, { updatedAt: "desc" }]
-    })
-  ]);
+      orderBy: [{ deadline: "asc" }, { createdAt: "asc" }]
+    });
+  }
 
   const tasks = [
     ...projectStages.map((stage) => ({
@@ -1336,12 +1460,12 @@ const getMyTasks = asyncHandler(async (req, res) => {
       deadline: stage.deadline,
       notes: stage.notes,
       feedback: stage.feedback,
-      assignedAt: stage.assignments[0]?.createdAt || (stage.assignedUserId === userId ? stage.updatedAt : stage.createdAt),
+      assignedAt: stage.assignments?.[0]?.createdAt || (stage.assignedUserId === userId ? stage.updatedAt : stage.createdAt),
       submittedAt: stage.submittedAt,
       approvedAt: stage.approvedAt,
       commentCount: stage._count?.comments || 0,
       isOverdue: Boolean(stage.deadline && new Date(stage.deadline) < new Date() && stage.status !== "APPROVED"),
-      assignmentType: stage.assignments[0]?.user?.employmentType || req.user.employmentType || "INHOUSE"
+      assignmentType: stage.assignments?.[0]?.user?.employmentType || req.user.employmentType || "INHOUSE"
     })),
     ...shotStages.map((stage) => {
       const shotCode = stage.shot?.label || stage.shot?.name || (stage.shot?.shotNumber ? `SH${String(stage.shot.shotNumber).padStart(3, "0")}` : null);

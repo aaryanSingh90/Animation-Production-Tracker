@@ -154,51 +154,82 @@ const getApprovalQueue = asyncHandler(async (req, res) => {
       throw error;
     }
 
-    projectStages = await prisma.projectStage.findMany({
-      where: {
-        status: "SUBMITTED",
-        isActive: true
-      },
-      include: {
-        stageTemplate: true,
-        project: {
-          select: { id: true, name: true, priority: true }
+    try {
+      projectStages = await prisma.projectStage.findMany({
+        where: {
+          status: "SUBMITTED",
+          isActive: true
         },
-        assignedUser: {
-          select: {
-            id: true,
-            name: true,
-            departmentId: true,
-            departmentName: true,
-            department: {
-              select: { id: true, name: true, color: true }
+        include: {
+          stageTemplate: true,
+          project: {
+            select: { id: true, name: true, priority: true }
+          },
+          assignedUser: {
+            select: {
+              id: true,
+              name: true,
+              departmentId: true,
+              departmentName: true,
+              department: {
+                select: { id: true, name: true, color: true }
+              }
             }
-          }
-        },
-        assignments: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-                departmentId: true,
-                departmentName: true,
-                department: {
-                  select: { id: true, name: true, color: true }
+          },
+          assignments: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  departmentId: true,
+                  departmentName: true,
+                  department: {
+                    select: { id: true, name: true, color: true }
+                  }
                 }
               }
             }
           }
         }
+      });
+    } catch (legacyError) {
+      if (!isMissingTrackingSchemaError(legacyError)) {
+        throw legacyError;
       }
-    });
+
+      projectStages = await prisma.projectStage.findMany({
+        where: {
+          status: "SUBMITTED"
+        },
+        select: {
+          id: true,
+          stageName: true,
+          status: true,
+          deadline: true,
+          notes: true,
+          feedback: true,
+          submittedAt: true,
+          updatedAt: true,
+          assignedUser: {
+            select: {
+              id: true,
+              name: true
+            }
+          },
+          project: {
+            select: { id: true, name: true, priority: true }
+          }
+        }
+      });
+    }
   }
 
   const queueRows = [
     ...projectStages.map((stage) => {
       const assignedUser =
         stage.assignedUser ||
-        stage.assignments.find((assignment) => assignment.userId)?.user ||
+        (stage.assignments || []).find((assignment) => assignment.userId)?.user ||
         null;
 
       return {
