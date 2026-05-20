@@ -6,23 +6,37 @@ import {
   ArchiveRestore,
   ArrowDown,
   ArrowUp,
+  Check,
+  ChevronDown,
   ChevronLeft,
+  ChevronUp,
   Copy,
   Layers3,
+  Link2,
   NotebookPen,
   Plus,
   Search,
-  Trash2
+  Trash2,
+  Users,
+  X
 } from "lucide-react";
 import api from "../lib/api";
 import Loader from "./Loader";
 import Modal from "./Modal";
 import StatusBadge from "./StatusBadge";
 import FlexibleAssignmentField from "./FlexibleAssignmentField";
-import { formatDateTimeInput, formatDurationMinutes, initials } from "../utils/format";
+import { formatDateInput, formatDateTimeInput, formatDurationMinutes, getDepartmentLabel, initials, todayDateInput } from "../utils/format";
 import { STAGE_STATUSES, getStatusOptionLabel, isCompleteStatus, isLateStatus } from "../utils/constants";
 import { buildAssetCategoryPath } from "../utils/stageRouting";
-import { getLeadAssignment, normalizeAssignmentList } from "../utils/assignments";
+import {
+  buildDepartmentOptions,
+  countUsersByDepartment,
+  filterUsersByDepartment,
+  getEmploymentBadgeClasses,
+  getEmploymentLabel,
+  getLeadAssignment,
+  normalizeAssignmentList
+} from "../utils/assignments";
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
 
@@ -98,12 +112,21 @@ function createInitialForm(sectionKey) {
     status: "YTS",
     assignments: [],
     priority: "3",
-    startedAt: "",
+    startedAt: todayDateInput(),
     endedAt: "",
     notes: "",
     description: "",
     referenceImageUrl: ""
   };
+}
+
+function validateEditorForm(values) {
+  const errors = {};
+  if (!String(values.name || "").trim()) errors.name = "Asset name is required.";
+  if (!String(values.status || "").trim()) errors.status = "Status is required.";
+  if (!normalizeAssignmentList(values.assignments).length) errors.assignments = "Assign at least one artist.";
+  if (!String(values.startedAt || "").trim()) errors.startedAt = "Start date is required.";
+  return errors;
 }
 
 function normalizeStageLabel(value) {
@@ -215,6 +238,282 @@ function WorkspaceMetric({ label, value, caption, tone = "text-slate-900" }) {
       <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">{label}</p>
       <p className={`mt-1 text-xl font-bold ${tone}`}>{value}</p>
       {caption ? <p className="mt-1 text-xs text-slate-500">{caption}</p> : null}
+    </div>
+  );
+}
+
+function InlineError({ children }) {
+  if (!children) return null;
+  return <p className="mt-1 text-xs font-medium text-rose-600">{children}</p>;
+}
+
+function ensureSingleLead(assignments) {
+  let sawLead = false;
+  return assignments.map((assignment, index) => {
+    const wantsLead = assignment.roleType === "LEAD";
+    if (!sawLead && (wantsLead || index === 0)) {
+      sawLead = true;
+      return { ...assignment, roleType: "LEAD" };
+    }
+    return { ...assignment, roleType: "SUPPORT" };
+  });
+}
+
+function ModalSection({ title, description, children }) {
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+      <div className="mb-3">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{title}</p>
+        {description ? <p className="mt-1 text-sm text-slate-500">{description}</p> : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function ArtistCandidateCard({ user, assigned, disabled, onAssign }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300">
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-900 text-sm font-bold text-white">
+          {initials(user.name)}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-slate-900">{user.name}</p>
+          <p className="truncate text-xs text-slate-500">{getDepartmentLabel(user)}</p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${getEmploymentBadgeClasses(user.employmentType)}`}>
+              {user.employmentType === "FREELANCE" ? "FREELANCE" : "IN-HOUSE"}
+            </span>
+            <span className="text-[11px] text-slate-500">
+              {Number(user.assignedProjectCount || 0)} active project{Number(user.assignedProjectCount || 0) === 1 ? "" : "s"}
+            </span>
+          </div>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={() => onAssign(user)}
+        disabled={disabled || assigned}
+        className={`mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition ${
+          assigned
+            ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+            : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+        } disabled:opacity-60`}
+      >
+        {assigned ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+        {assigned ? "Assigned" : "Assign"}
+      </button>
+    </div>
+  );
+}
+
+function ModalAssignmentPicker({
+  users,
+  recommendedDepartment,
+  assignments,
+  onChange,
+  disabled = false
+}) {
+  const normalizedAssignments = useMemo(() => normalizeAssignmentList(assignments), [assignments]);
+  const departmentOptions = useMemo(() => buildDepartmentOptions(users, recommendedDepartment), [users, recommendedDepartment]);
+  const assignedDepartment = useMemo(
+    () => (normalizedAssignments[0]?.employee ? getDepartmentLabel(normalizedAssignments[0].employee) : ""),
+    [normalizedAssignments]
+  );
+  const recommendedDepartmentCount = useMemo(
+    () => countUsersByDepartment(users, recommendedDepartment),
+    [users, recommendedDepartment]
+  );
+  const defaultDepartment = assignedDepartment || (recommendedDepartmentCount > 0 ? recommendedDepartment : "");
+
+  const [selectedDepartment, setSelectedDepartment] = useState(defaultDepartment);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    if (!selectedDepartment && defaultDepartment) {
+      setSelectedDepartment(defaultDepartment);
+      return;
+    }
+
+    if (selectedDepartment === recommendedDepartment && !recommendedDepartmentCount && !assignedDepartment) {
+      setSelectedDepartment("");
+    }
+  }, [assignedDepartment, defaultDepartment, recommendedDepartment, recommendedDepartmentCount, selectedDepartment]);
+
+  const filteredUsers = useMemo(() => {
+    const scoped = filterUsersByDepartment(users, selectedDepartment);
+    const query = search.trim().toLowerCase();
+    if (!query) return scoped;
+    return scoped.filter((user) => {
+      const haystack = [
+        user.name,
+        user.email,
+        getDepartmentLabel(user),
+        getEmploymentLabel(user.employmentType)
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [search, selectedDepartment, users]);
+
+  function commit(nextAssignments) {
+    onChange?.(ensureSingleLead(nextAssignments));
+  }
+
+  function handleAssign(user) {
+    const employeeId = Number(user.id);
+    const exists = normalizedAssignments.some((assignment) => assignment.employeeId === employeeId);
+    if (exists) return;
+
+    commit([
+      ...normalizedAssignments,
+      {
+        employeeId,
+        roleType: normalizedAssignments.length ? "SUPPORT" : "LEAD",
+        departmentId: user.departmentId || null,
+        employee: user,
+        department: user.department || user.departmentInfo || null
+      }
+    ]);
+  }
+
+  function handleRemove(employeeId) {
+    commit(normalizedAssignments.filter((assignment) => assignment.employeeId !== employeeId));
+  }
+
+  function handleRoleChange(employeeId, roleType) {
+    commit(
+      normalizedAssignments.map((assignment) => ({
+        ...assignment,
+        roleType: assignment.employeeId === employeeId ? roleType : assignment.roleType
+      }))
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-3 md:grid-cols-[220px_minmax(0,1fr)]">
+        <label className="space-y-1.5">
+          <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Department</span>
+          <select
+            value={selectedDepartment}
+            onChange={(event) => setSelectedDepartment(event.target.value)}
+            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+            disabled={disabled}
+          >
+            <option value="">All departments</option>
+            {departmentOptions.map((department) => (
+              <option key={department} value={department}>
+                {department}{department === recommendedDepartment ? " · Recommended" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="space-y-1.5">
+          <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Search Artist</span>
+          <label className="relative block">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search by name, department, email, or type"
+              className="w-full rounded-xl border border-slate-300 bg-white px-10 py-2 text-sm"
+              disabled={disabled}
+            />
+          </label>
+        </label>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+        <div className="flex flex-wrap items-center gap-2">
+          <Users className="h-4 w-4" />
+          <span className="font-semibold text-slate-900">{filteredUsers.length}</span>
+          <span>artists available in</span>
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 font-semibold text-slate-700">
+            {selectedDepartment || "All departments"}
+          </span>
+        </div>
+        {recommendedDepartment && !recommendedDepartmentCount ? (
+          <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-700">
+            {recommendedDepartment} has no active staff
+          </span>
+        ) : null}
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {filteredUsers.length ? (
+          filteredUsers.map((user) => (
+            <ArtistCandidateCard
+              key={user.id}
+              user={user}
+              assigned={normalizedAssignments.some((assignment) => assignment.employeeId === Number(user.id))}
+              disabled={disabled}
+              onAssign={handleAssign}
+            />
+          ))
+        ) : (
+          <div className="md:col-span-2 xl:col-span-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-center text-sm text-slate-500">
+            <p>No employees found in this department.</p>
+            <button
+              type="button"
+              onClick={() => setSelectedDepartment("")}
+              disabled={disabled}
+              className="mt-2 font-semibold text-slate-700 underline-offset-2 hover:underline disabled:opacity-60"
+            >
+              Select Another Department
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white px-3 py-3">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Assigned Artists</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {normalizedAssignments.length ? (
+            normalizedAssignments.map((assignment) => {
+              const employee = assignment.employee || users.find((user) => user.id === assignment.employeeId) || null;
+              if (!employee) return null;
+
+              return (
+                <div key={assignment.employeeId} className="inline-flex max-w-full items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs text-slate-700">
+                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-900 text-[10px] font-bold text-white">
+                    {initials(employee.name)}
+                  </span>
+                  <span className="truncate font-semibold text-slate-900">{employee.name}</span>
+                  <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getEmploymentBadgeClasses(employee.employmentType)}`}>
+                    {employee.employmentType === "FREELANCE" ? "FREELANCE" : "IN-HOUSE"}
+                  </span>
+                  <select
+                    value={assignment.roleType || "SUPPORT"}
+                    onChange={(event) => handleRoleChange(assignment.employeeId, event.target.value)}
+                    className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-[10px] font-semibold"
+                    disabled={disabled}
+                  >
+                    <option value="LEAD">Lead</option>
+                    <option value="SUPPORT">Support</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => handleRemove(assignment.employeeId)}
+                    className="rounded-full p-1 text-slate-500 transition hover:bg-white hover:text-slate-900"
+                    disabled={disabled}
+                    aria-label={`Remove ${employee.name}`}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              );
+            })
+          ) : (
+            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+              No artists assigned yet.
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -723,6 +1022,8 @@ export default function ModellingWorkspace({
   const [selectedIds, setSelectedIds] = useState([]);
   const [bulkDraft, setBulkDraft] = useState({ assignments: [], status: "" });
   const [editor, setEditor] = useState({ open: false, mode: "create", sectionKey: sections[0]?.key || "CHARACTER", asset: null, form: createInitialForm(sections[0]?.key || "CHARACTER") });
+  const [editorErrors, setEditorErrors] = useState({});
+  const [editorAdvancedOpen, setEditorAdvancedOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState({ open: false, assets: [] });
   const [nowTick, setNowTick] = useState(Date.now());
 
@@ -850,6 +1151,13 @@ export default function ModellingWorkspace({
 
   const visibleIds = pagedEntries.map((entry) => entry.asset.id);
   const allVisibleSelected = Boolean(visibleIds.length) && visibleIds.every((id) => selectedIds.includes(id));
+  const editorSection = SECTION_CONFIG[editor.sectionKey] || sections[0];
+  const editorNormalizedAssignments = normalizeAssignmentList(editor.form.assignments);
+  const editorCanSubmit =
+    Boolean(String(editor.form.name || "").trim()) &&
+    Boolean(String(editor.form.status || "").trim()) &&
+    Boolean(editorNormalizedAssignments.length) &&
+    Boolean(String(editor.form.startedAt || "").trim());
 
   useEffect(() => {
     setSelectedIds((prev) => prev.filter((id) => detailEntries.some((entry) => entry.asset.id === id)));
@@ -859,8 +1167,15 @@ export default function ModellingWorkspace({
     setFilters((prev) => ({ ...prev, ...patch }));
   }
 
+  function updateEditorField(field, value) {
+    setEditor((prev) => ({ ...prev, form: { ...prev.form, [field]: value } }));
+    setEditorErrors((prev) => ({ ...prev, [field]: "" }));
+  }
+
   function openCreate(sectionKey) {
     setEditor({ open: true, mode: "create", sectionKey, asset: null, form: createInitialForm(sectionKey) });
+    setEditorErrors({});
+    setEditorAdvancedOpen(false);
   }
 
   function openEdit(asset) {
@@ -876,17 +1191,21 @@ export default function ModellingWorkspace({
         status: stage?.status || "YTS",
         assignments: getStageAssignments(stage),
         priority: String(asset.priority || 3),
-        startedAt: formatDateTimeInput(resolveStageStart(stage)),
-        endedAt: formatDateTimeInput(resolveStageEnd(stage)),
+        startedAt: formatDateInput(resolveStageStart(stage)) || todayDateInput(),
+        endedAt: formatDateInput(resolveStageEnd(stage)),
         notes: stage?.notes || "",
         description: asset.description || "",
         referenceImageUrl: asset.referenceImageUrl || ""
       }
     });
+    setEditorErrors({});
+    setEditorAdvancedOpen(Boolean(asset.description || asset.referenceImageUrl || stage?.notes));
   }
 
   function closeEditor() {
     setEditor((prev) => ({ ...prev, open: false, asset: null }));
+    setEditorErrors({});
+    setEditorAdvancedOpen(false);
   }
 
   function setAssetList(updater) {
@@ -896,6 +1215,7 @@ export default function ModellingWorkspace({
   async function createAsset(sectionKey, values) {
     const section = SECTION_CONFIG[sectionKey];
     const name = String(values.name || "").trim();
+    const startedAt = values.startedAt || todayDateInput();
     if (!name) throw new Error(`${section.singular} name is required`);
 
     const { data: createdAsset } = await api.post(`/projects/${projectId}/assets`, {
@@ -914,9 +1234,9 @@ export default function ModellingWorkspace({
         assignedUserId: getLeadAssignment(values.assignments || [])?.employeeId || null,
         assignments: values.assignments || [],
         status: values.status || "YTS",
-        startedAt: values.startedAt || null,
+        startedAt,
         endedAt: values.endedAt || null,
-        startDate: values.startedAt || null,
+        startDate: startedAt,
         endDate: values.endedAt || null,
         notes: values.notes || null
       });
@@ -950,6 +1270,13 @@ export default function ModellingWorkspace({
   }
 
   async function submitEditor() {
+    const nextErrors = validateEditorForm(editor.form);
+    if (Object.keys(nextErrors).length) {
+      setEditorErrors(nextErrors);
+      showToast?.("error", "Complete the required asset fields");
+      return;
+    }
+
     setBusy(true);
     try {
       if (editor.mode === "create") {
@@ -972,9 +1299,9 @@ export default function ModellingWorkspace({
             status: editor.form.status,
             assignedUserId: getLeadAssignment(editor.form.assignments || [])?.employeeId || null,
             assignments: editor.form.assignments || [],
-            startedAt: editor.form.startedAt || null,
+            startedAt: editor.form.startedAt || todayDateInput(),
             endedAt: editor.form.endedAt || null,
-            startDate: editor.form.startedAt || null,
+            startDate: editor.form.startedAt || todayDateInput(),
             endDate: editor.form.endedAt || null,
             notes: editor.form.notes || null
           });
@@ -1303,63 +1630,174 @@ export default function ModellingWorkspace({
         </>
       )}
 
-      <Modal open={editor.open} onClose={closeEditor} title={editor.mode === "create" ? `Add ${SECTION_CONFIG[editor.sectionKey]?.singular || "Asset"}` : `Edit ${SECTION_CONFIG[editor.sectionKey]?.singular || "Asset"}`} size="max-w-3xl">
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="space-y-2 md:col-span-2">
-            <span className="text-sm font-semibold text-slate-700">Name</span>
-            <input value={editor.form.name} onChange={(event) => setEditor((prev) => ({ ...prev, form: { ...prev.form, name: event.target.value } }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" />
-          </label>
-          <label className="space-y-2">
-            <span className="text-sm font-semibold text-slate-700">Assignment</span>
-            <FlexibleAssignmentField
-              users={activeUsers}
-              recommendedDepartment={recommendedDepartment}
-              assignments={editor.form.assignments}
-              onChange={(assignments) => setEditor((prev) => ({ ...prev, form: { ...prev.form, assignments } }))}
-            />
-          </label>
-          <label className="space-y-2">
-            <span className="text-sm font-semibold text-slate-700">Status</span>
-            <select value={editor.form.status} onChange={(event) => setEditor((prev) => ({ ...prev, form: { ...prev.form, status: event.target.value } }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
-              {STAGE_STATUSES.map((status) => (
-                <option key={status} value={status}>{getStatusOptionLabel(status)}</option>
-              ))}
-            </select>
-          </label>
-          <label className="space-y-2">
-            <span className="text-sm font-semibold text-slate-700">Priority</span>
-            <select value={editor.form.priority} onChange={(event) => setEditor((prev) => ({ ...prev, form: { ...prev.form, priority: event.target.value } }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
-              {[1, 2, 3, 4, 5].map((priority) => (
-                <option key={priority} value={priority}>P{priority}</option>
-              ))}
-            </select>
-          </label>
-          <label className="space-y-2">
-            <span className="text-sm font-semibold text-slate-700">Start Date</span>
-            <input type="datetime-local" value={editor.form.startedAt} onChange={(event) => setEditor((prev) => ({ ...prev, form: { ...prev.form, startedAt: event.target.value } }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" />
-          </label>
-          <label className="space-y-2">
-            <span className="text-sm font-semibold text-slate-700">End Date</span>
-            <input type="datetime-local" value={editor.form.endedAt} onChange={(event) => setEditor((prev) => ({ ...prev, form: { ...prev.form, endedAt: event.target.value } }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" />
-          </label>
-          <label className="space-y-2 md:col-span-2">
-            <span className="text-sm font-semibold text-slate-700">Notes</span>
-            <textarea value={editor.form.notes} onChange={(event) => setEditor((prev) => ({ ...prev, form: { ...prev.form, notes: event.target.value } }))} rows={3} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" />
-          </label>
-          <label className="space-y-2 md:col-span-2">
-            <span className="text-sm font-semibold text-slate-700">Description</span>
-            <textarea value={editor.form.description} onChange={(event) => setEditor((prev) => ({ ...prev, form: { ...prev.form, description: event.target.value } }))} rows={3} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" />
-          </label>
-          <label className="space-y-2 md:col-span-2">
-            <span className="text-sm font-semibold text-slate-700">Reference Upload URL</span>
-            <input value={editor.form.referenceImageUrl} onChange={(event) => setEditor((prev) => ({ ...prev, form: { ...prev.form, referenceImageUrl: event.target.value } }))} placeholder="https://..." className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" />
-          </label>
+      <Modal open={editor.open} onClose={closeEditor} title={editor.mode === "create" ? `Add ${editorSection?.singular || "Asset"}` : `Edit ${editorSection?.singular || "Asset"}`} size="max-w-5xl">
+        <div className="-mx-6 max-h-[78vh] overflow-y-auto px-6 pb-6">
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                {displayStageLabel} creation flow
+              </p>
+              <p className="mt-1 text-sm text-slate-600">
+                Create and assign {String(editorSection?.title || "assets").toLowerCase()} quickly without fighting a raw admin form.
+              </p>
+            </div>
+
+            <ModalSection title="Section 1 — Basic Info" description="Only the essentials stay up front so managers can create assets fast.">
+              <div className="grid gap-3 md:grid-cols-[minmax(0,1.5fr)_220px_160px]">
+                <label className="space-y-1.5">
+                  <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Asset Name *</span>
+                  <input
+                    value={editor.form.name}
+                    onChange={(event) => updateEditorField("name", event.target.value)}
+                    placeholder={`Enter ${String(editorSection?.singular || "asset").toLowerCase()} name`}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+                  />
+                  <InlineError>{editorErrors.name}</InlineError>
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Status *</span>
+                  <select
+                    value={editor.form.status}
+                    onChange={(event) => updateEditorField("status", event.target.value)}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+                  >
+                    {STAGE_STATUSES.map((status) => (
+                      <option key={status} value={status}>
+                        {getStatusOptionLabel(status)}
+                      </option>
+                    ))}
+                  </select>
+                  <InlineError>{editorErrors.status}</InlineError>
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Priority</span>
+                  <select
+                    value={editor.form.priority}
+                    onChange={(event) => updateEditorField("priority", event.target.value)}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+                  >
+                    {[1, 2, 3, 4, 5].map((priority) => (
+                      <option key={priority} value={priority}>
+                        P{priority}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </ModalSection>
+
+            <ModalSection title="Section 2 — Assignment" description="Recommended department artists appear first, with manual override available at any time.">
+              <ModalAssignmentPicker
+                users={activeUsers}
+                recommendedDepartment={recommendedDepartment}
+                assignments={editor.form.assignments}
+                onChange={(assignments) => updateEditorField("assignments", assignments)}
+                disabled={busy}
+              />
+              <InlineError>{editorErrors.assignments}</InlineError>
+            </ModalSection>
+
+            <ModalSection title="Section 3 — Dates" description="Start date defaults to today so tracking begins immediately. End date stays optional.">
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="space-y-1.5">
+                  <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Start Date *</span>
+                  <input
+                    type="date"
+                    value={editor.form.startedAt || todayDateInput()}
+                    onChange={(event) => updateEditorField("startedAt", event.target.value || todayDateInput())}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+                  />
+                  <InlineError>{editorErrors.startedAt}</InlineError>
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">End Date</span>
+                  <input
+                    type="date"
+                    value={editor.form.endedAt}
+                    onChange={(event) => updateEditorField("endedAt", event.target.value)}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+                  />
+                </label>
+              </div>
+            </ModalSection>
+
+            <div className="rounded-2xl border border-slate-200 bg-white">
+              <button
+                type="button"
+                onClick={() => setEditorAdvancedOpen((prev) => !prev)}
+                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+              >
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Section 4 — Advanced Notes</p>
+                  <p className="mt-1 text-sm text-slate-500">Optional details like notes, description, and reference URL stay out of the way until needed.</p>
+                </div>
+                <span className="rounded-full border border-slate-200 bg-slate-50 p-2 text-slate-500">
+                  {editorAdvancedOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </span>
+              </button>
+
+              {editorAdvancedOpen ? (
+                <div className="border-t border-slate-200 px-4 py-4">
+                  <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+                    <label className="space-y-1.5 xl:col-span-2">
+                      <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Notes</span>
+                      <textarea
+                        value={editor.form.notes}
+                        onChange={(event) => updateEditorField("notes", event.target.value)}
+                        rows={3}
+                        className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+                        placeholder="Production notes, review reminders, or assignment context"
+                      />
+                    </label>
+                    <label className="space-y-1.5">
+                      <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Description</span>
+                      <textarea
+                        value={editor.form.description}
+                        onChange={(event) => updateEditorField("description", event.target.value)}
+                        rows={3}
+                        className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+                        placeholder="Optional asset description"
+                      />
+                    </label>
+                    <label className="space-y-1.5">
+                      <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Reference URL</span>
+                      <div className="relative">
+                        <Link2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                        <input
+                          value={editor.form.referenceImageUrl}
+                          onChange={(event) => updateEditorField("referenceImageUrl", event.target.value)}
+                          placeholder="https://..."
+                          className="w-full rounded-xl border border-slate-300 bg-white px-10 py-2.5 text-sm"
+                        />
+                      </div>
+                    </label>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
         </div>
-        <div className="mt-5 flex justify-end gap-2">
-          <button type="button" onClick={closeEditor} className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700">Cancel</button>
-          <button type="button" onClick={submitEditor} disabled={busy || !editor.form.name.trim()} className={`rounded-xl px-4 py-2.5 text-sm font-semibold text-white ${SECTION_CONFIG[editor.sectionKey]?.button || "bg-slate-900 hover:bg-slate-800"} disabled:opacity-50`}>
-            {editor.mode === "create" ? "Create Asset" : "Save Changes"}
-          </button>
+
+        <div className="-mx-6 mt-5 sticky bottom-0 border-t border-slate-200 bg-white px-6 pt-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              <p className="font-semibold">Required: Name, status, assigned artist, start date.</p>
+              <p className="mt-0.5 text-amber-800">End date, notes, description, reference URL, and priority stay optional.</p>
+            </div>
+            <div className="flex gap-2">
+              <button type="button" onClick={closeEditor} className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700">
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={submitEditor}
+                disabled={busy || !editorCanSubmit}
+                className={`rounded-xl px-4 py-2.5 text-sm font-semibold text-white ${editorSection?.button || "bg-slate-900 hover:bg-slate-800"} disabled:opacity-50`}
+              >
+                {editor.mode === "create" ? `Create ${editorSection?.singular || "Asset"}` : `Save ${editorSection?.singular || "Asset"}`}
+              </button>
+            </div>
+          </div>
         </div>
       </Modal>
 
