@@ -4,6 +4,8 @@ import api from "../lib/api";
 const summaryCache = new Map();
 const pendingIds = new Set();
 const listeners = new Set();
+const NO_SUMMARY = Symbol("no-summary");
+let endpointUnavailable = false;
 
 function notifyListeners() {
   listeners.forEach((listener) => listener((value) => value + 1));
@@ -31,6 +33,8 @@ export default function useEmployeeAvailabilitySummaries(usersOrIds = []) {
   }, []);
 
   useEffect(() => {
+    if (endpointUnavailable) return;
+
     const missingIds = ids.filter((id) => !summaryCache.has(id) && !pendingIds.has(id));
     if (!missingIds.length) return;
 
@@ -52,12 +56,23 @@ export default function useEmployeeAvailabilitySummaries(usersOrIds = []) {
           summaryCache.set(userId, item);
           pendingIds.delete(userId);
         }
+        missingIds
+          .filter((id) => !summaryCache.has(id))
+          .forEach((id) => {
+            summaryCache.set(id, NO_SUMMARY);
+            pendingIds.delete(id);
+          });
         missingIds.forEach((id) => pendingIds.delete(id));
         notifyListeners();
       })
-      .catch(() => {
+      .catch((error) => {
         if (cancelled) return;
         missingIds.forEach((id) => pendingIds.delete(id));
+        const status = Number(error?.response?.status || 0);
+        if ([400, 404, 405, 501].includes(status)) {
+          endpointUnavailable = true;
+          missingIds.forEach((id) => summaryCache.set(id, NO_SUMMARY));
+        }
         notifyListeners();
       });
 
@@ -69,7 +84,8 @@ export default function useEmployeeAvailabilitySummaries(usersOrIds = []) {
   return useMemo(() => {
     const result = {};
     ids.forEach((id) => {
-      result[id] = summaryCache.get(id) || null;
+      const value = summaryCache.get(id);
+      result[id] = value === NO_SUMMARY ? null : value || null;
     });
     return result;
   }, [ids, version]);
