@@ -51,8 +51,8 @@ function buildBreadcrumbs(location) {
 
     if (third === "workspace" && segments[3]) {
       base.push({ label: stageLabelFromSlug(segments[3]) });
-    } else if (third === "modelling" && fourth) {
-      base.push({ label: "Modelling", to: `/projects/${second}/workspace/modelling` });
+    } else if (["modelling", "unwrapping", "texturing", "rigging"].includes(third) && fourth) {
+      base.push({ label: stageLabelFromSlug(third), to: `/projects/${second}/workspace/${third}` });
       base.push({ label: stageLabelFromSlug(fourth) });
     } else if (third) {
       base.push({ label: stageLabelFromSlug(third) });

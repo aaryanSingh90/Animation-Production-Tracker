@@ -215,10 +215,12 @@ export default function ProjectStageWorkspacePage() {
   const showToast = useToastStore((state) => state.showToast);
   const currentUser = useAuthStore((state) => state.user);
 
-  const derivedStageSlug = categorySlug ? "modelling" : stageSlug;
-  const stageCode = categorySlug ? "MODELLING" : stageCodeFromSlug(stageSlug);
+  const isAssetCategoryRoute = Boolean(categorySlug) && ["modelling", "unwrapping", "texturing", "rigging"].includes(String(stageSlug || "").toLowerCase());
+  const derivedStageSlug = isAssetCategoryRoute ? stageSlug : categorySlug ? "modelling" : stageSlug;
+  const stageCode = isAssetCategoryRoute ? stageCodeFromSlug(stageSlug) : categorySlug ? "MODELLING" : stageCodeFromSlug(stageSlug);
   const workspaceVariant = categorySlug ? modellingCategoryVariantFromSlug(categorySlug) : stageWorkspaceVariantFromSlug(stageSlug);
-  const workspaceTitle = categorySlug ? modellingCategoryLabelFromVariant(workspaceVariant) : stageLabelFromSlug(derivedStageSlug);
+  const stageDisplayLabel = stageLabelFromSlug(isAssetCategoryRoute ? stageSlug : derivedStageSlug);
+  const workspaceTitle = categorySlug ? modellingCategoryLabelFromVariant(workspaceVariant) : stageDisplayLabel;
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -785,7 +787,7 @@ export default function ProjectStageWorkspacePage() {
     );
   }
 
-  if (stageCode === "MODELLING") {
+  if (["MODELLING", "UNWRAPPING", "TEXTURING", "RIGGING"].includes(stageCode)) {
     return (
       <ModellingWorkspace
         projectId={projectId}
@@ -794,6 +796,8 @@ export default function ProjectStageWorkspacePage() {
         eligibleUsers={eligibleUsers}
         requiredDepartment={requiredDepartment}
         workspaceVariant={workspaceVariant}
+        stageCode={stageCode}
+        stageLabel={stageSummary?.stageName || stageDisplayLabel || "Asset Workspace"}
         showToast={showToast}
       />
     );

@@ -144,13 +144,22 @@ export function buildStageWorkspacePath(projectId, stageSlugOrCode) {
 }
 
 export function buildModellingCategoryPath(projectId, variantOrSlug) {
-  const rawValue = String(variantOrSlug || "").trim();
-  if (!rawValue) return `/projects/${projectId}/workspace/modelling`;
+  return buildAssetCategoryPath(projectId, "MODELLING", variantOrSlug);
+}
 
-  const normalized = rawValue.toLowerCase();
-  const slug = MODELLING_CATEGORY_SLUG_TO_VARIANT[normalized]
-    ? normalized
-    : modellingCategorySlugFromVariant(rawValue.toUpperCase()) || normalized;
+export function buildAssetCategoryPath(projectId, stageSlugOrCode, variantOrSlug) {
+  const stageRaw = String(stageSlugOrCode || "").trim();
+  const stageSlug = STAGE_SLUG_TO_CODE[stageRaw.toLowerCase()]
+    ? stageRaw.toLowerCase()
+    : stageSlugFromCode(stageRaw.toUpperCase()) || stageRaw.toLowerCase();
 
-  return `/projects/${projectId}/modelling/${slug}`;
+  const rawVariant = String(variantOrSlug || "").trim();
+  if (!rawVariant) return `/projects/${projectId}/workspace/${stageSlug}`;
+
+  const normalizedVariant = rawVariant.toLowerCase();
+  const categorySlug = MODELLING_CATEGORY_SLUG_TO_VARIANT[normalizedVariant]
+    ? normalizedVariant
+    : modellingCategorySlugFromVariant(rawVariant.toUpperCase()) || normalizedVariant;
+
+  return `/projects/${projectId}/${stageSlug}/${categorySlug}`;
 }

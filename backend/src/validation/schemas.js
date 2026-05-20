@@ -357,8 +357,8 @@ const createAssetSchema = z.object({
   name: z.string().min(1).max(255),
   type: z.enum(["CHARACTER", "PROP", "BG", "ENVIRONMENT"]),
   subCategory: z.enum(["CHARACTER", "CHARACTER_BLENDSHAPES", "PROP", "BG"]).optional(),
-  description: z.string().max(2000).optional().or(z.literal("")),
-  referenceImageUrl: z.string().url().optional().or(z.literal("")),
+  description: z.string().max(2000).optional().nullable().or(z.literal("")),
+  referenceImageUrl: z.string().url().optional().nullable().or(z.literal("")),
   priority: z.coerce.number().int().min(1).max(5).optional(),
   status: stageStatusEnum.optional()
 });
@@ -371,8 +371,8 @@ const updateAssetSchema = z
     priority: z.coerce.number().int().min(1).max(5).optional(),
     order: z.coerce.number().int().min(0).optional(),
     isArchived: z.boolean().optional(),
-    description: z.string().max(2000).optional().or(z.literal("")),
-    referenceImageUrl: z.string().url().optional().or(z.literal("")),
+    description: z.string().max(2000).optional().nullable().or(z.literal("")),
+    referenceImageUrl: z.string().url().optional().nullable().or(z.literal("")),
     status: stageStatusEnum.optional()
   })
   .refine((value) => Object.keys(value).length > 0, "At least one field is required");
