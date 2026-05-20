@@ -83,3 +83,41 @@ export function getLeadAssignment(source, fallbackAssignedUser = null) {
   const assignments = normalizeAssignmentList(source, fallbackAssignedUser);
   return assignments.find((assignment) => assignment.roleType === "LEAD") || assignments[0] || null;
 }
+
+export function sortUsersBySmartAvailability(users = [], summariesByUserId = {}, preferredDepartment = "") {
+  function statusRank(status) {
+    if (status === "AVAILABLE") return 0;
+    if (status === "BUSY") return 1;
+    if (status === "LATE") return 2;
+    if (status === "OVERLOADED") return 3;
+    if (status === "ON_LEAVE") return 4;
+    if (status === "OFFLINE") return 5;
+    return 6;
+  }
+
+  return [...users].sort((left, right) => {
+    const leftDepartmentMatch = preferredDepartment && isDepartmentMatch(preferredDepartment, getUserDepartmentName(left)) ? 0 : 1;
+    const rightDepartmentMatch = preferredDepartment && isDepartmentMatch(preferredDepartment, getUserDepartmentName(right)) ? 0 : 1;
+    if (leftDepartmentMatch !== rightDepartmentMatch) return leftDepartmentMatch - rightDepartmentMatch;
+
+    const leftSummary = summariesByUserId[Number(left.id)] || null;
+    const rightSummary = summariesByUserId[Number(right.id)] || null;
+    const leftStatusRank = statusRank(leftSummary?.liveStatus || left.availabilityStatus || "AVAILABLE");
+    const rightStatusRank = statusRank(rightSummary?.liveStatus || right.availabilityStatus || "AVAILABLE");
+    if (leftStatusRank !== rightStatusRank) return leftStatusRank - rightStatusRank;
+
+    const leftPercent = Number(leftSummary?.workloadPercent || 0);
+    const rightPercent = Number(rightSummary?.workloadPercent || 0);
+    if (leftPercent !== rightPercent) return leftPercent - rightPercent;
+
+    const leftActiveTasks = Number(leftSummary?.activeTasks || 0);
+    const rightActiveTasks = Number(rightSummary?.activeTasks || 0);
+    if (leftActiveTasks !== rightActiveTasks) return leftActiveTasks - rightActiveTasks;
+
+    const leftTypeRank = left.employmentType === "INHOUSE" ? 0 : 1;
+    const rightTypeRank = right.employmentType === "INHOUSE" ? 0 : 1;
+    if (leftTypeRank !== rightTypeRank) return leftTypeRank - rightTypeRank;
+
+    return String(left.name || "").localeCompare(String(right.name || ""));
+  });
+}

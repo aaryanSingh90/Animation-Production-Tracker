@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Search, Users, X } from "lucide-react";
+import { AlertTriangle, Plus, Search, Users, X } from "lucide-react";
 import { getDepartmentLabel, initials } from "../utils/format";
 import {
   buildDepartmentOptions,
@@ -7,8 +7,12 @@ import {
   filterUsersByDepartment,
   getEmploymentBadgeClasses,
   getEmploymentLabel,
-  normalizeAssignmentList
+  normalizeAssignmentList,
+  sortUsersBySmartAvailability
 } from "../utils/assignments";
+import useEmployeeAvailabilitySummaries from "../hooks/useEmployeeAvailabilitySummaries";
+import { EmployeeAvailabilityHoverCard } from "./EmployeeAvailabilityHoverCard";
+import { formatEmployeeAvailabilityLabel, getEmployeeAvailabilityMeta, getOverloadWarning } from "../utils/employeeAvailability";
 
 function coerceAssignments(assignments, users) {
   const usersById = new Map((users || []).map((user) => [user.id, user]));
@@ -28,6 +32,59 @@ function ensureSingleLead(nextAssignments) {
     }
     return { ...assignment, roleType: "SUPPORT" };
   });
+}
+
+function CandidateCard({ user, summary, assigned, disabled, onAssign }) {
+  const meta = getEmployeeAvailabilityMeta(summary?.liveStatus || user.availabilityStatus || "AVAILABLE");
+
+  return (
+    <EmployeeAvailabilityHoverCard user={user} summary={summary} roleLabel="Artist" className="block">
+      <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-900 text-sm font-bold text-white">
+            {initials(user.name)}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-slate-900">{user.name}</p>
+                <p className="truncate text-xs text-slate-500">{getDepartmentLabel(user)}</p>
+              </div>
+              <span className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${meta.tone}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
+                {formatEmployeeAvailabilityLabel(summary?.liveStatus || user.availabilityStatus || "AVAILABLE")}
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${getEmploymentBadgeClasses(user.employmentType)}`}>
+                {user.employmentType === "FREELANCE" ? "FREELANCE" : "IN-HOUSE"}
+              </span>
+              <span className="text-[11px] text-slate-500">
+                {summary?.activeTasks ?? 0} active · {summary?.workloadPercent ?? 0}% load
+              </span>
+            </div>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onAssign(user);
+          }}
+          disabled={disabled || assigned}
+          className={`mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition ${
+            assigned
+              ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+              : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+          } disabled:opacity-60`}
+        >
+          <Plus className="h-4 w-4" />
+          {assigned ? "Assigned" : "Assign"}
+        </button>
+      </div>
+    </EmployeeAvailabilityHoverCard>
+  );
 }
 
 export default function FlexibleAssignmentField({
@@ -54,6 +111,7 @@ export default function FlexibleAssignmentField({
   const [selectedDepartment, setSelectedDepartment] = useState(defaultDepartment);
   const [search, setSearch] = useState("");
   const [candidateId, setCandidateId] = useState("");
+  const summariesByUserId = useEmployeeAvailabilitySummaries(users);
 
   useEffect(() => {
     if (!selectedDepartment && defaultDepartment) {
@@ -69,31 +127,53 @@ export default function FlexibleAssignmentField({
   const filteredUsers = useMemo(() => {
     const byDepartment = filterUsersByDepartment(users, selectedDepartment);
     const query = search.trim().toLowerCase();
-    if (!query) return byDepartment;
-    return byDepartment.filter((user) => {
-      const haystack = [
-        user.name,
-        user.email,
-        getDepartmentLabel(user),
-        user.employmentType === "FREELANCE" ? "freelance" : "in-house",
-        user.role
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(query);
-    });
-  }, [users, selectedDepartment, search]);
+    const scoped = !query
+      ? byDepartment
+      : byDepartment.filter((user) => {
+          const haystack = [
+            user.name,
+            user.email,
+            getDepartmentLabel(user),
+            user.employmentType === "FREELANCE" ? "freelance" : "in-house",
+            user.role
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          return haystack.includes(query);
+        });
+
+    return sortUsersBySmartAvailability(scoped, summariesByUserId, selectedDepartment || recommendedDepartment);
+  }, [users, selectedDepartment, search, summariesByUserId, recommendedDepartment]);
+
+  const highlightedUsers = useMemo(() => filteredUsers.slice(0, 6), [filteredUsers]);
+  const candidateWarning = useMemo(() => {
+    const selected = filteredUsers.find((user) => String(user.id) === String(candidateId));
+    if (!selected) return "";
+    return getOverloadWarning(summariesByUserId[Number(selected.id)]);
+  }, [candidateId, filteredUsers, summariesByUserId]);
+
+  const assignmentWarnings = useMemo(
+    () =>
+      normalizedAssignments
+        .map((assignment) => {
+          const user = assignment.employee || users.find((item) => Number(item.id) === Number(assignment.employeeId));
+          const summary = summariesByUserId[Number(assignment.employeeId)];
+          const warning = getOverloadWarning(summary);
+          if (!user || !warning) return null;
+          return `${user.name}: ${warning}`;
+        })
+        .filter(Boolean),
+    [normalizedAssignments, users, summariesByUserId]
+  );
 
   function commit(nextAssignments) {
     onChange?.(ensureSingleLead(nextAssignments));
   }
 
-  function handleAdd() {
-    const employeeId = Number(candidateId || 0);
+  function handleAddEmployee(user) {
+    const employeeId = Number(user.id || 0);
     if (!employeeId) return;
-    const user = users.find((item) => item.id === employeeId);
-    if (!user) return;
 
     const existing = normalizedAssignments.some((assignment) => assignment.employeeId === employeeId);
     if (existing) {
@@ -128,6 +208,14 @@ export default function FlexibleAssignmentField({
     setCandidateId("");
   }
 
+  function handleAdd() {
+    const employeeId = Number(candidateId || 0);
+    if (!employeeId) return;
+    const user = users.find((item) => item.id === employeeId);
+    if (!user) return;
+    handleAddEmployee(user);
+  }
+
   function handleRoleChange(employeeId, roleType) {
     commit(
       normalizedAssignments.map((assignment) => ({
@@ -142,7 +230,7 @@ export default function FlexibleAssignmentField({
   }
 
   return (
-    <div className={`space-y-2 ${className}`}>
+    <div className={`space-y-3 ${className}`}>
       <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-medium text-slate-500">
         <span>
           {selectedDepartment || "All departments"} · {filteredUsers.length} available employee{filteredUsers.length === 1 ? "" : "s"}
@@ -153,6 +241,7 @@ export default function FlexibleAssignmentField({
           </span>
         ) : null}
       </div>
+
       <div className="grid gap-2 md:grid-cols-[minmax(0,180px)_minmax(0,1fr)_auto]">
         <label className="space-y-1">
           <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Department</span>
@@ -193,11 +282,14 @@ export default function FlexibleAssignmentField({
             disabled={disabled || !filteredUsers.length}
           >
             <option value="">Select artist</option>
-            {filteredUsers.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.name} · {getDepartmentLabel(user)} · {getEmploymentLabel(user.employmentType)}
-              </option>
-            ))}
+            {filteredUsers.map((user) => {
+              const summary = summariesByUserId[Number(user.id)];
+              return (
+                <option key={user.id} value={user.id}>
+                  {user.name} · {getDepartmentLabel(user)} · {formatEmployeeAvailabilityLabel(summary?.liveStatus || user.availabilityStatus || "AVAILABLE")} · {summary?.activeTasks ?? 0} active
+                </option>
+              );
+            })}
           </select>
         </div>
 
@@ -210,6 +302,30 @@ export default function FlexibleAssignmentField({
           <Plus className="h-4 w-4" /> Add
         </button>
       </div>
+
+      {candidateWarning ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{candidateWarning}</span>
+          </div>
+        </div>
+      ) : null}
+
+      {highlightedUsers.length ? (
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {highlightedUsers.map((user) => (
+            <CandidateCard
+              key={user.id}
+              user={user}
+              summary={summariesByUserId[Number(user.id)]}
+              assigned={normalizedAssignments.some((assignment) => assignment.employeeId === Number(user.id))}
+              disabled={disabled}
+              onAssign={handleAddEmployee}
+            />
+          ))}
+        </div>
+      ) : null}
 
       {!filteredUsers.length && (
         <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-500">
@@ -235,38 +351,50 @@ export default function FlexibleAssignmentField({
           normalizedAssignments.map((assignment) => {
             const employee = assignment.employee || users.find((user) => user.id === assignment.employeeId) || null;
             if (!employee) return null;
-
+            const summary = summariesByUserId[Number(assignment.employeeId)];
             return (
-              <div key={assignment.employeeId} className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-[11px] font-semibold text-white">
-                  {initials(employee.name)}
+              <EmployeeAvailabilityHoverCard key={assignment.employeeId} user={employee} summary={summary} roleLabel={assignment.roleType === "LEAD" ? "Lead Artist" : "Support Artist"} className="block">
+                <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-[11px] font-semibold text-white">
+                    {initials(employee.name)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-slate-900">{employee.name}</p>
+                    <p className="truncate text-[11px] text-slate-500">{getDepartmentLabel(employee)} · {getEmploymentLabel(employee.employmentType)}</p>
+                  </div>
+                  <span className={`rounded-full border px-2 py-1 text-[11px] font-semibold ${getEmploymentBadgeClasses(employee.employmentType)}`}>
+                    {employee.employmentType === "FREELANCE" ? "FREELANCE" : "IN-HOUSE"}
+                  </span>
+                  <span className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${getEmployeeAvailabilityMeta(summary?.liveStatus || employee.availabilityStatus || "AVAILABLE").tone}`}>
+                    {formatEmployeeAvailabilityLabel(summary?.liveStatus || employee.availabilityStatus || "AVAILABLE")}
+                  </span>
+                  <select
+                    value={assignment.roleType || "SUPPORT"}
+                    onChange={(event) => {
+                      event.stopPropagation();
+                      handleRoleChange(assignment.employeeId, event.target.value);
+                    }}
+                    className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs font-semibold"
+                    disabled={disabled}
+                  >
+                    <option value="LEAD">Lead Artist</option>
+                    <option value="SUPPORT">Support Artist</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      handleRemove(assignment.employeeId);
+                    }}
+                    className="rounded-lg border border-slate-300 p-1.5 text-slate-500 hover:text-slate-900"
+                    disabled={disabled}
+                    aria-label={`Remove ${employee.name}`}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
                 </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-slate-900">{employee.name}</p>
-                  <p className="truncate text-[11px] text-slate-500">{getDepartmentLabel(employee)} · {getEmploymentLabel(employee.employmentType)}</p>
-                </div>
-                <span className={`rounded-full border px-2 py-1 text-[11px] font-semibold ${getEmploymentBadgeClasses(employee.employmentType)}`}>
-                  {employee.employmentType === "FREELANCE" ? "FREELANCE" : "IN-HOUSE"}
-                </span>
-                <select
-                  value={assignment.roleType || "SUPPORT"}
-                  onChange={(event) => handleRoleChange(assignment.employeeId, event.target.value)}
-                  className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs font-semibold"
-                  disabled={disabled}
-                >
-                  <option value="LEAD">Lead Artist</option>
-                  <option value="SUPPORT">Support Artist</option>
-                </select>
-                <button
-                  type="button"
-                  onClick={() => handleRemove(assignment.employeeId)}
-                  className="rounded-lg border border-slate-300 p-1.5 text-slate-500 hover:text-slate-900"
-                  disabled={disabled}
-                  aria-label={`Remove ${employee.name}`}
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
+              </EmployeeAvailabilityHoverCard>
             );
           })
         ) : (
@@ -276,6 +404,14 @@ export default function FlexibleAssignmentField({
           </div>
         )}
       </div>
+
+      {assignmentWarnings.length ? (
+        <div className="space-y-1 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+          {assignmentWarnings.map((warning) => (
+            <p key={warning}>{warning}</p>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
