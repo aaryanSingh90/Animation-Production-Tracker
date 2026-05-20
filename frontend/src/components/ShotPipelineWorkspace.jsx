@@ -1429,7 +1429,7 @@ export default function ShotPipelineWorkspace({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="-mt-3 space-y-3 md:-mt-4">
       <section className="sticky top-3 z-20 overflow-hidden rounded-[24px] border border-slate-900/90 bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.12),_transparent_30%),linear-gradient(180deg,_rgba(15,23,42,0.98),_rgba(2,6,23,0.98))] text-white shadow-2xl shadow-slate-950/20 backdrop-blur">
         <div className="space-y-3 px-4 py-3">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
