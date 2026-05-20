@@ -10,7 +10,8 @@ import { MANAGER_ROLES } from "./utils/constants";
 
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const ManagerDashboardPage = lazy(() => import("./pages/ManagerDashboardPage"));
-const ProjectsPage = lazy(() => import("./pages/ProjectsPage"));
+const ClientsPage = lazy(() => import("./pages/ClientsPage"));
+const ClientDetailPage = lazy(() => import("./pages/ClientDetailPage"));
 const ProjectDetailPage = lazy(() => import("./pages/ProjectDetailPage"));
 const ProjectStageWorkspacePage = lazy(() => import("./pages/ProjectStageWorkspacePage"));
 const CharactersPage = lazy(() => import("./pages/CharactersPage"));
@@ -77,10 +78,26 @@ export default function App() {
             }
           />
           <Route
+            path="/clients"
+            element={
+              <ManagerLayout>
+                <ClientsPage />
+              </ManagerLayout>
+            }
+          />
+          <Route
+            path="/clients/:id"
+            element={
+              <ManagerLayout>
+                <ClientDetailPage />
+              </ManagerLayout>
+            }
+          />
+          <Route
             path="/projects"
             element={
               <ManagerLayout>
-                <ProjectsPage />
+                <Navigate to="/clients" replace />
               </ManagerLayout>
             }
           />

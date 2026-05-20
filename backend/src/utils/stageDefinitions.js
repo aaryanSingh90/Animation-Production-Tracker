@@ -1,3 +1,18 @@
+const CURRENT_PIPELINE_STAGE_CODES = [
+  "AUDIO",
+  "ANIMATICS",
+  "MODELLING",
+  "UNWRAPPING",
+  "TEXTURING",
+  "RIGGING",
+  "ANIMATION",
+  "FX",
+  "LIGHTING",
+  "RENDERING",
+  "COMPOSITING",
+  "EDITING"
+];
+
 const DEFAULT_STAGE_DEFINITIONS = [
   {
     code: "AUDIO",
@@ -82,12 +97,22 @@ const DEFAULT_STAGE_DEFINITIONS = [
   {
     code: "LIGHTING",
     name: "Lighting",
-    trackingMode: "SHOT",
-    isHybrid: false,
+    trackingMode: "PROJECT",
+    isHybrid: true,
     requiresApproval: true,
     order: 9,
     color: "#F97316",
     icon: "sun"
+  },
+  {
+    code: "RENDERING",
+    name: "Rendering",
+    trackingMode: "PROJECT",
+    isHybrid: true,
+    requiresApproval: true,
+    order: 10,
+    color: "#14B8A6",
+    icon: "monitor"
   },
   {
     code: "COMPOSITING",
@@ -95,7 +120,7 @@ const DEFAULT_STAGE_DEFINITIONS = [
     trackingMode: "SHOT",
     isHybrid: false,
     requiresApproval: true,
-    order: 10,
+    order: 11,
     color: "#84CC16",
     icon: "layers"
   },
@@ -105,7 +130,7 @@ const DEFAULT_STAGE_DEFINITIONS = [
     trackingMode: "PROJECT",
     isHybrid: false,
     requiresApproval: true,
-    order: 11,
+    order: 12,
     color: "#06B6D4",
     icon: "scissors"
   },
@@ -140,46 +165,38 @@ const DEFAULT_STAGE_DEFINITIONS = [
     color: "#10B981",
     icon: "mountain"
   },
-  {
-    code: "RENDERING",
-    name: "Rendering (Legacy Hybrid)",
-    trackingMode: "PROJECT",
-    isHybrid: true,
-    requiresApproval: true,
-    order: 93,
-    color: "#14B8A6",
-    icon: "monitor"
-  }
 ];
 
 const STAGE_CODE_TO_LEGACY_NAME = {
   AUDIO: "AUDIO",
   ANIMATICS: "ANIMATICS",
   MODELLING: "CHARACTER_MODELLING",
-  UNWRAPPING: "TEXTURING",
+  UNWRAPPING: "UNWRAPPING",
   TEXTURING: "TEXTURING",
   RIGGING: "RIGGING",
   ANIMATION: "ANIMATION",
-  FX: "RENDER",
+  FX: "FX",
   LIGHTING: "LIGHTING",
+  RENDERING: "RENDERING",
   COMPOSITING: "COMPOSITING",
   EDITING: "EDITING",
   // Legacy
   CHARACTER_MODELLING: "CHARACTER_MODELLING",
   BLENDSHAPES: "BLENDSHAPES",
-  BG_MODELLING: "BG_MODELLING",
-  RENDERING: "RENDER"
+  BG_MODELLING: "BG_MODELLING"
 };
 
-const LEGACY_STAGE_NAME_TO_CODE = Object.fromEntries(
-  Object.entries(STAGE_CODE_TO_LEGACY_NAME).map(([code, legacy]) => [legacy, code])
-);
+const LEGACY_STAGE_NAME_TO_CODE = {
+  ...Object.fromEntries(Object.entries(STAGE_CODE_TO_LEGACY_NAME).map(([code, legacy]) => [legacy, code])),
+  MODELLING: "MODELLING",
+  RENDER: "RENDERING"
+};
 
 const TRACKING_GROUPS = {
   PROJECT: ["AUDIO", "EDITING"],
-  SHOT: ["ANIMATICS", "ANIMATION", "FX", "LIGHTING", "COMPOSITING"],
+  SHOT: ["ANIMATICS", "ANIMATION", "FX", "COMPOSITING"],
   ASSET: ["MODELLING", "UNWRAPPING", "TEXTURING", "RIGGING"],
-  HYBRID: ["RENDERING"]
+  HYBRID: ["LIGHTING", "RENDERING"]
 };
 
 function normalizeStageCode(value) {
@@ -224,6 +241,7 @@ async function ensureDefaultStageDefinitions(prisma) {
 }
 
 module.exports = {
+  CURRENT_PIPELINE_STAGE_CODES,
   DEFAULT_STAGE_DEFINITIONS,
   STAGE_CODE_TO_LEGACY_NAME,
   LEGACY_STAGE_NAME_TO_CODE,

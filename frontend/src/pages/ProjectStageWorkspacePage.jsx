@@ -4,6 +4,7 @@ import { AlertCircle, ChevronDown, ChevronRight } from "lucide-react";
 import api from "../lib/api";
 import Loader from "../components/Loader";
 import EmptyState from "../components/EmptyState";
+import Modal from "../components/Modal";
 import StatusBadge from "../components/StatusBadge";
 import StageCommentThread from "../components/StageCommentThread";
 import { formatDate, formatDateInput, initials, labelize } from "../utils/format";
@@ -19,7 +20,8 @@ const DEFAULT_TRACKING_BY_STAGE = {
   EDITING: "PROJECT",
   ANIMATICS: "SHOT",
   FX: "SHOT",
-  LIGHTING: "SHOT",
+  LIGHTING: "PROJECT",
+  RENDERING: "PROJECT",
   COMPOSITING: "SHOT",
   ANIMATION: "SHOT",
   MODELLING: "ASSET",
@@ -60,6 +62,113 @@ function applyStagePatch(item, patch) {
   };
 }
 
+function resolveShotSeconds(frameStart, frameEnd) {
+  const start = Number(frameStart);
+  const end = Number(frameEnd);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
+  return Number(((end - start + 1) / 24).toFixed(2));
+}
+
+function MetricTile({ label, value, tone = "text-slate-900" }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">{label}</p>
+      <p className={`mt-1 text-lg font-bold ${tone}`}>{value}</p>
+    </div>
+  );
+}
+
+function AnimaticsCutEditor({ shot, disabled, onSave }) {
+  const [frameStart, setFrameStart] = useState(String(shot?.frameStart ?? 101));
+  const [frameEnd, setFrameEnd] = useState(String(shot?.frameEnd ?? ""));
+
+  useEffect(() => {
+    setFrameStart(String(shot?.frameStart ?? 101));
+    setFrameEnd(String(shot?.frameEnd ?? ""));
+  }, [shot?.id, shot?.frameStart, shot?.frameEnd]);
+
+  const previewSeconds = resolveShotSeconds(frameStart, frameEnd);
+  const dirty = Number(frameStart) !== Number(shot?.frameStart ?? 101) || Number(frameEnd) !== Number(shot?.frameEnd ?? "");
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-2.5">
+      <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto_auto]">
+        <label className="space-y-1">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Frame Start</span>
+          <input
+            type="number"
+            min="0"
+            value={frameStart}
+            onChange={(event) => setFrameStart(event.target.value)}
+            className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
+            disabled={disabled}
+          />
+        </label>
+        <label className="space-y-1">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Frame End</span>
+          <input
+            type="number"
+            min="0"
+            value={frameEnd}
+            onChange={(event) => setFrameEnd(event.target.value)}
+            className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
+            disabled={disabled}
+          />
+        </label>
+        <div className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600">
+          <span className="font-semibold text-slate-800">{previewSeconds ?? "--"} sec</span>
+          <p className="mt-0.5 text-[11px] text-slate-500">24 fps auto-calc</p>
+        </div>
+        <button
+          onClick={() => onSave({ frameStart: Number(frameStart || 101), frameEnd: Number(frameEnd || 0) })}
+          disabled={disabled || !dirty || previewSeconds === null}
+          className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+        >
+          Update Cut
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function EditingOutputEditor({ shot, disabled, onSave }) {
+  const [finalOutput, setFinalOutput] = useState(shot?.finalOutput || "");
+
+  useEffect(() => {
+    setFinalOutput(shot?.finalOutput || "");
+  }, [shot?.id, shot?.finalOutput]);
+
+  return (
+    <div className="grid gap-2 md:grid-cols-[180px_minmax(0,1fr)]">
+      <select
+        value={shot?.audioStatus || ""}
+        onChange={(event) => onSave({ audioStatus: event.target.value || null })}
+        className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
+        disabled={disabled}
+      >
+        <option value="">Audio status</option>
+        {STAGE_STATUSES.map((status) => (
+          <option key={status} value={status}>
+            {labelize(status)}
+          </option>
+        ))}
+      </select>
+      <input
+        value={finalOutput}
+        onChange={(event) => setFinalOutput(event.target.value)}
+        onBlur={() => {
+          if ((shot?.finalOutput || "") !== finalOutput) {
+            onSave({ finalOutput: finalOutput || null });
+          }
+        }}
+        placeholder="Final output / delivery note"
+        className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
+        disabled={disabled}
+      />
+    </div>
+  );
+}
+
 export default function ProjectStageWorkspacePage() {
   const { projectId, stageSlug } = useParams();
   const showToast = useToastStore((state) => state.showToast);
@@ -90,6 +199,11 @@ export default function ProjectStageWorkspacePage() {
   const [workspaceMode, setWorkspaceMode] = useState("PROJECT");
   const [openCommentsByStageId, setOpenCommentsByStageId] = useState({});
   const [commentCountsByStageId, setCommentCountsByStageId] = useState({});
+  const [editorialShots, setEditorialShots] = useState([]);
+  const [addingShot, setAddingShot] = useState(false);
+  const [bulkAddingShots, setBulkAddingShots] = useState(false);
+  const [shotForm, setShotForm] = useState({ frameStart: "101", frameEnd: "124" });
+  const [bulkShotForm, setBulkShotForm] = useState({ count: "5", frameEnd: "124" });
 
   const [rangeForm, setRangeForm] = useState({
     startShot: "",
@@ -106,6 +220,8 @@ export default function ProjectStageWorkspacePage() {
 
   const trackingMode = workspaceMode || stageSummary?.trackingMode || "PROJECT";
   const isShotMode = trackingMode === "SHOT";
+  const isAnimaticsWorkspace = stageCode === "ANIMATICS" && isShotMode;
+  const isEditingWorkspace = stageCode === "EDITING";
 
   const requiredDepartment = useMemo(() => stageDepartmentFromCode(stageCode), [stageCode]);
   const eligibleUsers = useMemo(() => {
@@ -182,6 +298,59 @@ export default function ProjectStageWorkspacePage() {
     if (!isShotMode) return 0;
     return items.filter((item) => !item.assignedUser?.id).length;
   }, [items, isShotMode]);
+
+  const animaticsSummary = useMemo(() => {
+    if (!isAnimaticsWorkspace) return null;
+
+    const approved = items.filter((item) => item.stageStatus === "APPROVED").length;
+    const inProgress = items.filter((item) => item.stageStatus === "IN_PROGRESS").length;
+    const waiting = items.filter((item) => item.stageStatus === "SUBMITTED").length;
+    const totalSeconds = items.reduce((total, item) => total + Number(item.shot?.seconds || 0), 0);
+
+    return {
+      totalShots: items.length,
+      approved,
+      inProgress,
+      waiting,
+      totalSeconds: Number(totalSeconds.toFixed(2))
+    };
+  }, [isAnimaticsWorkspace, items]);
+
+  const editingSummary = useMemo(() => {
+    if (!isEditingWorkspace) return null;
+
+    const audioReady = editorialShots.filter((shot) => shot.audioStatus === "APPROVED").length;
+    const outputsLogged = editorialShots.filter((shot) => Boolean(shot.finalOutput)).length;
+    const overdue = editorialShots.filter((shot) => shot.status !== "APPROVED" && shot.stages?.some((stage) => isOverdue(stage.deadline, stage.status))).length;
+
+    return {
+      totalShots: editorialShots.length,
+      audioReady,
+      outputsLogged,
+      overdue
+    };
+  }, [editorialShots, isEditingWorkspace]);
+
+  const filteredEditorialShots = useMemo(() => {
+    if (!isEditingWorkspace) return [];
+
+    return editorialShots.filter((shot) => {
+      const searchNeedle = String(filters.search || "").trim().toLowerCase();
+      const matchesSearch =
+        !searchNeedle ||
+        [shot.name, shot.label, shot.finalOutput, shot.shotNumber]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(searchNeedle));
+
+      const matchesStatus =
+        !filters.status ||
+        shot.status === filters.status ||
+        shot.audioStatus === filters.status ||
+        shot.stages?.some((stage) => stage.status === filters.status);
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [editorialShots, filters.search, filters.status, isEditingWorkspace]);
 
   async function loadWorkspace(nextFilters = filters, options = {}) {
     if (!stageCode) return;
@@ -311,9 +480,17 @@ export default function ProjectStageWorkspacePage() {
           totalPages: 1
         });
       }
+
+      if (stageCode === "EDITING") {
+        const shotsRes = await api.get(`/projects/${projectId}/shots`, { params: { page: 1, pageSize: 300 } });
+        setEditorialShots(shotsRes.data.items || []);
+      } else {
+        setEditorialShots([]);
+      }
     } catch (err) {
       setError(err.userMessage || err.response?.data?.message || "Failed to load stage workspace");
       setItems([]);
+      setEditorialShots([]);
       setPagination({ page: 1, pageSize: DEFAULT_PAGE_SIZE, total: 0, totalPages: 1 });
     } finally {
       if (withLoader) setLoading(false);
@@ -360,7 +537,8 @@ export default function ProjectStageWorkspacePage() {
         approvedAt: data.approvedAt,
         notes: data.notes,
         feedback: data.feedback,
-        assignedUser: data.assignedUser || null
+        assignedUser: data.assignedUser || null,
+        raw: data
       });
 
       showToast("success", successMessage);
@@ -429,6 +607,93 @@ export default function ProjectStageWorkspacePage() {
     }
   }
 
+  function patchShotRecord(shotId, patch) {
+    setEditorialShots((prev) => prev.map((shot) => (shot.id === shotId ? { ...shot, ...patch } : shot)));
+    setItems((prev) =>
+      prev.map((item) =>
+        item.shot?.id === shotId
+          ? {
+              ...item,
+              shot: {
+                ...item.shot,
+                ...patch
+              }
+            }
+          : item
+      )
+    );
+  }
+
+  async function updateShotRecord(shotId, payload, options = {}) {
+    const successMessage = options.successMessage || "Shot updated";
+    setSaving(true);
+    try {
+      const { data } = await api.put(`/shots/${shotId}`, payload);
+      patchShotRecord(shotId, data);
+      showToast("success", successMessage);
+    } catch (err) {
+      showToast("error", err.userMessage || err.response?.data?.message || "Unable to update shot");
+      await loadWorkspace(filters, { withLoader: false });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function createShotRow() {
+    const frameStart = Number(shotForm.frameStart || 101);
+    const frameEnd = Number(shotForm.frameEnd || 0);
+
+    if (!Number.isFinite(frameEnd) || frameEnd < frameStart) {
+      showToast("error", "Frame end must be greater than or equal to frame start");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await api.post(`/projects/${projectId}/shots`, { frameStart, frameEnd });
+      showToast("success", "Shot added to animatics cut list");
+      setAddingShot(false);
+      setShotForm({ frameStart: "101", frameEnd: "124" });
+      await loadWorkspace(filters, { withLoader: false });
+    } catch (err) {
+      showToast("error", err.userMessage || err.response?.data?.message || "Unable to add shot");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function bulkCreateShotRows() {
+    const count = Number(bulkShotForm.count || 0);
+    const frameEnd = Number(bulkShotForm.frameEnd || 0);
+
+    if (!Number.isInteger(count) || count <= 0) {
+      showToast("error", "Enter a valid number of shots to add");
+      return;
+    }
+    if (!Number.isFinite(frameEnd) || frameEnd < 101) {
+      showToast("error", "Enter a valid default frame end");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await api.post(`/projects/${projectId}/shots/bulk`, {
+        shots: Array.from({ length: count }, () => ({
+          frameStart: 101,
+          frameEnd
+        }))
+      });
+      showToast("success", `${count} shots added to the cut list`);
+      setBulkAddingShots(false);
+      setBulkShotForm({ count: "5", frameEnd: "124" });
+      await loadWorkspace(filters, { withLoader: false });
+    } catch (err) {
+      showToast("error", err.userMessage || err.response?.data?.message || "Unable to bulk add shots");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function toggleSequence(sequence) {
     setCollapsedSequences((prev) => ({
       ...prev,
@@ -463,7 +728,9 @@ export default function ProjectStageWorkspacePage() {
           <input
             value={filters.search}
             onChange={(event) => setFilters((prev) => ({ ...prev, search: event.target.value, page: 1 }))}
-            placeholder={`Search ${trackingMode === "SHOT" ? "shot" : trackingMode === "ASSET" ? "asset" : "project"}`}
+            placeholder={`Search ${
+              isEditingWorkspace ? "shot or output" : trackingMode === "SHOT" ? "shot" : trackingMode === "ASSET" ? "asset" : "project"
+            }`}
             className="rounded-xl border border-slate-300 px-3 py-2 text-sm md:col-span-2"
           />
           <select
@@ -562,6 +829,156 @@ export default function ProjectStageWorkspacePage() {
         )}
       </section>
 
+      {isAnimaticsWorkspace && animaticsSummary ? (
+        <section className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h4 className="text-sm font-bold text-slate-900">Animatics Overview</h4>
+              <p className="mt-1 text-xs text-slate-500">
+                This mirrors the workbook flow: a top-level animatics summary plus a shot-cut workspace underneath.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setAddingShot(true)}
+                className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Add Shot
+              </button>
+              <button
+                onClick={() => setBulkAddingShots(true)}
+                className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white"
+              >
+                Bulk Add
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-5">
+            <MetricTile label="Cut Shots" value={animaticsSummary.totalShots} />
+            <MetricTile label="Approved" value={animaticsSummary.approved} tone="text-emerald-700" />
+            <MetricTile label="In Progress" value={animaticsSummary.inProgress} tone="text-sky-700" />
+            <MetricTile label="Waiting Review" value={animaticsSummary.waiting} tone="text-amber-700" />
+            <MetricTile label="Total Seconds" value={`${animaticsSummary.totalSeconds}s`} tone="text-violet-700" />
+          </div>
+        </section>
+      ) : null}
+
+      {isEditingWorkspace && items[0] ? (
+        <section className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h4 className="text-sm font-bold text-slate-900">Editorial Master</h4>
+              <p className="mt-1 text-xs text-slate-500">
+                Project-level control for editorial ownership, final delivery state, and shot readiness.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <StatusBadge status={items[0].stageStatus} />
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+                {overview?.project?.totalShots || editorialShots.length} shots in edit queue
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 lg:grid-cols-[1.1fr_0.9fr]">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Owner & Timeline</p>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <select
+                  value={items[0].assignedUser?.id || ""}
+                  onChange={(event) => assignSingleShot(items[0].stageId, event.target.value)}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  disabled={saving}
+                >
+                  <option value="">Unassigned</option>
+                  {eligibleUsers.map((user) => (
+                    <option key={user.id} value={user.id}>
+                      {user.name} · {user.departmentName || "No Department"}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="date"
+                  value={formatDateInput(items[0].deadline)}
+                  onChange={(event) =>
+                    updateStage(
+                      items[0].stageId,
+                      { deadline: event.target.value || null },
+                      { optimisticPatch: { deadline: event.target.value || null } }
+                    )
+                  }
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  disabled={saving}
+                />
+              </div>
+              <div className="mt-3 grid gap-3 md:grid-cols-[220px_minmax(0,1fr)]">
+                <select
+                  value={items[0].raw?.audioStatus || ""}
+                  onChange={(event) =>
+                    updateStage(
+                      items[0].stageId,
+                      { audioStatus: event.target.value || null },
+                      {
+                        optimisticPatch: {
+                          raw: {
+                            ...items[0].raw,
+                            audioStatus: event.target.value || null
+                          }
+                        },
+                        successMessage: "Editorial audio status updated"
+                      }
+                    )
+                  }
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  disabled={saving}
+                >
+                  <option value="">Audio status</option>
+                  {STAGE_STATUSES.map((status) => (
+                    <option key={status} value={status}>
+                      {labelize(status)}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  defaultValue={items[0].raw?.finalOutput || ""}
+                  onBlur={(event) => {
+                    const nextValue = event.target.value || "";
+                    if ((items[0].raw?.finalOutput || "") !== nextValue) {
+                      updateStage(
+                        items[0].stageId,
+                        { finalOutput: nextValue || null },
+                        {
+                          optimisticPatch: {
+                            raw: {
+                              ...items[0].raw,
+                              finalOutput: nextValue || null
+                            }
+                          },
+                          successMessage: "Final output updated"
+                        }
+                      );
+                    }
+                  }}
+                  placeholder="Final output / editorial handoff note"
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  disabled={saving}
+                />
+              </div>
+            </div>
+
+            {editingSummary ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <MetricTile label="Shots In Queue" value={editingSummary.totalShots} />
+                <MetricTile label="Audio Ready" value={editingSummary.audioReady} tone="text-emerald-700" />
+                <MetricTile label="Outputs Logged" value={editingSummary.outputsLogged} tone="text-sky-700" />
+                <MetricTile label="Overdue Shot Tasks" value={editingSummary.overdue} tone="text-rose-700" />
+              </div>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+
       {isShotMode && (
         <section className="rounded-2xl border border-slate-200 bg-white p-4">
           <h4 className="mb-2 text-sm font-bold text-slate-900">Range Assignment</h4>
@@ -626,6 +1043,85 @@ export default function ProjectStageWorkspacePage() {
         </section>
       )}
 
+      {isEditingWorkspace && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h4 className="text-sm font-bold text-slate-900">Shotwise Editorial Ledger</h4>
+              <p className="mt-1 text-xs text-slate-500">
+                Shot-level frame data, audio readiness, and final-output notes from the pipeline workbook.
+              </p>
+            </div>
+            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+              {filteredEditorialShots.length} visible shots
+            </span>
+          </div>
+
+          {!filteredEditorialShots.length ? (
+            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center">
+              <p className="text-sm font-semibold text-slate-800">No shot rows available for the current editorial view</p>
+              <p className="mt-1 text-xs text-slate-500">
+                Add shots from the Animatics workspace first, or clear the current filters to view the full ledger.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filteredEditorialShots.map((shot) => (
+                <article key={shot.id} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3">
+                  <div className="grid gap-3 lg:grid-cols-[1.2fr_0.8fr_1fr]">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-bold text-slate-900">{shot.label || shot.name || `Shot ${shot.shotNumber}`}</p>
+                        <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+                          {shot.frameStart || 101} - {shot.frameEnd || "--"}
+                        </span>
+                        <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-semibold text-violet-700">
+                          {shot.seconds || shot.duration || "--"} sec
+                        </span>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
+                        <span className="rounded-md bg-white px-2 py-0.5">Overall shot status: {labelize(shot.status)}</span>
+                        <span className="rounded-md bg-white px-2 py-0.5">
+                          Active tasks: {shot.stages?.filter((stage) => stage.status !== "APPROVED").length || 0}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Stage Readiness</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(shot.stages || []).map((stage) => (
+                          <span key={`${shot.id}:${stage.id}`} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700">
+                            <span className="font-semibold">{stage.stageDefinition?.name || labelize(stage.stageDefinition?.code || "")}</span>
+                            <StatusBadge status={stage.status} />
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Editorial Output</span>
+                      <EditingOutputEditor
+                        shot={shot}
+                        disabled={saving}
+                        onSave={(payload) =>
+                          updateShotRecord(shot.id, payload, {
+                            successMessage:
+                              Object.prototype.hasOwnProperty.call(payload, "audioStatus")
+                                ? "Shot audio status updated"
+                                : "Shot final output updated"
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
       {error ? (
         <div className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
           <AlertCircle size={16} />
@@ -672,6 +1168,16 @@ export default function ProjectStageWorkspacePage() {
                             <div>
                               <p className="text-sm font-bold text-slate-900">{item.trackingLabel}</p>
                               <p className="text-xs text-slate-500">Shot #{item.shot?.shotNumber || "-"} · Priority {item.priority || 0}</p>
+                              {isAnimaticsWorkspace ? (
+                                <div className="mt-1 flex flex-wrap gap-1.5 text-[11px] text-slate-600">
+                                  <span className="rounded-full bg-white px-2 py-0.5">
+                                    Frames: {item.shot?.frameStart || 101} - {item.shot?.frameEnd || "--"}
+                                  </span>
+                                  <span className="rounded-full bg-white px-2 py-0.5">
+                                    {item.shot?.seconds || "--"} sec
+                                  </span>
+                                </div>
+                              ) : null}
                               <div className="mt-1 flex flex-wrap gap-1.5">
                                 <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${assigned ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
                                   {assigned ? "Assigned" : "Unassigned"}
@@ -753,6 +1259,14 @@ export default function ProjectStageWorkspacePage() {
                                 <span className="text-xs text-slate-600">Approved: <strong className="text-slate-800">{formatDate(item.approvedAt)}</strong></span>
                                 <span className="text-xs text-slate-600">Deadline: <strong className="text-slate-800">{formatDate(item.deadline)}</strong></span>
                               </div>
+
+                              {isAnimaticsWorkspace ? (
+                                <AnimaticsCutEditor
+                                  shot={item.shot}
+                                  disabled={saving}
+                                  onSave={(payload) => updateShotRecord(item.shot.id, payload, { successMessage: "Animatics cut updated" })}
+                                />
+                              ) : null}
 
                               <textarea
                                 defaultValue={item.notes || ""}
@@ -1061,6 +1575,96 @@ export default function ProjectStageWorkspacePage() {
           )}
         </section>
       )}
+
+      <Modal open={addingShot} onClose={() => setAddingShot(false)} title="Add Shot To Animatics" size="max-w-md">
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">Create a new shot row with the frame range used for the animatics cut sheet.</p>
+          <div className="grid gap-3">
+            <label className="space-y-1">
+              <span className="text-sm font-medium text-slate-700">Frame Start</span>
+              <input
+                type="number"
+                min="0"
+                value={shotForm.frameStart}
+                onChange={(event) => setShotForm((prev) => ({ ...prev, frameStart: event.target.value }))}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-sm font-medium text-slate-700">Frame End</span>
+              <input
+                type="number"
+                min="0"
+                value={shotForm.frameEnd}
+                onChange={(event) => setShotForm((prev) => ({ ...prev, frameEnd: event.target.value }))}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+              Seconds preview:{" "}
+              <strong className="text-slate-900">
+                {resolveShotSeconds(shotForm.frameStart, shotForm.frameEnd) ?? "--"} sec
+              </strong>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setAddingShot(false)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700">
+              Cancel
+            </button>
+            <button
+              onClick={createShotRow}
+              disabled={saving || resolveShotSeconds(shotForm.frameStart, shotForm.frameEnd) === null}
+              className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
+            >
+              Add Shot
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={bulkAddingShots} onClose={() => setBulkAddingShots(false)} title="Bulk Add Animatics Shots" size="max-w-md">
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">Add multiple shot rows at once. You can refine each cut later from the shot workspace.</p>
+          <div className="grid gap-3">
+            <label className="space-y-1">
+              <span className="text-sm font-medium text-slate-700">How many shots?</span>
+              <input
+                type="number"
+                min="1"
+                value={bulkShotForm.count}
+                onChange={(event) => setBulkShotForm((prev) => ({ ...prev, count: event.target.value }))}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-sm font-medium text-slate-700">Default Frame End</span>
+              <input
+                type="number"
+                min="101"
+                value={bulkShotForm.frameEnd}
+                onChange={(event) => setBulkShotForm((prev) => ({ ...prev, frameEnd: event.target.value }))}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+              Each row starts at frame 101 and previews at{" "}
+              <strong className="text-slate-900">{resolveShotSeconds(101, bulkShotForm.frameEnd) ?? "--"} sec</strong>.
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setBulkAddingShots(false)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700">
+              Cancel
+            </button>
+            <button
+              onClick={bulkCreateShotRows}
+              disabled={saving || !Number.isInteger(Number(bulkShotForm.count || 0)) || Number(bulkShotForm.count || 0) <= 0}
+              className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
+            >
+              Add Shots
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

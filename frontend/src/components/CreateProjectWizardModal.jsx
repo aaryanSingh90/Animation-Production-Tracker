@@ -36,6 +36,8 @@ import {
   X
 } from "lucide-react";
 import Modal from "./Modal";
+import api from "../lib/api";
+import { useToastStore } from "../store/toastStore";
 
 const STEPS = [
   { id: 1, title: "Project Details", subtitle: "Core production info" },
@@ -49,6 +51,8 @@ const COLOR_TAGS = ["#10B981", "#3B82F6", "#8B5CF6", "#F59E0B", "#EF4444", "#14B
 const STAGE_EMOJI = {
   audio: "🎧",
   animatics: "🧩",
+  modelling: "🧱",
+  unwrapping: "🪡",
   charactermodelling: "🧱",
   blendshapes: "✨",
   bgmodelling: "🏞️",
@@ -65,6 +69,8 @@ const STAGE_EMOJI = {
 const DEFAULT_STAGE_HOURS = {
   audio: 8,
   animatics: 12,
+  modelling: 24,
+  unwrapping: 14,
   charactermodelling: 24,
   blendshapes: 16,
   bgmodelling: 18,
@@ -72,7 +78,7 @@ const DEFAULT_STAGE_HOURS = {
   texturing: 18,
   animation: 30,
   lighting: 20,
-  rendering: 14,
+  rendering: 16,
   comping: 12,
   compositing: 12,
   editing: 10
@@ -252,12 +258,16 @@ export default function CreateProjectWizardModal({
   onCreate,
   stageTemplates,
   pipelineTemplates,
+  clients = [],
+  defaultClientId = null,
   saving
 }) {
+  const showToast = useToastStore((state) => state.showToast);
   const [step, setStep] = useState(1);
   const [details, setDetails] = useState({
     name: "",
     client: "",
+    clientId: "",
     description: "",
     priority: 1,
     audioReceivedDate: "",
@@ -269,6 +279,11 @@ export default function CreateProjectWizardModal({
     colorTag: COLOR_TAGS[0],
     thumbnailUrl: ""
   });
+  const [availableClients, setAvailableClients] = useState(clients || []);
+  const [showInlineClientCreate, setShowInlineClientCreate] = useState(false);
+  const [inlineClientName, setInlineClientName] = useState("");
+  const [inlineClientCompany, setInlineClientCompany] = useState("");
+  const [creatingInlineClient, setCreatingInlineClient] = useState(false);
   const [selectedPipelineId, setSelectedPipelineId] = useState("");
   const [selectedStageIds, setSelectedStageIds] = useState([]);
   const [stageSettings, setStageSettings] = useState({});
@@ -319,6 +334,9 @@ export default function CreateProjectWizardModal({
   useEffect(() => {
     if (!open) return;
 
+    const incomingClients = Array.isArray(clients) ? clients : [];
+    const selectedDefaultClient = incomingClients.find((client) => Number(client.id) === Number(defaultClientId)) || null;
+
     const fullTemplate = pipelineTemplates.find((template) => template.id === "template_full") || pipelineTemplates[0];
 
     const defaultStageIds = (fullTemplate?.stages || [])
@@ -336,7 +354,8 @@ export default function CreateProjectWizardModal({
     setStep(1);
     setDetails({
       name: "",
-      client: "",
+      client: selectedDefaultClient?.name || "",
+      clientId: selectedDefaultClient?.id ? String(selectedDefaultClient.id) : "",
       description: "",
       priority: 1,
       audioReceivedDate: "",
@@ -348,12 +367,16 @@ export default function CreateProjectWizardModal({
       colorTag: COLOR_TAGS[0],
       thumbnailUrl: ""
     });
+    setAvailableClients(incomingClients);
+    setShowInlineClientCreate(false);
+    setInlineClientName("");
+    setInlineClientCompany("");
     setSelectedPipelineId(fullTemplate?.id || "custom");
     setSelectedStageIds(defaultStageIds.length ? defaultStageIds : stageTemplates.map((stage) => stage.id));
     setStageSettings({});
     setExpandedAdvancedId(null);
     setShowCustomTemplateBanner(false);
-  }, [open, pipelineTemplates, stageTemplates]);
+  }, [open, pipelineTemplates, stageTemplates, clients, defaultClientId]);
 
   function applyTemplate(templateId) {
     const template = pipelineTemplates.find((item) => item.id === templateId);
@@ -405,12 +428,46 @@ export default function CreateProjectWizardModal({
   const canContinueStep2 = selectedStageIds.length > 0;
   const canContinueStep3 = selectedStages.length > 0;
 
+  async function createInlineClient() {
+    const name = inlineClientName.trim();
+    if (!name) {
+      showToast("error", "Client name is required");
+      return;
+    }
+
+    setCreatingInlineClient(true);
+    try {
+      const { data } = await api.post("/clients", {
+        name,
+        companyName: inlineClientCompany.trim()
+      });
+      const nextClients = [...availableClients, data].sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+      setAvailableClients(nextClients);
+      setDetails((prev) => ({
+        ...prev,
+        client: data.name,
+        clientId: String(data.id)
+      }));
+      setShowInlineClientCreate(false);
+      setInlineClientName("");
+      setInlineClientCompany("");
+      showToast("success", "Client created");
+    } catch (error) {
+      showToast("error", error.userMessage || error.response?.data?.message || "Unable to create client");
+    } finally {
+      setCreatingInlineClient(false);
+    }
+  }
+
   async function handleCreate() {
     const activeStageCodes = Array.from(new Set(selectedStages.map((stage) => resolveStageCode(stage)).filter(Boolean)));
+    const selectedClient = availableClients.find((client) => String(client.id) === String(details.clientId));
+    const parsedClientId = details.clientId ? Number(details.clientId) : null;
 
     const payload = {
       name: details.name.trim(),
-      client: details.client?.trim() || "",
+      client: selectedClient?.name || details.client?.trim() || "",
+      clientId: Number.isFinite(parsedClientId) && parsedClientId > 0 ? parsedClientId : null,
       description: details.description,
       priority: Number(details.priority),
       totalShots: Number(details.totalShots) || 0,
@@ -509,15 +566,65 @@ export default function CreateProjectWizardModal({
                       />
                     </div>
 
-                    <div>
+                    <div className="md:col-span-2">
                       <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">Client</label>
-                      <input
-                        value={details.client}
-                        onChange={(event) => setDetails((prev) => ({ ...prev, client: event.target.value }))}
-                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm focus:border-slate-900 focus:outline-none"
-                        placeholder="Studio / OTT / YouTube Channel"
-                        aria-label="Client"
-                      />
+                      <div className="flex flex-wrap gap-2">
+                        <select
+                          value={details.clientId}
+                          onChange={(event) => {
+                            const selectedId = event.target.value;
+                            const selectedClient = availableClients.find((client) => String(client.id) === selectedId);
+                            setDetails((prev) => ({
+                              ...prev,
+                              clientId: selectedId,
+                              client: selectedClient?.name || ""
+                            }));
+                          }}
+                          className="min-w-[220px] flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm focus:border-slate-900 focus:outline-none"
+                          aria-label="Client Dropdown"
+                        >
+                          <option value="">No client selected</option>
+                          {availableClients.map((client) => (
+                            <option key={client.id} value={client.id}>
+                              {client.name}{client.companyName ? ` · ${client.companyName}` : ""}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => setShowInlineClientCreate((prev) => !prev)}
+                          className="rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                          + New Client
+                        </button>
+                      </div>
+
+                      {showInlineClientCreate && (
+                        <div className="mt-2 grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-[1fr_1fr_auto]">
+                          <input
+                            value={inlineClientName}
+                            onChange={(event) => setInlineClientName(event.target.value)}
+                            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                            placeholder="Client name"
+                            aria-label="New Client Name"
+                          />
+                          <input
+                            value={inlineClientCompany}
+                            onChange={(event) => setInlineClientCompany(event.target.value)}
+                            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                            placeholder="Company (optional)"
+                            aria-label="New Client Company"
+                          />
+                          <button
+                            type="button"
+                            onClick={createInlineClient}
+                            disabled={creatingInlineClient}
+                            className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
+                          >
+                            {creatingInlineClient ? "Creating..." : "Create"}
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     <div>

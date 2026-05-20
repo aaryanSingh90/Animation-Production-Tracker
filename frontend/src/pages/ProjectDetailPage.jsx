@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import api from "../lib/api";
 import Loader from "../components/Loader";
 import StatusBadge from "../components/StatusBadge";
@@ -24,7 +24,8 @@ const STAGE_GROUP_BY_CODE = {
   ANIMATICS: "SHOT",
   ANIMATION: "SHOT",
   FX: "SHOT",
-  LIGHTING: "SHOT",
+  LIGHTING: "PROJECT",
+  RENDERING: "PROJECT",
   COMPOSITING: "SHOT",
   MODELLING: "ASSET",
   UNWRAPPING: "ASSET",
@@ -33,8 +34,7 @@ const STAGE_GROUP_BY_CODE = {
   // Legacy compatibility
   CHARACTER_MODELLING: "ASSET",
   BLENDSHAPES: "ASSET",
-  BG_MODELLING: "ASSET",
-  RENDERING: "PROJECT"
+  BG_MODELLING: "ASSET"
 };
 
 const PIPELINE_STAGE_ORDER = [
@@ -47,6 +47,7 @@ const PIPELINE_STAGE_ORDER = [
   "ANIMATION",
   "FX",
   "LIGHTING",
+  "RENDERING",
   "COMPOSITING",
   "EDITING",
   // Legacy fallbacks
@@ -74,13 +75,16 @@ function normalizeTrackingGroup(value) {
 function resolveSummaryTrackingGroup(summary) {
   const stageCode = String(summary?.stageCode || "").toUpperCase();
   const trackingMode = normalizeTrackingGroup(summary?.trackingMode);
-  if (stageCode === "RENDERING") return trackingMode === "SHOT" ? "SHOT" : "PROJECT";
+  if (stageCode === "LIGHTING" || stageCode === "RENDERING") {
+    return trackingMode === "SHOT" ? "SHOT" : "PROJECT";
+  }
   return STAGE_GROUP_BY_CODE[stageCode] || trackingMode;
 }
 
 export default function ProjectDetailPage() {
   const { projectId } = useParams();
   const id = projectId;
+  const location = useLocation();
   const navigate = useNavigate();
   const showToast = useToastStore((state) => state.showToast);
 
@@ -382,7 +386,7 @@ export default function ProjectDetailPage() {
     try {
       await api.delete(`/projects/${project.id}`);
       showToast("success", "Project deleted");
-      navigate("/projects", { replace: true });
+      navigate(project.clientId ? `/clients/${project.clientId}` : "/clients", { replace: true });
     } catch (error) {
       showToast("error", error.userMessage || error.response?.data?.message || "Unable to delete project");
     } finally {
@@ -459,6 +463,21 @@ export default function ProjectDetailPage() {
       <section className="sticky top-3 z-20 rounded-2xl border border-slate-200/80 bg-white/95 p-4 shadow-sm backdrop-blur">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <Link to="/clients" className="hover:text-slate-700">
+                Clients
+              </Link>
+              {" / "}
+              {project.clientId ? (
+                <Link to={`/clients/${project.clientId}`} className="hover:text-slate-700">
+                  {location.state?.breadcrumbClientName || project.client || `Client #${project.clientId}`}
+                </Link>
+              ) : (
+                <span className="text-slate-600">Unassigned Client</span>
+              )}
+              {" / "}
+              <span className="text-slate-700">{project.name}</span>
+            </p>
             <h3 className="text-2xl font-bold tracking-tight text-slate-900">{project.name}</h3>
             <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
               <span className="rounded-full bg-slate-100 px-2.5 py-1 font-semibold">Priority {project.priority}</span>

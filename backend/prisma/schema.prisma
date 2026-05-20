@@ -133,10 +133,25 @@ model User {
   stageComments           StageComment[]     @relation("CommentAuthor")
 }
 
+model Client {
+  id          Int       @id @default(autoincrement())
+  name        String
+  companyName String?
+  email       String?
+  phone       String?
+  address     String?
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  projects    Project[]
+}
+
 model Project {
   id                Int                @id @default(autoincrement())
   name              String             @unique
   client            String?
+  clientId          Int?
+  clientRef         Client?            @relation(fields: [clientId], references: [id], onDelete: SetNull)
   description       String?
   priority          Int
   audioReceivedDate DateTime
@@ -157,6 +172,8 @@ model Project {
   teamProjects      TeamProject[]
   notifications     Notification[]
   activityLogs      ActivityLog[]
+
+  @@index([clientId])
 }
 
 model ProjectStage {
@@ -390,6 +407,8 @@ model Shot {
   duration    Float?
   order       Int
   status      StageStatus @default(NOT_STARTED)
+  audioStatus StageStatus?
+  finalOutput String?
   project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
   stages      ShotStage[]
   createdAt   DateTime    @default(now())

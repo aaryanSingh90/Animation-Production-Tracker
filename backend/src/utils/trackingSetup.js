@@ -1,4 +1,5 @@
 const {
+  CURRENT_PIPELINE_STAGE_CODES,
   ensureDefaultStageDefinitions,
   TRACKING_GROUPS,
   normalizeStageCode
@@ -9,7 +10,7 @@ function buildActiveCodeSet(project, stageDefinitions) {
     return new Set(project.activeStageCodes.map((code) => normalizeStageCode(code)).filter(Boolean));
   }
 
-  return new Set(stageDefinitions.map((definition) => normalizeStageCode(definition.code)));
+  return new Set(CURRENT_PIPELINE_STAGE_CODES.map((code) => normalizeStageCode(code)));
 }
 
 function resolveTrackingCodesByMode({ project, stageDefinitions }) {

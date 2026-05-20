@@ -52,6 +52,7 @@ const BLUEPRINT_ACTIVE_CODES = [
   "ANIMATION",
   "FX",
   "LIGHTING",
+  "RENDERING",
   "COMPOSITING",
   "EDITING"
 ];
@@ -65,6 +66,39 @@ function deriveSequenceFromShotCode(code) {
   if (value.includes("_")) return value.split("_")[0].toUpperCase();
   if (value.includes("-")) return value.split("-")[0].toUpperCase();
   return "MAIN";
+}
+
+async function resolveClientReference({ client, clientId }) {
+  const parsedClientId = clientId ? Number(clientId) : null;
+  const trimmedClientName = client ? String(client).trim() : "";
+
+  if (parsedClientId) {
+    const clientRecord = await prisma.client.findUnique({
+      where: { id: parsedClientId },
+      select: { id: true, name: true }
+    });
+
+    if (!clientRecord) {
+      throw new AppError("Selected client does not exist", 400);
+    }
+
+    return {
+      clientId: clientRecord.id,
+      clientName: clientRecord.name
+    };
+  }
+
+  if (!trimmedClientName) {
+    return {
+      clientId: null,
+      clientName: null
+    };
+  }
+
+  return {
+    clientId: null,
+    clientName: trimmedClientName
+  };
 }
 
 async function buildStageRecordsFromInput(stageInputs = []) {
@@ -372,6 +406,13 @@ const listProjects = asyncHandler(async (req, res) => {
             character: true
           }
         },
+        clientRef: {
+          select: {
+            id: true,
+            name: true,
+            companyName: true
+          }
+        },
         _count: {
           select: {
             shots: true,
@@ -520,7 +561,7 @@ const listProjects = asyncHandler(async (req, res) => {
     filtered.reverse();
   }
 
-  return res.json(filtered);
+  return res.json(filtered.map(withClientPresentation));
 });
 
 function getNearestDeadline(stages) {
@@ -572,10 +613,28 @@ function withUltraLegacyTrackingDefaults(project) {
   };
 }
 
+function withClientPresentation(project) {
+  if (!project) return project;
+  const resolvedClientName = project.clientRef?.name || project.client || null;
+  return {
+    ...project,
+    client: resolvedClientName,
+    clientId: project.clientId ?? project.clientRef?.id ?? null,
+    clientInfo: project.clientRef
+      ? {
+          id: project.clientRef.id,
+          name: project.clientRef.name,
+          companyName: project.clientRef.companyName || null
+        }
+      : null
+  };
+}
+
 const createProject = asyncHandler(async (req, res) => {
   const {
     name,
     client,
+    clientId,
     priority,
     audioReceivedDate,
     description,
@@ -592,6 +651,7 @@ const createProject = asyncHandler(async (req, res) => {
   }
 
   const advancedTracking = usesAdvancedTrackingConfig(req.body);
+  const resolvedClient = await resolveClientReference({ client, clientId });
   let project;
 
   if (advancedTracking) {
@@ -608,7 +668,8 @@ const createProject = asyncHandler(async (req, res) => {
     project = await prisma.project.create({
       data: {
         name,
-        client: client || null,
+        client: resolvedClient.clientName || null,
+        clientId: resolvedClient.clientId,
         description: description || null,
         priority: Number(priority),
         audioReceivedDate: audioReceivedDate ? new Date(audioReceivedDate) : new Date(),
@@ -642,7 +703,8 @@ const createProject = asyncHandler(async (req, res) => {
     project = await prisma.project.create({
       data: {
         name,
-        client: client || null,
+        client: resolvedClient.clientName || null,
+        clientId: resolvedClient.clientId,
         description: description || null,
         priority: Number(priority),
         audioReceivedDate: audioReceivedDate ? new Date(audioReceivedDate) : new Date(),
@@ -688,6 +750,13 @@ const createProject = asyncHandler(async (req, res) => {
       },
       assets: {
         orderBy: { createdAt: "asc" }
+      },
+      clientRef: {
+        select: {
+          id: true,
+          name: true,
+          companyName: true
+        }
       }
     }
   });
@@ -701,7 +770,7 @@ const createProject = asyncHandler(async (req, res) => {
     message: `${req.user.name} created project ${project.name}.`
   });
 
-  return res.status(201).json(hydratedProject);
+  return res.status(201).json(withClientPresentation(hydratedProject));
 });
 
 const getProjectById = asyncHandler(async (req, res) => {
@@ -841,6 +910,13 @@ const getProjectById = asyncHandler(async (req, res) => {
           },
           orderBy: { createdAt: "desc" },
           take: 50
+        },
+        clientRef: {
+          select: {
+            id: true,
+            name: true,
+            companyName: true
+          }
         }
       }
     });
@@ -967,10 +1043,10 @@ const getProjectById = asyncHandler(async (req, res) => {
     }))
   );
 
-  return res.json({
+  return res.json(withClientPresentation({
     ...project,
     issueLogs
-  });
+  }));
 });
 
 const updateProject = asyncHandler(async (req, res) => {
@@ -979,6 +1055,7 @@ const updateProject = asyncHandler(async (req, res) => {
   const fields = [
     "name",
     "client",
+    "clientId",
     "priority",
     "audioReceivedDate",
     "description",
@@ -1024,9 +1101,27 @@ const updateProject = asyncHandler(async (req, res) => {
     payload.renderingMode = payload.renderingMode === "SHOT" ? "SHOT" : "PROJECT";
   }
 
+  if (Object.prototype.hasOwnProperty.call(payload, "client") || Object.prototype.hasOwnProperty.call(payload, "clientId")) {
+    const resolvedClient = await resolveClientReference({
+      client: payload.client,
+      clientId: payload.clientId
+    });
+    payload.client = resolvedClient.clientName;
+    payload.clientId = resolvedClient.clientId;
+  }
+
   const project = await prisma.project.update({
     where: { id },
-    data: payload
+    data: payload,
+    include: {
+      clientRef: {
+        select: {
+          id: true,
+          name: true,
+          companyName: true
+        }
+      }
+    }
   });
 
   await logActivity({
@@ -1036,7 +1131,7 @@ const updateProject = asyncHandler(async (req, res) => {
     message: `${req.user.name} updated project ${project.name}.`
   });
 
-  return res.json(project);
+  return res.json(withClientPresentation(project));
 });
 
 const deleteProject = asyncHandler(async (req, res) => {

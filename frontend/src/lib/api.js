@@ -8,13 +8,8 @@ const API_BASE_URL = RAW_API_BASE_URL
     : `${RAW_API_BASE_URL}/api`
   : "";
 
-console.log("VITE_API_URL:", import.meta.env.VITE_API_URL);
-console.log("normalized API_BASE_URL:", API_BASE_URL);
-
 if (!API_BASE_URL) {
   console.error("Missing VITE_API_URL. Set it in your Vercel environment variables.");
-} else if (!/\/api$/i.test(RAW_API_BASE_URL || "")) {
-  console.warn("VITE_API_URL is missing '/api'. Auto-corrected at runtime.");
 }
 
 function readTokenFromStorage() {
@@ -37,8 +32,6 @@ const api = axios.create({
     Accept: "application/json"
   }
 });
-
-console.log("api.defaults.baseURL:", api.defaults.baseURL);
 
 api.interceptors.request.use(
   (config) => {

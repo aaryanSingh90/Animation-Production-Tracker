@@ -48,6 +48,11 @@ const STAGE_DEFAULTS = [
     recommendedArtists: 4
   },
   {
+    stageName: "RENDERING",
+    departmentName: getDepartmentForStage("RENDERING"),
+    recommendedArtists: 2
+  },
+  {
     stageName: "COMPOSITING",
     departmentName: getDepartmentForStage("COMPOSITING"),
     recommendedArtists: 2
@@ -70,7 +75,7 @@ const PIPELINE_TEMPLATES = [
   {
     id: "template_3d",
     name: "3D Template",
-    stages: ["AUDIO", "MODELLING", "RIGGING", "ANIMATION", "LIGHTING", "COMPOSITING", "EDITING"]
+    stages: ["AUDIO", "MODELLING", "RIGGING", "ANIMATION", "LIGHTING", "RENDERING", "COMPOSITING", "EDITING"]
   },
   {
     id: "template_full",
@@ -85,6 +90,7 @@ const PIPELINE_TEMPLATES = [
       "ANIMATION",
       "FX",
       "LIGHTING",
+      "RENDERING",
       "COMPOSITING",
       "EDITING"
     ]
@@ -94,7 +100,7 @@ const PIPELINE_TEMPLATES = [
 function humanizeStageName(stageName) {
   if (!stageName) return "Stage";
   if (stageName === "COMPOSITING") return "Comping";
-  if (stageName === "RENDER") return "Rendering";
+  if (stageName === "RENDER" || stageName === "RENDERING") return "Rendering";
   return stageName.replaceAll("_", " ");
 }
 

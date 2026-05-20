@@ -37,6 +37,7 @@ const shotsRoutes = require("./routes/shotsRoutes");
 const assetsRoutes = require("./routes/assetsRoutes");
 const trackingRoutes = require("./routes/trackingRoutes");
 const searchRoutes = require("./routes/searchRoutes");
+const clientsRoutes = require("./routes/clientsRoutes");
 
 const app = express();
 const server = http.createServer(app);
@@ -112,6 +113,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/users", usersRoutes);
 app.use("/api/employees", usersRoutes);
 app.use("/api/projects", projectsRoutes);
+app.use("/api/clients", clientsRoutes);
 app.use("/api/stages", stagesRoutes);
 app.use("/api/characters", charactersRoutes);
 app.use("/api/approvals", approvalsRoutes);

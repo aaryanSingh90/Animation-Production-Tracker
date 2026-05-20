@@ -1,19 +1,12 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, FolderKanban, Users, CheckCheck, Shapes, BarChart3, ListTodo, PanelLeft, Building2, Workflow, ClipboardList, Search } from "lucide-react";
+import { LayoutDashboard, Building2, Users, ListTodo, PanelLeft } from "lucide-react";
 import { useUiStore } from "../store/uiStore";
 
 const managerLinks = [
   { label: "Dashboard", to: "/dashboard", icon: LayoutDashboard },
-  { label: "Projects", to: "/projects", icon: FolderKanban },
-  { label: "Characters", to: "/characters", icon: Shapes },
-  { label: "Approval Queue", to: "/approvals", icon: CheckCheck },
+  { label: "Clients", to: "/clients", icon: Building2 },
   { label: "Employees", to: "/employees", icon: Users },
-  { label: "Workforce", to: "/workforce", icon: Users },
-  { label: "Teams", to: "/teams", icon: Workflow },
-  { label: "Departments", to: "/departments", icon: Building2 },
-  { label: "Assignments", to: "/assignments", icon: ClipboardList },
-  { label: "Analytics", to: "/analytics", icon: BarChart3 },
-  { label: "Search / Filter", to: "/search", icon: Search }
+  { label: "Departments", to: "/departments", icon: Building2 }
 ];
 
 const employeeLinks = [{ label: "My Tasks", to: "/my-tasks", icon: ListTodo }];

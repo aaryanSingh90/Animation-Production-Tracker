@@ -19,6 +19,7 @@ export const PROJECT_STAGES = [
   "ANIMATION",
   "FX",
   "LIGHTING",
+  "RENDERING",
   "COMPOSITING",
   "EDITING",
   // Legacy stage keys kept for existing records/routes.

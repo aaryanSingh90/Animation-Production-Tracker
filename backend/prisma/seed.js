@@ -7,14 +7,14 @@ const prisma = new PrismaClient();
 const PROJECT_STAGES = [
   "AUDIO",
   "ANIMATICS",
-  "CHARACTER_MODELLING",
-  "BLENDSHAPES",
-  "BG_MODELLING",
-  "RIGGING",
+  "MODELLING",
+  "UNWRAPPING",
   "TEXTURING",
+  "RIGGING",
   "ANIMATION",
   "LIGHTING",
-  "RENDER",
+  "RENDERING",
+  "FX",
   "COMPOSITING",
   "EDITING"
 ];
@@ -22,14 +22,14 @@ const PROJECT_STAGES = [
 const STAGE_DEFAULTS = {
   AUDIO: "Audio Department",
   ANIMATICS: "Animatics Department",
-  CHARACTER_MODELLING: "Character Modelling Department",
-  BLENDSHAPES: "Blendshapes Department",
-  BG_MODELLING: "BG Modelling Department",
-  RIGGING: "Rigging Department",
+  MODELLING: "Character Modelling Department",
+  UNWRAPPING: "Texturing Department",
   TEXTURING: "Texturing Department",
+  RIGGING: "Rigging Department",
   ANIMATION: "Animation Department",
   LIGHTING: "Lighting Department",
-  RENDER: "Render Department",
+  RENDERING: "Render Department",
+  FX: "Animation Department",
   COMPOSITING: "Compositing Department",
   EDITING: "Editing Department"
 };
@@ -37,14 +37,14 @@ const STAGE_DEFAULTS = {
 const DEFAULT_STAGE_TEMPLATES = [
   { name: "Audio", legacyStageName: "AUDIO", color: "#6366F1" },
   { name: "Animatics", legacyStageName: "ANIMATICS", color: "#8B5CF6" },
-  { name: "Character Modelling", legacyStageName: "CHARACTER_MODELLING", color: "#EC4899" },
-  { name: "Blendshapes", legacyStageName: "BLENDSHAPES", color: "#D946EF" },
-  { name: "BG Modelling", legacyStageName: "BG_MODELLING", color: "#10B981" },
+  { name: "Modelling", legacyStageName: "MODELLING", color: "#EC4899" },
+  { name: "Unwrapping", legacyStageName: "UNWRAPPING", color: "#D946EF" },
   { name: "Rigging", legacyStageName: "RIGGING", color: "#F59E0B" },
   { name: "Texturing", legacyStageName: "TEXTURING", color: "#EF4444" },
   { name: "Animation", legacyStageName: "ANIMATION", color: "#3B82F6" },
+  { name: "FX", legacyStageName: "FX", color: "#A855F7" },
   { name: "Lighting", legacyStageName: "LIGHTING", color: "#F97316" },
-  { name: "Rendering", legacyStageName: "RENDER", color: "#14B8A6" },
+  { name: "Rendering", legacyStageName: "RENDERING", color: "#14B8A6" },
   { name: "Comping", legacyStageName: "COMPOSITING", color: "#84CC16" },
   { name: "Editing", legacyStageName: "EDITING", color: "#06B6D4" },
   {

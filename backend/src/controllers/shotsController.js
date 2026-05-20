@@ -302,7 +302,20 @@ const updateShot = asyncHandler(async (req, res) => {
   if (!existing) throw new AppError("Shot not found", 404);
 
   const payload = {};
-  const fields = ["shotNumber", "label", "name", "description", "duration", "order", "status", "frameStart", "frameEnd", "seconds"];
+  const fields = [
+    "shotNumber",
+    "label",
+    "name",
+    "description",
+    "duration",
+    "order",
+    "status",
+    "frameStart",
+    "frameEnd",
+    "seconds",
+    "audioStatus",
+    "finalOutput"
+  ];
   for (const field of fields) {
     if (Object.prototype.hasOwnProperty.call(req.body, field)) {
       payload[field] = req.body[field];
@@ -338,6 +351,12 @@ const updateShot = asyncHandler(async (req, res) => {
   }
   if (Object.prototype.hasOwnProperty.call(payload, "label") && !payload.label) {
     payload.label = shotLabelByNumber(payload.shotNumber || existing.shotNumber);
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "audioStatus")) {
+    payload.audioStatus = payload.audioStatus || null;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "finalOutput")) {
+    payload.finalOutput = payload.finalOutput || null;
   }
 
   const updated = await prisma.shot.update({

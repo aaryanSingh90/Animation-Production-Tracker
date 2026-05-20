@@ -1,3 +1,18 @@
+const PRIMARY_STAGE_TEMPLATE_NAMES = [
+  "Audio",
+  "Animatics",
+  "Modelling",
+  "Unwrapping",
+  "Texturing",
+  "Rigging",
+  "Animation",
+  "FX",
+  "Lighting",
+  "Rendering",
+  "Compositing",
+  "Editing"
+];
+
 const DEFAULT_STAGE_TEMPLATES = [
   { name: "Audio", legacyStageName: "AUDIO", color: "#6366F1" },
   { name: "Animatics", legacyStageName: "ANIMATICS", color: "#8B5CF6" },
@@ -8,13 +23,13 @@ const DEFAULT_STAGE_TEMPLATES = [
   { name: "Animation", legacyStageName: "ANIMATION", color: "#3B82F6" },
   { name: "FX", legacyStageName: "FX", color: "#A855F7" },
   { name: "Lighting", legacyStageName: "LIGHTING", color: "#F97316" },
+  { name: "Rendering", legacyStageName: "RENDERING", color: "#14B8A6" },
   { name: "Compositing", legacyStageName: "COMPOSITING", color: "#84CC16" },
   { name: "Editing", legacyStageName: "EDITING", color: "#06B6D4" },
   // Legacy
   { name: "Character Modelling", legacyStageName: "CHARACTER_MODELLING", color: "#EC4899" },
   { name: "Blendshapes", legacyStageName: "BLENDSHAPES", color: "#D946EF" },
   { name: "BG Modelling", legacyStageName: "BG_MODELLING", color: "#10B981" },
-  { name: "Rendering", legacyStageName: "RENDER", color: "#14B8A6" },
   { name: "Comping", legacyStageName: "COMPOSITING", color: "#84CC16" },
   {
     name: "Character Modelling & Blendshapes",
@@ -36,7 +51,8 @@ const LEGACY_STAGE_NAME_BY_TEMPLATE = {
   texturing: "TEXTURING",
   animation: "ANIMATION",
   lighting: "LIGHTING",
-  rendering: "RENDER",
+  render: "RENDERING",
+  rendering: "RENDERING",
   comping: "COMPOSITING",
   compositing: "COMPOSITING",
   editing: "EDITING",
@@ -53,7 +69,7 @@ function displayStageName(stage) {
   if (stage.customName) return stage.customName;
   if (stage.stageTemplate?.name) return stage.stageTemplate.name;
   if (stage.stageName === "COMPOSITING") return "Comping";
-  if (stage.stageName === "RENDER") return "Rendering";
+  if (stage.stageName === "RENDER" || stage.stageName === "RENDERING") return "Rendering";
   return String(stage.stageName || "Stage").replaceAll("_", " ");
 }
 
@@ -78,6 +94,7 @@ async function ensureDefaultStageTemplates(prisma) {
 
 module.exports = {
   DEFAULT_STAGE_TEMPLATES,
+  PRIMARY_STAGE_TEMPLATE_NAMES,
   resolveLegacyStageNameFromTemplateName,
   displayStageName,
   ensureDefaultStageTemplates

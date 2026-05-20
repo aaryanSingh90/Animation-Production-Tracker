@@ -166,6 +166,7 @@ const createProjectStageSchema = z.object({
 const createProjectSchema = z.object({
   name: z.string().min(2),
   client: z.string().max(255).optional().or(z.literal("")),
+  clientId: z.coerce.number().int().positive().optional().nullable(),
   priority: z.coerce.number().int().min(1).max(20),
   audioReceivedDate: isoDate.optional(),
   totalShots: z.coerce.number().int().min(0).max(5000).optional(),
@@ -182,6 +183,7 @@ const updateProjectSchema = z
   .object({
     name: z.string().min(2).optional(),
     client: z.string().max(255).optional().or(z.literal("")),
+    clientId: z.coerce.number().int().positive().optional().nullable(),
     priority: z.coerce.number().int().min(1).max(20).optional(),
     audioReceivedDate: isoDate.optional(),
     totalShots: z.coerce.number().int().min(0).max(5000).optional(),
@@ -341,7 +343,9 @@ const updateShotSchema = z
     description: z.string().max(2000).optional().or(z.literal("")),
     duration: z.coerce.number().positive().optional().nullable(),
     order: z.coerce.number().int().min(1).optional(),
-    status: stageStatusEnum.optional()
+    status: stageStatusEnum.optional(),
+    audioStatus: stageStatusEnum.optional().nullable(),
+    finalOutput: z.string().max(5000).optional().nullable()
   })
   .refine((value) => Object.keys(value).length > 0, "At least one field is required");
 
@@ -443,6 +447,26 @@ const updateCommentSchema = z.object({
   body: z.string().min(1).max(2000)
 });
 
+const createClientSchema = z.object({
+  name: z.string().min(2).max(255),
+  companyName: z.string().max(255).optional().nullable().or(z.literal("")),
+  email: z.string().email().optional().nullable().or(z.literal("")),
+  phone: z.string().max(50).optional().nullable().or(z.literal("")),
+  address: z.string().max(500).optional().nullable().or(z.literal("")),
+  notes: z.string().max(5000).optional().nullable().or(z.literal(""))
+});
+
+const updateClientSchema = z
+  .object({
+    name: z.string().min(2).max(255).optional(),
+    companyName: z.string().max(255).optional().nullable().or(z.literal("")),
+    email: z.string().email().optional().nullable().or(z.literal("")),
+    phone: z.string().max(50).optional().nullable().or(z.literal("")),
+    address: z.string().max(500).optional().nullable().or(z.literal("")),
+    notes: z.string().max(5000).optional().nullable().or(z.literal(""))
+  })
+  .refine((value) => Object.keys(value).length > 0, "At least one field is required");
+
 const linkCharacterSchema = z.object({
   characterId: z.coerce.number().int().positive()
 });
@@ -500,5 +524,7 @@ module.exports = {
   smartAssignSchema,
   createCommentSchema,
   updateCommentSchema,
+  createClientSchema,
+  updateClientSchema,
   linkCharacterSchema
 };

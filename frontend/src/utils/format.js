@@ -18,7 +18,7 @@ export function formatRelative(value) {
 export function labelize(value) {
   if (!value) return "";
   if (value === "COMPOSITING") return "Comping";
-  if (value === "RENDER") return "Rendering";
+  if (value === "RENDER" || value === "RENDERING") return "Rendering";
   return value.replaceAll("_", " ");
 }
 

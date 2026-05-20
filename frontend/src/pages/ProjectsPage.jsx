@@ -57,6 +57,7 @@ export default function ProjectsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [projects, setProjects] = useState([]);
+  const [clients, setClients] = useState([]);
   const [stageTemplates, setStageTemplates] = useState([]);
   const [pipelineTemplates, setPipelineTemplates] = useState([]);
 
@@ -85,9 +86,11 @@ export default function ProjectsPage() {
 
   async function fetchStageTemplates() {
     try {
-      const { data } = await api.get("/stage-templates");
+      const [templatesRes, clientsRes] = await Promise.all([api.get("/stage-templates"), api.get("/clients")]);
+      const data = templatesRes.data;
       setStageTemplates(data.templates || []);
       setPipelineTemplates(data.pipelineTemplates || []);
+      setClients(clientsRes.data || []);
     } catch (err) {
       showToast("error", err.userMessage || err.response?.data?.message || "Failed to load stage templates");
     }
@@ -379,6 +382,7 @@ export default function ProjectsPage() {
         onCreate={createProject}
         stageTemplates={stageTemplates}
         pipelineTemplates={pipelineTemplates}
+        clients={clients}
         saving={saving}
       />
 
