@@ -13,7 +13,7 @@ const { verifyToken } = require("./utils/jwt");
 const { initSocket, trackUserSocket, untrackUserSocket } = require("./utils/socket");
 const { errorHandler } = require("./utils/http");
 const { runDeadlineSweep } = require("./utils/deadlines");
-const { requestLogger, errorLogger, write } = require("./utils/logger");
+const { requestLogger, errorLogger } = require("./utils/logger");
 const { ensureUniversalAdmin } = require("./utils/bootstrapAdmin");
 const sanitizeInput = require("./middleware/sanitize");
 
@@ -77,10 +77,6 @@ app.options("*", cors(corsOptions));
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(sanitizeInput);
-app.use((req, res, next) => {
-  console.log(req.method, req.originalUrl);
-  next();
-});
 app.use(requestLogger);
 
 const apiRateLimiter = rateLimit({
