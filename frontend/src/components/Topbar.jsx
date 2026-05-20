@@ -83,14 +83,14 @@ export default function Topbar({ user, onLogout }) {
   const title = titleByRoot[root] || "Animation Tracker";
 
   return (
-    <header className="sticky top-0 z-20 border-b border-slate-200 bg-slate-100/95 backdrop-blur">
-      <div className="flex items-center justify-between px-8 py-4">
-        <div>
-          <div className="mb-1 flex flex-wrap items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+    <header className="sticky top-0 z-30 border-b border-slate-200/70 bg-slate-50/90 backdrop-blur-xl">
+      <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-3 sm:px-5 lg:px-6 xl:px-8">
+        <div className="min-w-0">
+          <div className="mb-1 flex flex-wrap items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
             {breadcrumbs.map((item, index) => (
               <span key={`${item.label}-${index}`} className="inline-flex items-center gap-1">
                 {item.to ? (
-                  <Link to={item.to} className="hover:text-slate-700">
+                  <Link to={item.to} className="transition hover:text-slate-700">
                     {item.label}
                   </Link>
                 ) : (
@@ -100,23 +100,27 @@ export default function Topbar({ user, onLogout }) {
               </span>
             ))}
           </div>
-          <h2 className="text-xl font-bold text-slate-900">{title}</h2>
-          <p className="text-xs uppercase tracking-wide text-slate-500">Studio Production Control</p>
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="truncate text-lg font-semibold tracking-tight text-slate-950 sm:text-xl">{title}</h2>
+            <span className="rounded-full border border-slate-200 bg-white/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Studio Production Control
+            </span>
+          </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 sm:gap-4">
           <NotificationBell />
-          <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2">
-            <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500 text-sm font-bold text-white">
+          <div className="flex items-center gap-3 rounded-2xl border border-slate-200/80 bg-white/90 px-3 py-2 shadow-sm shadow-slate-200/50">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-950 text-sm font-bold text-white">
               {initials(user?.name || "User")}
             </span>
-            <div className="text-right">
-              <p className="text-sm font-semibold text-slate-900">{user?.name}</p>
-              <p className="text-xs text-slate-500">{user?.role?.replaceAll("_", " ")}</p>
+            <div className="min-w-0 text-right">
+              <p className="truncate text-sm font-semibold text-slate-900">{user?.name}</p>
+              <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">{user?.role?.replaceAll("_", " ")}</p>
             </div>
             <button
               onClick={onLogout}
-              className="ml-2 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+              className="ml-1 rounded-xl border border-slate-200 px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600 transition hover:bg-slate-50"
             >
               Logout
             </button>

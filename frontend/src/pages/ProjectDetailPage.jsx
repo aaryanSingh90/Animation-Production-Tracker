@@ -121,11 +121,11 @@ function deriveStageState(metrics) {
 
 function HeaderMetric({ label, value, caption, icon: Icon, tone = "text-slate-900" }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 shadow-sm shadow-slate-200/40 backdrop-blur">
+    <div className="rounded-3xl border border-slate-200/80 bg-white/80 px-4 py-3 shadow-sm shadow-slate-200/35 backdrop-blur">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">{label}</p>
-          <p className={`mt-1 text-xl font-bold ${tone}`}>{value}</p>
+          <p className={`mt-1 text-xl font-semibold tracking-tight ${tone}`}>{value}</p>
           {caption ? <p className="mt-1 text-xs text-slate-500">{caption}</p> : null}
         </div>
         {Icon ? <Icon size={18} className="mt-1 text-slate-400" /> : null}
@@ -165,10 +165,10 @@ function FlowNode({ node, onOpen }) {
       aria-label={`Open ${node.label} workspace`}
     >
       <div className="relative z-10 mt-5 flex h-4 w-4 items-center justify-center rounded-full border-4 border-white shadow-sm" style={{ backgroundColor: node.color }} />
-      <div className="flex-1 rounded-3xl border border-slate-200 bg-white/90 p-4 shadow-sm shadow-slate-200/50 transition duration-200 group-hover:-translate-y-0.5 group-hover:shadow-lg">
+      <div className="flex-1 rounded-[28px] border border-slate-200/80 bg-white/90 p-4 shadow-sm shadow-slate-200/40 transition duration-200 group-hover:-translate-y-0.5 group-hover:border-slate-300 group-hover:shadow-lg">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-lg font-semibold text-slate-900">{node.label}</p>
+            <p className="text-lg font-semibold tracking-tight text-slate-950">{node.label}</p>
             <p className="mt-1 text-sm text-slate-500">{node.summaryText}</p>
           </div>
           <div className="flex flex-col items-end gap-2">
@@ -182,10 +182,10 @@ function FlowNode({ node, onOpen }) {
             <ProgressBar value={node.progress} />
           </div>
           <div className="grid min-w-[240px] gap-2 text-xs text-slate-600 sm:grid-cols-2">
-            <span className="rounded-2xl bg-slate-50 px-3 py-2">Approvals: <strong className="text-slate-900">{node.pendingApprovals}</strong></span>
-            <span className="rounded-2xl bg-slate-50 px-3 py-2">Artists: <strong className="text-slate-900">{node.assignedArtists}</strong></span>
-            <span className="rounded-2xl bg-slate-50 px-3 py-2">Health: <strong className="text-slate-900">{node.healthBadge.label}</strong></span>
-            <span className="rounded-2xl bg-slate-50 px-3 py-2">Open work: <strong className="text-slate-900">{node.remainingWork}</strong></span>
+            <span className="rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2">Approvals: <strong className="text-slate-900">{node.pendingApprovals}</strong></span>
+            <span className="rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2">Artists: <strong className="text-slate-900">{node.assignedArtists}</strong></span>
+            <span className="rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2">Health: <strong className="text-slate-900">{node.healthBadge.label}</strong></span>
+            <span className="rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2">Open work: <strong className="text-slate-900">{node.remainingWork}</strong></span>
           </div>
         </div>
 
@@ -202,7 +202,7 @@ function WorkspaceCard({ node, onOpen }) {
     <button
       type="button"
       onClick={onOpen}
-      className="group rounded-3xl border border-slate-200 bg-white p-4 text-left shadow-sm shadow-slate-200/50 transition duration-200 hover:-translate-y-0.5 hover:shadow-lg"
+      className="group rounded-[28px] border border-slate-200/80 bg-white/90 p-4 text-left shadow-sm shadow-slate-200/40 transition duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-lg"
     >
       <div className="flex items-start justify-between gap-3">
         <div>
@@ -214,17 +214,17 @@ function WorkspaceCard({ node, onOpen }) {
               .slice(0, 2)
               .toUpperCase()}
           </div>
-          <h3 className="mt-3 text-lg font-semibold text-slate-900">{node.label}</h3>
+          <h3 className="mt-3 text-lg font-semibold tracking-tight text-slate-950">{node.label}</h3>
           <p className="mt-1 text-sm text-slate-500">{node.summaryText}</p>
         </div>
         <TrackingBadge tracking={node.tracking} modeLabel={node.modeLabel} />
       </div>
 
       <div className="mt-4 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
-        <span className="rounded-2xl bg-slate-50 px-3 py-2">Progress: <strong className="text-slate-900">{node.progress}%</strong></span>
-        <span className="rounded-2xl bg-slate-50 px-3 py-2">Artists: <strong className="text-slate-900">{node.assignedArtists}</strong></span>
-        <span className="rounded-2xl bg-slate-50 px-3 py-2">Approvals: <strong className="text-slate-900">{node.pendingApprovals}</strong></span>
-        <span className="rounded-2xl bg-slate-50 px-3 py-2">Remaining: <strong className="text-slate-900">{node.remainingWork}</strong></span>
+        <span className="rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2">Progress: <strong className="text-slate-900">{node.progress}%</strong></span>
+        <span className="rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2">Artists: <strong className="text-slate-900">{node.assignedArtists}</strong></span>
+        <span className="rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2">Approvals: <strong className="text-slate-900">{node.pendingApprovals}</strong></span>
+        <span className="rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2">Remaining: <strong className="text-slate-900">{node.remainingWork}</strong></span>
       </div>
 
       <div className="mt-4 flex items-center justify-between">
@@ -536,8 +536,8 @@ export default function ProjectDetailPage() {
   if (!project) return <EmptyState title="Project not found" description="This project may have been removed." />;
 
   return (
-    <div className="space-y-6">
-      <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100 shadow-lg shadow-slate-200/50">
+    <div className="space-y-5">
+      <section className="overflow-hidden rounded-[32px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.12),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.94))] shadow-sm shadow-slate-200/50">
         <div className="border-b border-slate-200/80 px-5 py-5 lg:px-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="space-y-3">
@@ -553,15 +553,15 @@ export default function ProjectDetailPage() {
                 )}
               </p>
               <div>
-                <h1 className="text-3xl font-bold tracking-tight text-slate-950">{project.name}</h1>
+                <h1 className="text-3xl font-semibold tracking-tight text-slate-950">{project.name}</h1>
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
-                  <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 font-semibold">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white/90 px-3 py-1.5 font-semibold">
                     <Building2 size={14} /> {project.client || "No client assigned"}
                   </span>
-                  <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 font-semibold">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white/90 px-3 py-1.5 font-semibold">
                     <FolderKanban size={14} /> Priority {project.priority}
                   </span>
-                  <span className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 font-semibold ${projectStatus.tone}`}>
+                  <span className={`inline-flex items-center gap-1 rounded-full border px-3 py-1.5 font-semibold ${projectStatus.tone}`}>
                     <Workflow size={14} /> {projectStatus.label}
                   </span>
                 </div>
@@ -571,13 +571,13 @@ export default function ProjectDetailPage() {
             <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={() => setEditingProject(true)}
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-white/90 px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
               >
                 <Pencil size={15} /> Edit
               </button>
               <button
                 onClick={deleteProject}
-                className="inline-flex items-center gap-2 rounded-xl bg-rose-500 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-600"
+                className="inline-flex items-center gap-2 rounded-2xl bg-rose-500 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-600"
               >
                 <Trash2 size={15} /> Delete
               </button>
@@ -599,15 +599,15 @@ export default function ProjectDetailPage() {
         </div>
       </section>
 
-      <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-lg shadow-slate-200/40 lg:p-6">
+      <section className="rounded-[30px] border border-slate-200/80 bg-white/88 p-5 shadow-sm shadow-slate-200/40 backdrop-blur lg:p-6">
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Production Pipeline Workspace</p>
-            <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-950">Pipeline Flow Visualization</h2>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">Pipeline Flow Visualization</h2>
             <p className="mt-1 text-sm text-slate-500">Follow the studio production path, then jump directly into the right workspace.</p>
           </div>
           <div className="flex flex-wrap gap-2 text-xs font-semibold text-slate-500">
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">Hybrid modes respect project lighting/render settings</span>
+            <span className="rounded-full border border-slate-200 bg-slate-50/80 px-3 py-1.5">Hybrid modes respect project lighting/render settings</span>
           </div>
         </div>
 
@@ -625,11 +625,11 @@ export default function ProjectDetailPage() {
         </div>
       </section>
 
-      <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-lg shadow-slate-200/40 lg:p-6">
+      <section className="rounded-[30px] border border-slate-200/80 bg-white/88 p-5 shadow-sm shadow-slate-200/40 backdrop-blur lg:p-6">
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Workspace Stage Grid</p>
-            <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-950">Open A Production Workspace</h2>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">Open A Production Workspace</h2>
             <p className="mt-1 text-sm text-slate-500">Each card is a lightweight command surface for one focused stage workspace.</p>
           </div>
         </div>
@@ -649,7 +649,7 @@ export default function ProjectDetailPage() {
         {additionalWorkspaces.length ? (
           <div className="mt-6 border-t border-slate-200 pt-6">
             <div className="mb-4">
-              <h3 className="text-lg font-bold text-slate-900">Additional Active Workspaces</h3>
+              <h3 className="text-lg font-semibold tracking-tight text-slate-950">Additional Active Workspaces</h3>
               <p className="text-sm text-slate-500">Still available for this project’s live tracking configuration.</p>
             </div>
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">

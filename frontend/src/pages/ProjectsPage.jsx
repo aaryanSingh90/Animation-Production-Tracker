@@ -210,9 +210,9 @@ export default function ProjectsPage() {
 
   if (error) {
     return (
-      <div className="flex h-64 flex-col items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50">
+      <div className="flex h-64 flex-col items-center justify-center gap-2 rounded-[30px] border border-red-200/80 bg-red-50/90 shadow-sm shadow-red-100">
         <p className="text-red-600">{error}</p>
-        <button onClick={fetchProjects} className="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-semibold text-red-700">
+        <button onClick={fetchProjects} className="rounded-2xl border border-red-300 px-3 py-2 text-sm font-semibold text-red-700">
           Retry
         </button>
       </div>
@@ -220,31 +220,60 @@ export default function ProjectsPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <section className="rounded-2xl border border-slate-200 bg-white p-4">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="grid min-w-[680px] flex-1 grid-cols-3 gap-3">
+    <div className="space-y-5">
+      <section className="rounded-[32px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.12),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.94))] p-5 shadow-sm shadow-slate-200/45">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Production slate</p>
+            <h2 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">Projects in active studio circulation</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+              Review pipeline health, jump into production workspaces, and keep every delivery moving without the dashboard clutter.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-3xl border border-slate-200/80 bg-white/88 px-4 py-3 shadow-sm shadow-slate-200/35 backdrop-blur">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Projects</p>
+              <p className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">{projects.length}</p>
+              <p className="mt-1 text-xs text-slate-500">Active and archived production slates</p>
+            </div>
+            <div className="rounded-3xl border border-slate-200/80 bg-white/88 px-4 py-3 shadow-sm shadow-slate-200/35 backdrop-blur">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Visible</p>
+              <p className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">{filtered.length}</p>
+              <p className="mt-1 text-xs text-slate-500">Current search and status view</p>
+            </div>
+            <div className="rounded-3xl border border-slate-200/80 bg-white/88 px-4 py-3 shadow-sm shadow-slate-200/35 backdrop-blur">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Delayed</p>
+              <p className="mt-1 text-2xl font-semibold tracking-tight text-rose-700">{projects.filter(projectIsDelayed).length}</p>
+              <p className="mt-1 text-xs text-slate-500">Requires production attention</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-[30px] border border-slate-200/80 bg-white/90 p-4 shadow-sm shadow-slate-200/35 backdrop-blur">
+        <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="grid flex-1 gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,1.4fr)_220px_220px]">
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search by project name"
-              className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="h-11 rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition placeholder:text-slate-400 focus:border-slate-400"
             />
-            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm">
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="h-11 rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400">
               <option value="all">All statuses</option>
               <option value="on-track">On Track</option>
               <option value="delayed">Delayed</option>
               <option value="completed">Completed</option>
               <option value="issues">Has Issues</option>
             </select>
-            <select value={sortBy} onChange={(event) => setSortBy(event.target.value)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm">
+            <select value={sortBy} onChange={(event) => setSortBy(event.target.value)} className="h-11 rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400">
               <option value="priority">Sort by priority</option>
               <option value="deadline">Sort by nearest deadline</option>
               <option value="progress">Sort by progress</option>
               <option value="name">Sort by name</option>
             </select>
           </div>
-          <button onClick={openCreateModal} className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">
+          <button onClick={openCreateModal} className="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800">
             Create Project
           </button>
         </div>
@@ -252,7 +281,7 @@ export default function ProjectsPage() {
         {!filtered.length ? (
           <EmptyState title="No projects" description="Create a project to start tracking production stages." />
         ) : (
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid gap-4 xl:grid-cols-2">
             {filtered.map((project) => {
               const activeStages = (project.stages || [])
                 .filter((stage) => stage.isActive !== false)
@@ -284,16 +313,16 @@ export default function ProjectsPage() {
                       navigate(`/projects/${project.id}`);
                     }
                   }}
-                  className="cursor-pointer rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+                  className="cursor-pointer rounded-[28px] border border-slate-200/80 bg-white/92 p-4 shadow-sm shadow-slate-200/35 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-slate-200/45"
                 >
                   <div className="mb-2 flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-lg font-bold text-slate-900 hover:text-emerald-600">{project.name}</p>
+                      <p className="text-lg font-semibold tracking-tight text-slate-950 hover:text-sky-700">{project.name}</p>
                       <p className="mt-1 text-xs text-slate-500">Priority {project.priority} · Audio: {formatDate(project.audioReceivedDate)}</p>
                     </div>
                     <div className="flex items-center gap-2">
                       {hasIssues && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-1 text-xs font-semibold text-red-600">
+                        <span className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700">
                           <AlertTriangle size={12} />
                           Has Issues
                         </span>
@@ -303,7 +332,7 @@ export default function ProjectsPage() {
                           event.stopPropagation();
                           openEditModal(project);
                         }}
-                        className="rounded-lg border border-slate-300 p-1.5 text-slate-600 hover:bg-slate-50"
+                        className="rounded-xl border border-slate-300 p-1.5 text-slate-600 hover:bg-slate-50"
                         title="Edit project"
                       >
                         <Pencil size={14} />
@@ -313,7 +342,7 @@ export default function ProjectsPage() {
                           event.stopPropagation();
                           deleteProject(project);
                         }}
-                        className="rounded-lg border border-red-300 p-1.5 text-red-600 hover:bg-red-50"
+                        className="rounded-xl border border-red-300 p-1.5 text-red-600 hover:bg-red-50"
                         title="Delete project"
                       >
                         <Trash2 size={14} />
@@ -326,7 +355,7 @@ export default function ProjectsPage() {
                       <span>Progress</span>
                       <span>{Math.round(progress)}%</span>
                     </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                    <div className="h-2 overflow-hidden rounded-full bg-slate-200/80">
                       <div className={`h-full ${progressTone(progress)}`} style={{ width: `${Math.min(progress, 100)}%` }} />
                     </div>
                   </div>
@@ -360,15 +389,15 @@ export default function ProjectsPage() {
 
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1">
-                      {artists.slice(0, 4).map((artist) => (
-                        <span
-                          key={artist.id}
-                          title={artist.name}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-700"
-                        >
-                          {initials(artist.name)}
-                        </span>
-                      ))}
+                        {artists.slice(0, 4).map((artist) => (
+                          <span
+                            key={artist.id}
+                            title={artist.name}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-slate-100 text-[10px] font-bold text-slate-700"
+                          >
+                            {initials(artist.name)}
+                          </span>
+                        ))}
                     </div>
                     <p className="text-xs text-slate-500">Due: {deadline ? formatDate(deadline) : "No deadline"}</p>
                   </div>
@@ -406,7 +435,7 @@ export default function ProjectsPage() {
               required
               value={form.name}
               onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
             />
           </div>
 
@@ -419,7 +448,7 @@ export default function ProjectsPage() {
               type="number"
               value={form.priority}
               onChange={(event) => setForm((prev) => ({ ...prev, priority: Number(event.target.value) }))}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
             />
           </div>
 
@@ -429,7 +458,7 @@ export default function ProjectsPage() {
               type="date"
               value={form.audioReceivedDate}
               onChange={(event) => setForm((prev) => ({ ...prev, audioReceivedDate: event.target.value }))}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
             />
           </div>
 
@@ -439,7 +468,7 @@ export default function ProjectsPage() {
               rows={3}
               value={form.description}
               onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
             />
           </div>
 
@@ -451,11 +480,11 @@ export default function ProjectsPage() {
                 setEditingProject(null);
                 setForm(initialForm);
               }}
-              className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700"
+              className="rounded-2xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700"
             >
               Cancel
             </button>
-            <button type="submit" disabled={saving} className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">
+            <button type="submit" disabled={saving} className="rounded-2xl bg-slate-950 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">
               {saving ? "Saving..." : "Save Changes"}
             </button>
           </div>

@@ -422,19 +422,30 @@ export default function EmployeesPage() {
   if (loading) return <Loader label="Loading employees..." />;
 
   return (
-    <div className="space-y-6">
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Total Employees" value={dashboardMetrics.total} />
-        <MetricCard label="Active" value={dashboardMetrics.active} tone="green" />
-        <MetricCard label="Inactive" value={dashboardMetrics.inactive} tone="slate" />
-        <MetricCard label="Freelancers" value={dashboardMetrics.freelancers} tone="blue" />
+    <div className="space-y-5">
+      <section className="rounded-[32px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.12),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.94))] p-5 shadow-sm shadow-slate-200/45">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Studio staffing</p>
+            <h2 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">Employee command center</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+              Track staffing, workload, department fit, and active assignments from one cleaner production surface.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <MetricCard label="Total Employees" value={dashboardMetrics.total} />
+            <MetricCard label="Active" value={dashboardMetrics.active} tone="green" />
+            <MetricCard label="Inactive" value={dashboardMetrics.inactive} tone="slate" />
+            <MetricCard label="Freelancers" value={dashboardMetrics.freelancers} tone="blue" />
+          </div>
+        </div>
       </section>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
-        <section className="rounded-2xl border border-slate-200 bg-white p-4">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <section className="rounded-[30px] border border-slate-200/80 bg-white/90 p-4 shadow-sm shadow-slate-200/35 backdrop-blur">
+          <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex flex-wrap gap-2">
-              <select value={sortBy} onChange={(event) => setSortBy(event.target.value)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm">
+              <select value={sortBy} onChange={(event) => setSortBy(event.target.value)} className="h-11 rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition focus:border-slate-400">
                 <option value="name">Sort by name</option>
                 <option value="role">Sort by role</option>
                 <option value="department">Sort by department</option>
@@ -444,27 +455,27 @@ export default function EmployeesPage() {
               </select>
               <button
                 onClick={() => setSortDir((prev) => (prev === "asc" ? "desc" : "asc"))}
-                className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700"
+                className="h-11 rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
               >
                 {sortDir.toUpperCase()}
               </button>
             </div>
-            <button onClick={() => setAddOpen(true)} className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white">
+            <button onClick={() => setAddOpen(true)} className="inline-flex h-11 items-center justify-center rounded-2xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800">
               Add Employee
             </button>
           </div>
 
-          <div className="mb-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             <input
               value={filters.search}
               onChange={(event) => setFilters((prev) => ({ ...prev, search: event.target.value }))}
               placeholder="Search by name or email"
-              className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="h-11 rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition placeholder:text-slate-400 focus:border-slate-400"
             />
             <select
               value={filters.departmentId}
               onChange={(event) => setFilters((prev) => ({ ...prev, departmentId: event.target.value }))}
-              className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="h-11 rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition focus:border-slate-400"
             >
               <option value="ALL">All departments</option>
               {departments.map((department) => (
@@ -476,7 +487,7 @@ export default function EmployeesPage() {
             <select
               value={filters.teamId}
               onChange={(event) => setFilters((prev) => ({ ...prev, teamId: event.target.value }))}
-              className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="h-11 rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition focus:border-slate-400"
             >
               <option value="ALL">All teams</option>
               {teams.map((team) => (
@@ -488,7 +499,7 @@ export default function EmployeesPage() {
             <select
               value={filters.role}
               onChange={(event) => setFilters((prev) => ({ ...prev, role: event.target.value }))}
-              className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="h-11 rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition focus:border-slate-400"
             >
               {ROLE_FILTERS.map((item) => (
                 <option key={item.value} value={item.value}>
@@ -499,7 +510,7 @@ export default function EmployeesPage() {
             <select
               value={filters.active}
               onChange={(event) => setFilters((prev) => ({ ...prev, active: event.target.value }))}
-              className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="h-11 rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition focus:border-slate-400"
             >
               {ACTIVE_FILTERS.map((item) => (
                 <option key={item.value} value={item.value}>
@@ -510,7 +521,7 @@ export default function EmployeesPage() {
             <select
               value={filters.projectId}
               onChange={(event) => setFilters((prev) => ({ ...prev, projectId: event.target.value }))}
-              className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="h-11 rounded-2xl border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition focus:border-slate-400"
             >
               <option value="ALL">All assigned projects</option>
               {projects.map((project) => (
@@ -524,39 +535,40 @@ export default function EmployeesPage() {
           {!sorted.length ? (
             <EmptyState title="No employees found" description="Try changing filters or add a new employee." />
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-hidden rounded-[24px] border border-slate-200/80">
+              <div className="overflow-x-auto">
               <table className="w-full min-w-[1040px] text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 text-left text-slate-500">
-                    <th className="py-2">Name</th>
-                    <th className="py-2">Email</th>
-                    <th className="py-2">Role</th>
-                    <th className="py-2">Department</th>
-                    <th className="py-2">Team</th>
-                    <th className="py-2">Type</th>
-                    <th className="py-2">Availability</th>
-                    <th className="py-2">Status</th>
-                    <th className="py-2">Assigned Projects</th>
+                  <tr className="border-b border-slate-200 bg-slate-950 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-200">
+                    <th className="px-3 py-3">Name</th>
+                    <th className="px-3 py-3">Email</th>
+                    <th className="px-3 py-3">Role</th>
+                    <th className="px-3 py-3">Department</th>
+                    <th className="px-3 py-3">Team</th>
+                    <th className="px-3 py-3">Type</th>
+                    <th className="px-3 py-3">Availability</th>
+                    <th className="px-3 py-3">Status</th>
+                    <th className="px-3 py-3">Assigned Projects</th>
                   </tr>
                 </thead>
                 <tbody>
                   {sorted.map((user) => (
                     <tr
                       key={user.id}
-                      className={`cursor-pointer border-b border-slate-100 ${selectedUserId === user.id ? "bg-slate-50" : ""} ${!user.isActive ? "opacity-55" : ""}`}
+                      className={`cursor-pointer border-b border-slate-100 transition hover:bg-slate-50/90 ${selectedUserId === user.id ? "bg-slate-50" : ""} ${!user.isActive ? "opacity-55" : ""}`}
                       onClick={() => openUserProfile(user.id)}
                     >
-                      <td className="py-3 font-semibold text-slate-900">{user.name}</td>
-                      <td className="py-3">{user.email}</td>
-                      <td className="py-3">{labelize(user.role)}</td>
-                      <td className="py-3">
+                      <td className="px-3 py-3 font-semibold text-slate-900">{user.name}</td>
+                      <td className="px-3 py-3">{user.email}</td>
+                      <td className="px-3 py-3">{labelize(user.role)}</td>
+                      <td className="px-3 py-3">
                         {user.departmentId ? (
                           <button
                             onClick={(event) => {
                               event.stopPropagation();
                               openDepartmentFromRow(user.departmentId);
                             }}
-                            className="rounded px-1 py-0.5 text-left text-emerald-700 hover:bg-emerald-50"
+                            className="rounded-xl px-2 py-1 text-left text-sky-700 hover:bg-sky-50"
                           >
                             {getDepartmentLabel(user)}
                           </button>
@@ -564,44 +576,45 @@ export default function EmployeesPage() {
                           getDepartmentLabel(user)
                         )}
                       </td>
-                      <td className="py-3">{user.teamName || "-"}</td>
-                      <td className="py-3">
+                      <td className="px-3 py-3">{user.teamName || "-"}</td>
+                      <td className="px-3 py-3">
                         <span
-                          className={`rounded-full px-2 py-1 text-xs font-semibold ${
+                          className={`rounded-full border px-2 py-1 text-xs font-semibold ${
                             user.employmentType === "FREELANCE" ? "bg-blue-100 text-blue-700" : "bg-emerald-100 text-emerald-700"
                           }`}
                         >
                           {user.employmentType === "FREELANCE" ? "Freelance" : "In-house"}
                         </span>
                       </td>
-                      <td className="py-3">{labelize(user.availabilityStatus || "AVAILABLE")}</td>
-                      <td className="py-3">
+                      <td className="px-3 py-3">{labelize(user.availabilityStatus || "AVAILABLE")}</td>
+                      <td className="px-3 py-3">
                         <span
-                          className={`rounded-full px-2 py-1 text-xs font-semibold ${
+                          className={`rounded-full border px-2 py-1 text-xs font-semibold ${
                             user.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-200 text-slate-600"
                           }`}
                         >
                           {user.isActive ? "Active" : "Inactive"}
                         </span>
                       </td>
-                      <td className="py-3">{user.assignedProjectCount || user._count?.assignedProjectStages || 0}</td>
+                      <td className="px-3 py-3">{user.assignedProjectCount || user._count?.assignedProjectStages || 0}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
         </section>
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-4">
+        <section className="rounded-[30px] border border-slate-200/80 bg-white/90 p-4 shadow-sm shadow-slate-200/35 backdrop-blur">
           {!selectedUser ? (
             <EmptyState title="Select an employee" description="Click an employee row to view profile and workload." />
           ) : (
             <div className="space-y-4">
-              <div className="rounded-xl border border-slate-200 p-3">
+              <div className="rounded-[24px] border border-slate-200/80 bg-slate-50/70 p-4">
                 <div className="mb-2 flex items-start justify-between">
                   <div className="flex items-center gap-3">
-                    <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-emerald-500 text-sm font-bold text-white">
+                    <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-slate-950 text-sm font-bold text-white">
                       {initials(selectedUser.name)}
                     </span>
                     <div>
@@ -615,7 +628,7 @@ export default function EmployeesPage() {
                     </div>
                   </div>
                   <span
-                    className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
+                    className={`rounded-full border px-2 py-1 text-[11px] font-semibold ${
                       selectedUser.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-200 text-slate-600"
                     }`}
                   >
@@ -624,15 +637,15 @@ export default function EmployeesPage() {
                 </div>
 
                 <div className="flex flex-wrap gap-2">
-                  <button onClick={openEditModal} className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                  <button onClick={openEditModal} className="rounded-xl border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-700">
                     Edit
                   </button>
-                  <button onClick={openResetModal} className="rounded-lg border border-amber-300 px-2.5 py-1 text-xs font-semibold text-amber-700">
+                  <button onClick={openResetModal} className="rounded-xl border border-amber-300 px-2.5 py-1.5 text-xs font-semibold text-amber-700">
                     Reset Password
                   </button>
                   <button
                     onClick={() => updateActiveStatus(selectedUser.id, selectedUser.name, !selectedUser.isActive)}
-                    className={`rounded-lg px-2.5 py-1 text-xs font-semibold text-white ${
+                    className={`rounded-xl px-2.5 py-1.5 text-xs font-semibold text-white ${
                       selectedUser.isActive ? "bg-rose-500" : "bg-emerald-600"
                     }`}
                   >
@@ -641,7 +654,7 @@ export default function EmployeesPage() {
                 </div>
               </div>
 
-              <div className="space-y-2 rounded-xl border border-slate-200 p-3">
+              <div className="space-y-2 rounded-[24px] border border-slate-200/80 bg-white/88 p-4">
                 <h4 className="text-sm font-bold text-slate-800">Current Workload</h4>
                 <p className="text-xs text-slate-500">{selectedUser.stats?.activeStages || 0} active tasks</p>
                 <div className="space-y-2">
@@ -649,7 +662,7 @@ export default function EmployeesPage() {
                     .filter((stage) => !isApprovedStatus(stage.status))
                     .slice(0, 6)
                     .map((stage) => (
-                      <div key={stage.id} className="rounded-lg bg-slate-50 p-2">
+                      <div key={stage.id} className="rounded-2xl border border-slate-200/80 bg-slate-50/90 p-2.5">
                         <p className="text-xs font-semibold text-slate-800">
                           {stage.title} → {stage.stageName}
                         </p>
@@ -664,12 +677,12 @@ export default function EmployeesPage() {
                 </div>
               </div>
 
-              <div className="space-y-2 rounded-xl border border-slate-200 p-3">
+              <div className="space-y-2 rounded-[24px] border border-slate-200/80 bg-white/88 p-4">
                 <h4 className="text-sm font-bold text-slate-800">Assign To Stage</h4>
                 <select
                   value={assignment.projectId}
                   onChange={(event) => setAssignment({ projectId: event.target.value, projectStageId: "" })}
-                  className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+                  className="w-full rounded-2xl border border-slate-300 px-3 py-2 text-sm"
                 >
                   <option value="">Select project</option>
                   {projects.map((project) => (
@@ -681,7 +694,7 @@ export default function EmployeesPage() {
                 <select
                   value={assignment.projectStageId}
                   onChange={(event) => setAssignment((prev) => ({ ...prev, projectStageId: event.target.value }))}
-                  className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+                  className="w-full rounded-2xl border border-slate-300 px-3 py-2 text-sm"
                 >
                   <option value="">Select stage</option>
                   {assignmentStages.map((stage) => {
@@ -696,12 +709,12 @@ export default function EmployeesPage() {
                 {assignment.projectId && !assignmentStages.length && (
                   <p className="text-xs font-medium text-amber-700">No compatible stages for this employee&apos;s department.</p>
                 )}
-                <button onClick={assignUser} className="w-full rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white">
+                <button onClick={assignUser} className="w-full rounded-2xl bg-slate-950 px-3 py-2.5 text-xs font-semibold text-white">
                   Assign
                 </button>
               </div>
 
-              <div className="rounded-xl border border-slate-200 p-3">
+              <div className="rounded-[24px] border border-slate-200/80 bg-white/88 p-4">
                 <h4 className="text-sm font-bold text-slate-800">History</h4>
                 <p className="mt-1 text-xs text-slate-600">{selectedUser.stats?.submittedCount || 0} total submissions</p>
                 <p className="text-xs text-slate-600">
@@ -715,7 +728,7 @@ export default function EmployeesPage() {
                 <h4 className="mb-2 text-sm font-bold text-slate-800">All Assigned Stages</h4>
                 <div className="max-h-[220px] space-y-2 overflow-auto">
                   {combinedAssignments.map((stage) => (
-                    <div key={stage.id} className="rounded-xl border border-slate-200 p-2">
+                    <div key={stage.id} className="rounded-2xl border border-slate-200/80 bg-white/88 p-2.5">
                       <p className="text-sm font-semibold text-slate-900">{stage.title}</p>
                       <p className="text-xs text-slate-600">
                         {stage.stageName} · {stage.trackingMode} · {formatDate(stage.deadline)}
@@ -751,7 +764,7 @@ export default function EmployeesPage() {
             <select
               value={addForm.role}
               onChange={(event) => setAddForm((prev) => ({ ...prev, role: event.target.value }))}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
             >
               <option value="EMPLOYEE">EMPLOYEE</option>
               <option value="COORDINATOR">COORDINATOR</option>
@@ -762,7 +775,7 @@ export default function EmployeesPage() {
             <select
               value={addForm.departmentId}
               onChange={(event) => setAddForm((prev) => ({ ...prev, departmentId: event.target.value }))}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
             >
               <option value="">No Department</option>
               {departments.map((department) => (
@@ -777,7 +790,7 @@ export default function EmployeesPage() {
             <select
               value={addForm.teamId}
               onChange={(event) => setAddForm((prev) => ({ ...prev, teamId: event.target.value }))}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
             >
               <option value="">No Team</option>
               {teams.map((team) => (
@@ -792,7 +805,7 @@ export default function EmployeesPage() {
             <select
               value={addForm.availabilityStatus}
               onChange={(event) => setAddForm((prev) => ({ ...prev, availabilityStatus: event.target.value }))}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
             >
               {AVAILABILITY_OPTIONS.map((status) => (
                 <option key={status} value={status}>
@@ -828,10 +841,10 @@ export default function EmployeesPage() {
           </div>
 
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => setAddOpen(false)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700">
+            <button type="button" onClick={() => setAddOpen(false)} className="rounded-2xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700">
               Cancel
             </button>
-            <button type="submit" className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white">
+            <button type="submit" className="rounded-2xl bg-slate-950 px-3 py-2 text-sm font-semibold text-white">
               Create Employee
             </button>
           </div>
@@ -845,7 +858,7 @@ export default function EmployeesPage() {
           <Input label="Phone" value={editForm.phone} onChange={(value) => setEditForm((prev) => ({ ...prev, phone: value }))} />
           <div>
             <label className="mb-1 block text-sm font-semibold text-slate-700">Role</label>
-            <select value={editForm.role} onChange={(event) => setEditForm((prev) => ({ ...prev, role: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm">
+            <select value={editForm.role} onChange={(event) => setEditForm((prev) => ({ ...prev, role: event.target.value }))} className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm">
               <option value="EMPLOYEE">EMPLOYEE</option>
               <option value="COORDINATOR">COORDINATOR</option>
             </select>
@@ -855,7 +868,7 @@ export default function EmployeesPage() {
             <select
               value={editForm.departmentId}
               onChange={(event) => setEditForm((prev) => ({ ...prev, departmentId: event.target.value }))}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
             >
               <option value="">No Department</option>
               {departments.map((department) => (
@@ -870,7 +883,7 @@ export default function EmployeesPage() {
             <select
               value={editForm.teamId}
               onChange={(event) => setEditForm((prev) => ({ ...prev, teamId: event.target.value }))}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
             >
               <option value="">No Team</option>
               {teams.map((team) => (
@@ -885,7 +898,7 @@ export default function EmployeesPage() {
             <select
               value={editForm.availabilityStatus}
               onChange={(event) => setEditForm((prev) => ({ ...prev, availabilityStatus: event.target.value }))}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
             >
               {AVAILABILITY_OPTIONS.map((status) => (
                 <option key={status} value={status}>
@@ -899,7 +912,7 @@ export default function EmployeesPage() {
             <select
               value={editForm.employmentType}
               onChange={(event) => setEditForm((prev) => ({ ...prev, employmentType: event.target.value }))}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
             >
               <option value="INHOUSE">In-house</option>
               <option value="FREELANCE">Freelance</option>
@@ -913,10 +926,10 @@ export default function EmployeesPage() {
             minLength={8}
           />
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => setEditOpen(false)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700">
+            <button type="button" onClick={() => setEditOpen(false)} className="rounded-2xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700">
               Cancel
             </button>
-            <button type="submit" className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white">
+            <button type="submit" className="rounded-2xl bg-slate-950 px-3 py-2 text-sm font-semibold text-white">
               Save
             </button>
           </div>
@@ -950,10 +963,10 @@ export default function EmployeesPage() {
             Force password change on next login (compatibility flag)
           </label>
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => setResetOpen(false)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700">
+            <button type="button" onClick={() => setResetOpen(false)} className="rounded-2xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700">
               Cancel
             </button>
-            <button type="submit" className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white">
+            <button type="submit" className="rounded-2xl bg-slate-950 px-3 py-2 text-sm font-semibold text-white">
               Reset Password
             </button>
           </div>
@@ -965,16 +978,16 @@ export default function EmployeesPage() {
 
 function MetricCard({ label, value, tone = "default" }) {
   const toneClass = {
-    default: "border-slate-200 bg-white text-slate-900",
-    green: "border-emerald-200 bg-emerald-50 text-emerald-900",
-    blue: "border-blue-200 bg-blue-50 text-blue-900",
-    slate: "border-slate-200 bg-slate-50 text-slate-900"
+    default: "border-slate-200/80 bg-white/88 text-slate-900",
+    green: "border-emerald-200 bg-emerald-50/90 text-emerald-900",
+    blue: "border-blue-200 bg-blue-50/90 text-blue-900",
+    slate: "border-slate-200/80 bg-slate-50/90 text-slate-900"
   };
 
   return (
-    <article className={`rounded-2xl border p-4 ${toneClass[tone] || toneClass.default}`}>
-      <p className="text-xs font-medium uppercase tracking-wide">{label}</p>
-      <p className="mt-2 text-2xl font-bold">{value}</p>
+    <article className={`rounded-3xl border p-4 shadow-sm shadow-slate-200/30 backdrop-blur ${toneClass[tone] || toneClass.default}`}>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em]">{label}</p>
+      <p className="mt-2 text-2xl font-semibold tracking-tight">{value}</p>
     </article>
   );
 }
@@ -989,7 +1002,7 @@ function Input({ label, value, onChange, type = "text", required = false, minLen
         minLength={minLength}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+        className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
       />
     </div>
   );

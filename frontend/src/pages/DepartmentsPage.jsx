@@ -175,16 +175,27 @@ export default function DepartmentsPage() {
   const totalTeams = (heatmap.teams || []).length;
 
   return (
-    <div className="space-y-6">
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Departments" value={departments.length} helper="Active production units" tone="emerald" />
-        <MetricCard label="Overloaded Depts" value={overloadedDepartments} helper="Needs staffing support" tone="rose" />
-        <MetricCard label="Avg Utilization" value={`${averageUtilization}%`} helper="Workforce capacity trend" tone="amber" />
-        <MetricCard label="Active Teams" value={totalTeams} helper="Cross-functional squads" tone="blue" />
+    <div className="space-y-5">
+      <section className="rounded-[32px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.12),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.94))] p-5 shadow-sm shadow-slate-200/45">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Department operations</p>
+            <h2 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">Studio structure and workload map</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+              Keep teams organized, rebalance department load, and manage members from one cleaner production surface.
+            </p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard label="Departments" value={departments.length} helper="Active production units" tone="emerald" />
+            <MetricCard label="Overloaded Depts" value={overloadedDepartments} helper="Needs staffing support" tone="rose" />
+            <MetricCard label="Avg Utilization" value={`${averageUtilization}%`} helper="Workforce capacity trend" tone="amber" />
+            <MetricCard label="Active Teams" value={totalTeams} helper="Cross-functional squads" tone="blue" />
+          </div>
+        </div>
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4">
-        <h3 className="mb-3 text-lg font-bold text-slate-900">Department Workload Map</h3>
+      <section className="rounded-[30px] border border-slate-200/80 bg-white/90 p-4 shadow-sm shadow-slate-200/35 backdrop-blur">
+        <h3 className="mb-3 text-lg font-semibold tracking-tight text-slate-950">Department Workload Map</h3>
         {!utilizationRows.length ? (
           <EmptyState title="No workload heatmap" description="Department utilization data will appear after assignments." compact />
         ) : (
@@ -204,14 +215,14 @@ export default function DepartmentsPage() {
         )}
       </section>
 
-      <div className="grid grid-cols-3 gap-6">
-      <section className="col-span-2 rounded-2xl border border-slate-200 bg-white p-4">
+      <div className="grid gap-6 xl:grid-cols-3">
+      <section className="xl:col-span-2 rounded-[30px] border border-slate-200/80 bg-white/90 p-4 shadow-sm shadow-slate-200/35 backdrop-blur">
         <div className="mb-4 flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-bold text-slate-900">Departments</h3>
+            <h3 className="text-lg font-semibold tracking-tight text-slate-950">Departments</h3>
             <p className="text-sm text-slate-500">Manage studio departments and teams.</p>
           </div>
-          <button onClick={openCreateModal} className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white">
+          <button onClick={openCreateModal} className="rounded-2xl bg-slate-950 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800">
             + New Dept
           </button>
         </div>
@@ -219,12 +230,12 @@ export default function DepartmentsPage() {
         {!departments.length ? (
           <EmptyState title="No departments" description="Create your first department to start team assignment." />
         ) : (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 md:grid-cols-2">
             {departments.map((department) => (
               <div
                 key={department.id}
                 className={`rounded-xl border p-3 transition ${
-                  selectedDepartmentId === department.id ? "border-emerald-300 bg-emerald-50/40" : "border-slate-200"
+                  selectedDepartmentId === department.id ? "border-emerald-300 bg-emerald-50/40 shadow-sm" : "border-slate-200/80 bg-white/88"
                 }`}
               >
                 <div className="mb-3 flex items-start justify-between gap-3">
@@ -240,13 +251,13 @@ export default function DepartmentsPage() {
                 <div className="mt-3 flex gap-2">
                   <button
                     onClick={() => openDepartment(department.id)}
-                    className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
+                    className="rounded-xl border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-700"
                   >
                     View Team
                   </button>
                   <button
                     onClick={() => openEditModal(department)}
-                    className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
+                    className="rounded-xl border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-700"
                   >
                     Edit
                   </button>
@@ -257,12 +268,12 @@ export default function DepartmentsPage() {
         )}
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4">
+      <section className="rounded-[30px] border border-slate-200/80 bg-white/90 p-4 shadow-sm shadow-slate-200/35 backdrop-blur">
         {!selectedDepartment ? (
           <EmptyState title="Select a department" description="Choose a department card to view team details." />
         ) : (
           <div className="space-y-4">
-            <div className="rounded-xl border border-slate-200 p-3">
+            <div className="rounded-[24px] border border-slate-200/80 bg-slate-50/80 p-4">
               <div className="mb-2 flex items-start justify-between gap-3">
                 <div>
                   <p className="flex items-center gap-2 text-sm font-bold text-slate-900">
@@ -282,7 +293,7 @@ export default function DepartmentsPage() {
                       color: selectedDepartment.color
                     })
                   }
-                  className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700"
+                  className="rounded-xl border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-700"
                 >
                   Edit Dept
                 </button>
@@ -290,11 +301,11 @@ export default function DepartmentsPage() {
               {selectedDepartment.description && <p className="text-xs text-slate-600">{selectedDepartment.description}</p>}
             </div>
 
-            <div className="rounded-xl border border-slate-200 p-3">
+            <div className="rounded-[24px] border border-slate-200/80 bg-white/88 p-4">
               <h4 className="mb-2 text-sm font-bold text-slate-800">Team Members</h4>
               <div className="space-y-2">
                 {(selectedDepartment.members || []).map((member) => (
-                  <div key={member.id} className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-2">
+                  <div key={member.id} className="rounded-2xl border border-slate-200/80 bg-slate-50/90 px-3 py-2.5">
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <p className="text-sm font-semibold text-slate-900">{member.name}</p>
@@ -313,7 +324,7 @@ export default function DepartmentsPage() {
                       </div>
                       <button
                         onClick={() => removeMember(member)}
-                        className="rounded-md border border-red-300 px-2 py-1 text-[11px] font-semibold text-red-600"
+                        className="rounded-xl border border-red-300 px-2.5 py-1.5 text-[11px] font-semibold text-red-600"
                         disabled={saving}
                       >
                         Remove
@@ -328,7 +339,7 @@ export default function DepartmentsPage() {
                 <select
                   value={memberToAdd}
                   onChange={(event) => setMemberToAdd(event.target.value)}
-                  className="flex-1 rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+                  className="flex-1 rounded-2xl border border-slate-300 px-3 py-2 text-sm"
                 >
                   <option value="">Select employee...</option>
                   {availableMembers.map((user) => (
@@ -340,14 +351,14 @@ export default function DepartmentsPage() {
                 <button
                   onClick={addMember}
                   disabled={!memberToAdd || saving}
-                  className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                  className="rounded-2xl bg-slate-950 px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
                 >
                   Add Member
                 </button>
               </div>
             </div>
 
-            <div className="rounded-xl border border-slate-200 p-3">
+            <div className="rounded-[24px] border border-slate-200/80 bg-white/88 p-4">
               <h4 className="mb-2 text-sm font-bold text-slate-800">Assigned To Stages</h4>
               <div className="max-h-52 space-y-1 overflow-auto">
                 {(selectedDepartment.assignedStages || []).map((item) => (
@@ -359,11 +370,11 @@ export default function DepartmentsPage() {
               </div>
             </div>
 
-            <div className="rounded-xl border border-slate-200 p-3">
+            <div className="rounded-[24px] border border-slate-200/80 bg-white/88 p-4">
               <h4 className="mb-2 text-sm font-bold text-slate-800">Active Teams</h4>
               <div className="space-y-2">
                 {(selectedDepartment.teams || []).map((team) => (
-                  <div key={team.id} className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+                  <div key={team.id} className="rounded-2xl border border-slate-200/80 bg-slate-50/90 p-2.5">
                     <p className="text-xs font-semibold text-slate-800">{team.name}</p>
                     <p className="text-[11px] text-slate-500">
                       {team.memberCount} members · {team.projectCount} projects
@@ -392,7 +403,7 @@ export default function DepartmentsPage() {
               rows={3}
               value={form.description}
               onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
             />
           </div>
           <div>
@@ -405,10 +416,10 @@ export default function DepartmentsPage() {
             />
           </div>
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => setFormOpen(false)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700">
+            <button type="button" onClick={() => setFormOpen(false)} className="rounded-2xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700">
               Cancel
             </button>
-            <button type="submit" disabled={saving} className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">
+            <button type="submit" disabled={saving} className="rounded-2xl bg-slate-950 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">
               {saving ? "Saving..." : editingDepartment ? "Save" : "Create Dept"}
             </button>
           </div>
@@ -420,17 +431,17 @@ export default function DepartmentsPage() {
 
 function MetricCard({ label, value, helper, tone = "emerald" }) {
   const toneClasses = {
-    emerald: "from-emerald-600 to-emerald-500",
-    rose: "from-rose-600 to-rose-500",
-    amber: "from-amber-600 to-amber-500",
-    blue: "from-blue-600 to-blue-500"
+    emerald: "border-emerald-200 bg-emerald-50/90 text-emerald-900",
+    rose: "border-rose-200 bg-rose-50/90 text-rose-900",
+    amber: "border-amber-200 bg-amber-50/90 text-amber-900",
+    blue: "border-blue-200 bg-blue-50/90 text-blue-900"
   };
 
   return (
-    <article className={`rounded-2xl bg-gradient-to-br ${toneClasses[tone]} p-4 text-white shadow-lg`}>
-      <p className="text-sm font-semibold text-white/85">{label}</p>
-      <p className="mt-2 text-2xl font-bold">{value}</p>
-      <p className="mt-1 text-xs text-white/80">{helper}</p>
+    <article className={`rounded-3xl border p-4 shadow-sm shadow-slate-200/30 backdrop-blur ${toneClasses[tone]}`}>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em]">{label}</p>
+      <p className="mt-2 text-2xl font-semibold tracking-tight">{value}</p>
+      <p className="mt-1 text-xs opacity-80">{helper}</p>
     </article>
   );
 }
@@ -443,7 +454,7 @@ function Input({ label, value, onChange, required = false }) {
         required={required}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+        className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
       />
     </div>
   );

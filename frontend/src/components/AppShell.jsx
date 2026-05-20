@@ -49,11 +49,11 @@ export default function AppShell({ children }) {
   };
 
   return (
-    <div className="flex min-h-screen bg-slate-100">
+    <div className="flex min-h-screen bg-[linear-gradient(180deg,#f8fafc_0%,#eef2f7_48%,#f8fafc_100%)] text-slate-900">
       <Sidebar role={user?.role} />
-      <div className="flex min-h-screen flex-1 flex-col">
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col">
         <Topbar user={user} onLogout={handleLogout} />
-        <main className="flex-1 p-8">{children}</main>
+        <main className="flex-1 overflow-x-hidden px-4 pb-6 pt-4 sm:px-5 lg:px-6 xl:px-8">{children}</main>
       </div>
     </div>
   );

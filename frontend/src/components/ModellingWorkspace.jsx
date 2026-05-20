@@ -25,6 +25,8 @@ import Loader from "./Loader";
 import Modal from "./Modal";
 import StatusBadge from "./StatusBadge";
 import FlexibleAssignmentField from "./FlexibleAssignmentField";
+import useEmployeeAvailabilitySummaries from "../hooks/useEmployeeAvailabilitySummaries";
+import { EmployeeAvailabilityHoverCard } from "./EmployeeAvailabilityHoverCard";
 import { formatDate, formatDateInput, formatDurationMinutes, getDepartmentLabel, initials, todayDateInput } from "../utils/format";
 import { STAGE_STATUSES, getStatusOptionLabel, isCompleteStatus, isLateStatus } from "../utils/constants";
 import { buildAssetCategoryPath } from "../utils/stageRouting";
@@ -35,8 +37,10 @@ import {
   getEmploymentBadgeClasses,
   getEmploymentLabel,
   getLeadAssignment,
-  normalizeAssignmentList
+  normalizeAssignmentList,
+  sortUsersBySmartAvailability
 } from "../utils/assignments";
+import { formatEmployeeAvailabilityLabel, getEmployeeAvailabilityMeta, getOverloadWarning } from "../utils/employeeAvailability";
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
 
@@ -254,9 +258,9 @@ function buildLeadAssignment(users, employeeId) {
 
 function WorkspaceMetric({ label, value, caption, tone = "text-slate-900" }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm shadow-slate-200/40">
+    <div className="rounded-3xl border border-slate-200/80 bg-white/85 px-4 py-3 shadow-sm shadow-slate-200/35 backdrop-blur">
       <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">{label}</p>
-      <p className={`mt-1 text-xl font-bold ${tone}`}>{value}</p>
+      <p className={`mt-1 text-xl font-semibold tracking-tight ${tone}`}>{value}</p>
       {caption ? <p className="mt-1 text-xs text-slate-500">{caption}</p> : null}
     </div>
   );
@@ -291,40 +295,55 @@ function ModalSection({ title, description, children }) {
   );
 }
 
-function ArtistCandidateCard({ user, assigned, disabled, onAssign }) {
+function ArtistCandidateCard({ user, summary, assigned, disabled, onAssign }) {
+  const meta = getEmployeeAvailabilityMeta(summary?.liveStatus || user.availabilityStatus || "AVAILABLE");
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300">
-      <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-900 text-sm font-bold text-white">
-          {initials(user.name)}
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-slate-900">{user.name}</p>
-          <p className="truncate text-xs text-slate-500">{getDepartmentLabel(user)}</p>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <span className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${getEmploymentBadgeClasses(user.employmentType)}`}>
-              {user.employmentType === "FREELANCE" ? "FREELANCE" : "IN-HOUSE"}
-            </span>
-            <span className="text-[11px] text-slate-500">
-              {Number(user.assignedProjectCount || 0)} active project{Number(user.assignedProjectCount || 0) === 1 ? "" : "s"}
-            </span>
+    <EmployeeAvailabilityHoverCard user={user} summary={summary} roleLabel="Artist" className="block">
+      <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-900 text-sm font-bold text-white">
+            {initials(user.name)}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-slate-900">{user.name}</p>
+                <p className="truncate text-xs text-slate-500">{getDepartmentLabel(user)}</p>
+              </div>
+              <span className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${meta.tone}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
+                {formatEmployeeAvailabilityLabel(summary?.liveStatus || user.availabilityStatus || "AVAILABLE")}
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${getEmploymentBadgeClasses(user.employmentType)}`}>
+                {user.employmentType === "FREELANCE" ? "FREELANCE" : "IN-HOUSE"}
+              </span>
+              <span className="text-[11px] text-slate-500">
+                {summary?.activeTasks ?? 0} active · {summary?.workloadPercent ?? 0}% load
+              </span>
+            </div>
           </div>
         </div>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onAssign(user);
+          }}
+          disabled={disabled || assigned}
+          className={`mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition ${
+            assigned
+              ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+              : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+          } disabled:opacity-60`}
+        >
+          {assigned ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+          {assigned ? "Assigned" : "Assign"}
+        </button>
       </div>
-      <button
-        type="button"
-        onClick={() => onAssign(user)}
-        disabled={disabled || assigned}
-        className={`mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition ${
-          assigned
-            ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
-            : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-        } disabled:opacity-60`}
-      >
-        {assigned ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-        {assigned ? "Assigned" : "Assign"}
-      </button>
-    </div>
+    </EmployeeAvailabilityHoverCard>
   );
 }
 
@@ -337,6 +356,7 @@ function ModalAssignmentPicker({
 }) {
   const normalizedAssignments = useMemo(() => normalizeAssignmentList(assignments), [assignments]);
   const departmentOptions = useMemo(() => buildDepartmentOptions(users, recommendedDepartment), [users, recommendedDepartment]);
+  const summariesByUserId = useEmployeeAvailabilitySummaries(users);
   const assignedDepartment = useMemo(
     () => (normalizedAssignments[0]?.employee ? getDepartmentLabel(normalizedAssignments[0].employee) : ""),
     [normalizedAssignments]
@@ -364,20 +384,30 @@ function ModalAssignmentPicker({
   const filteredUsers = useMemo(() => {
     const scoped = filterUsersByDepartment(users, selectedDepartment);
     const query = search.trim().toLowerCase();
-    if (!query) return scoped;
-    return scoped.filter((user) => {
-      const haystack = [
-        user.name,
-        user.email,
-        getDepartmentLabel(user),
-        getEmploymentLabel(user.employmentType)
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(query);
-    });
-  }, [search, selectedDepartment, users]);
+    const filtered = !query
+      ? scoped
+      : scoped.filter((user) => {
+          const haystack = [
+            user.name,
+            user.email,
+            getDepartmentLabel(user),
+            getEmploymentLabel(user.employmentType)
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          return haystack.includes(query);
+        });
+    return sortUsersBySmartAvailability(filtered, summariesByUserId, selectedDepartment || recommendedDepartment);
+  }, [recommendedDepartment, search, selectedDepartment, summariesByUserId, users]);
+
+  const assignmentWarning = useMemo(() => {
+    const found = normalizedAssignments.find((assignment) => getOverloadWarning(summariesByUserId[Number(assignment.employeeId)]));
+    if (!found) return "";
+    const employee = found.employee || users.find((user) => Number(user.id) === Number(found.employeeId));
+    if (!employee) return "";
+    return `${employee.name}: ${getOverloadWarning(summariesByUserId[Number(found.employeeId)])}`;
+  }, [normalizedAssignments, summariesByUserId, users]);
 
   function commit(nextAssignments) {
     onChange?.(ensureSingleLead(nextAssignments));
@@ -469,6 +499,7 @@ function ModalAssignmentPicker({
             <ArtistCandidateCard
               key={user.id}
               user={user}
+              summary={summariesByUserId[Number(user.id)]}
               assigned={normalizedAssignments.some((assignment) => assignment.employeeId === Number(user.id))}
               disabled={disabled}
               onAssign={handleAssign}
@@ -498,33 +529,42 @@ function ModalAssignmentPicker({
               if (!employee) return null;
 
               return (
-                <div key={assignment.employeeId} className="inline-flex max-w-full items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs text-slate-700">
-                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-900 text-[10px] font-bold text-white">
-                    {initials(employee.name)}
-                  </span>
-                  <span className="truncate font-semibold text-slate-900">{employee.name}</span>
-                  <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getEmploymentBadgeClasses(employee.employmentType)}`}>
-                    {employee.employmentType === "FREELANCE" ? "FREELANCE" : "IN-HOUSE"}
-                  </span>
-                  <select
-                    value={assignment.roleType || "SUPPORT"}
-                    onChange={(event) => handleRoleChange(assignment.employeeId, event.target.value)}
-                    className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-[10px] font-semibold"
-                    disabled={disabled}
-                  >
-                    <option value="LEAD">Lead</option>
-                    <option value="SUPPORT">Support</option>
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => handleRemove(assignment.employeeId)}
-                    className="rounded-full p-1 text-slate-500 transition hover:bg-white hover:text-slate-900"
-                    disabled={disabled}
-                    aria-label={`Remove ${employee.name}`}
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
+                <EmployeeAvailabilityHoverCard key={assignment.employeeId} user={employee} summary={summariesByUserId[Number(assignment.employeeId)]} roleLabel={assignment.roleType === "LEAD" ? "Lead Artist" : "Support Artist"} className="block">
+                  <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs text-slate-700">
+                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-900 text-[10px] font-bold text-white">
+                      {initials(employee.name)}
+                    </span>
+                    <span className="truncate font-semibold text-slate-900">{employee.name}</span>
+                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getEmploymentBadgeClasses(employee.employmentType)}`}>
+                      {employee.employmentType === "FREELANCE" ? "FREELANCE" : "IN-HOUSE"}
+                    </span>
+                    <select
+                      value={assignment.roleType || "SUPPORT"}
+                      onChange={(event) => {
+                        event.stopPropagation();
+                        handleRoleChange(assignment.employeeId, event.target.value);
+                      }}
+                      className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-[10px] font-semibold"
+                      disabled={disabled}
+                    >
+                      <option value="LEAD">Lead</option>
+                      <option value="SUPPORT">Support</option>
+                    </select>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        handleRemove(assignment.employeeId);
+                      }}
+                      className="rounded-full p-1 text-slate-500 transition hover:bg-white hover:text-slate-900"
+                      disabled={disabled}
+                      aria-label={`Remove ${employee.name}`}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </EmployeeAvailabilityHoverCard>
               );
             })
           ) : (
@@ -534,6 +574,11 @@ function ModalAssignmentPicker({
           )}
         </div>
       </div>
+      {assignmentWarning ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          {assignmentWarning}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -543,18 +588,18 @@ function SummaryCard({ projectId, projectName, stageCode, stageLabel, breadcrumb
     <Link
       to={buildAssetCategoryPath(projectId, stageCode, section.key)}
       state={breadcrumbState}
-      className="group rounded-3xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/40 transition hover:-translate-y-0.5 hover:shadow-lg"
+      className="group rounded-[30px] border border-slate-200/80 bg-white/90 p-5 shadow-sm shadow-slate-200/35 backdrop-blur transition hover:-translate-y-0.5 hover:shadow-lg hover:shadow-slate-200/45"
     >
-      <div className={`rounded-2xl bg-gradient-to-br ${section.accent} p-4`}>
+      <div className={`rounded-[26px] bg-gradient-to-br ${section.accent} p-4`}>
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${section.badge}`}>
               {section.title}
             </div>
-            <h3 className="mt-3 text-xl font-bold text-slate-900">{section.title}</h3>
+            <h3 className="mt-3 text-xl font-semibold tracking-tight text-slate-950">{section.title}</h3>
             <p className="mt-1 text-sm text-slate-600">{projectName} · {stageLabel}</p>
           </div>
-          <div className="rounded-2xl bg-white/85 px-4 py-3 text-right shadow-sm">
+          <div className="rounded-2xl border border-white/80 bg-white/90 px-4 py-3 text-right shadow-sm">
             <p className={`text-3xl font-bold ${section.countTone}`}>{stats.total}</p>
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Assets</p>
           </div>
@@ -570,12 +615,12 @@ function SummaryCard({ projectId, projectName, stageCode, stageLabel, breadcrumb
         <WorkspaceMetric label="Completion" value={`${stats.completionPercent}%`} tone="text-slate-900" />
       </div>
 
-      <div className="mt-4 flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+      <div className="mt-4 flex items-center justify-between rounded-2xl border border-slate-200/80 bg-slate-50/90 px-4 py-3">
         <div>
           <p className="text-sm font-semibold text-slate-900">Open dedicated workspace</p>
           <p className="text-xs text-slate-500">Manage {section.title.toLowerCase()} in a compact production table.</p>
         </div>
-        <span className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition group-hover:bg-slate-700">Open</span>
+        <span className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white transition group-hover:bg-slate-800">Open</span>
       </div>
     </Link>
   );
@@ -669,27 +714,27 @@ function QuickCreateRow({ section, users, recommendedDepartment, disabled, onCre
   }
 
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/40">
+    <section className="rounded-[30px] border border-slate-200/80 bg-white/90 p-4 shadow-sm shadow-slate-200/35 backdrop-blur">
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">{section.title} production table</p>
-          <h3 className="mt-1 text-base font-bold text-slate-900">Quick add {section.singular.toLowerCase()} row</h3>
+          <h3 className="mt-1 text-base font-semibold tracking-tight text-slate-950">Quick add {section.singular.toLowerCase()} row</h3>
         </div>
         <span className="text-xs text-slate-500">Create rows fast without opening the full modal.</span>
       </div>
 
-      <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_180px_220px_180px_160px_160px_auto]">
+      <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1.45fr)_180px_220px_180px_160px_160px_auto]">
         <input
           value={draft.name}
           onChange={(event) => setDraft((prev) => ({ ...prev, name: event.target.value }))}
           placeholder={`${section.singular} name`}
-          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+          className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition placeholder:text-slate-400 focus:border-slate-400"
           disabled={disabled}
         />
         <select
           value={draft.department}
           onChange={(event) => setDraft((prev) => ({ ...prev, department: event.target.value, employeeId: "" }))}
-          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+          className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400"
           disabled={disabled}
         >
           <option value="">All departments</option>
@@ -702,7 +747,7 @@ function QuickCreateRow({ section, users, recommendedDepartment, disabled, onCre
         <select
           value={draft.employeeId}
           onChange={(event) => setDraft((prev) => ({ ...prev, employeeId: event.target.value }))}
-          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+          className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400"
           disabled={disabled}
         >
           <option value="">{artists.length ? "Assign artist" : "No employees found"}</option>
@@ -715,7 +760,7 @@ function QuickCreateRow({ section, users, recommendedDepartment, disabled, onCre
         <select
           value={draft.status}
           onChange={(event) => setDraft((prev) => ({ ...prev, status: event.target.value }))}
-          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+          className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400"
           disabled={disabled}
         >
           {STAGE_STATUSES.map((status) => (
@@ -728,21 +773,21 @@ function QuickCreateRow({ section, users, recommendedDepartment, disabled, onCre
           type="date"
           value={draft.startedAt || todayDateInput()}
           onChange={(event) => setDraft((prev) => ({ ...prev, startedAt: event.target.value || todayDateInput() }))}
-          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+          className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400"
           disabled={disabled}
         />
         <input
           type="date"
           value={draft.endedAt}
           onChange={(event) => setDraft((prev) => ({ ...prev, endedAt: event.target.value }))}
-          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+          className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400"
           disabled={disabled}
         />
         <button
           type="button"
           onClick={handleCreate}
           disabled={!canCreate || disabled}
-          className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white ${section.button} disabled:cursor-not-allowed disabled:opacity-50`}
+          className={`inline-flex h-11 items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold text-white shadow-sm ${section.button} disabled:cursor-not-allowed disabled:opacity-50`}
         >
           <Plus className="h-4 w-4" /> Create
         </button>
@@ -786,24 +831,24 @@ function WorkspaceToolbar({
   stageLabel
 }) {
   return (
-    <div className="space-y-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/40">
+    <div className="space-y-3 rounded-[30px] border border-slate-200/80 bg-white/88 p-4 shadow-sm shadow-slate-200/35 backdrop-blur">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">{stageLabel} control room</p>
-          <h3 className="text-lg font-bold text-slate-900">{section.title} production table</h3>
+          <h3 className="text-lg font-semibold tracking-tight text-slate-950">{section.title} production table</h3>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={onSelectVisible}
-            className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            className="rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
             {allVisibleSelected ? "Clear visible" : `Select visible (${visibleCount})`}
           </button>
           <button
             type="button"
             onClick={onOpenCreate}
-            className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm ${section.button}`}
+            className={`inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold text-white shadow-sm ${section.button}`}
           >
             <Plus className="h-4 w-4" /> Add {section.singular}
           </button>
@@ -817,10 +862,10 @@ function WorkspaceToolbar({
             value={filters.search}
             onChange={(event) => onFilterChange({ search: event.target.value, page: 1 })}
             placeholder={`Search ${section.title.toLowerCase()}`}
-            className="h-11 w-full rounded-xl border border-slate-300 bg-white px-10 py-2.5 text-sm shadow-sm outline-none transition placeholder:text-slate-400 focus:border-slate-400"
+            className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-10 py-2.5 text-sm shadow-sm outline-none transition placeholder:text-slate-400 focus:border-slate-400"
           />
         </label>
-        <select value={filters.status} onChange={(event) => onFilterChange({ status: event.target.value, page: 1 })} className="h-11 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400">
+        <select value={filters.status} onChange={(event) => onFilterChange({ status: event.target.value, page: 1 })} className="h-11 rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400">
           <option value="">All statuses</option>
           {STAGE_STATUSES.map((status) => (
             <option key={status} value={status}>
@@ -828,7 +873,7 @@ function WorkspaceToolbar({
             </option>
           ))}
         </select>
-        <select value={filters.artistId} onChange={(event) => onFilterChange({ artistId: event.target.value, page: 1 })} className="h-11 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400">
+        <select value={filters.artistId} onChange={(event) => onFilterChange({ artistId: event.target.value, page: 1 })} className="h-11 rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400">
           <option value="">All artists</option>
           {[...users].sort((left, right) => String(left.name || "").localeCompare(String(right.name || ""))).map((artist) => (
             <option key={artist.id} value={artist.id}>
@@ -836,12 +881,12 @@ function WorkspaceToolbar({
             </option>
           ))}
         </select>
-        <select value={filters.archived} onChange={(event) => onFilterChange({ archived: event.target.value, page: 1 })} className="h-11 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400">
+        <select value={filters.archived} onChange={(event) => onFilterChange({ archived: event.target.value, page: 1 })} className="h-11 rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400">
           <option value="active">Active only</option>
           <option value="archived">Archived only</option>
           <option value="all">Active + Archived</option>
         </select>
-        <select value={filters.sortBy} onChange={(event) => onFilterChange({ sortBy: event.target.value, page: 1 })} className="h-11 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400">
+        <select value={filters.sortBy} onChange={(event) => onFilterChange({ sortBy: event.target.value, page: 1 })} className="h-11 rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400">
           <option value="order">Sort: Pipeline order</option>
           <option value="name">Sort: Name</option>
           <option value="artist">Sort: Artist</option>
@@ -852,7 +897,7 @@ function WorkspaceToolbar({
         <select
           value={String(filters.pageSize)}
           onChange={(event) => onFilterChange({ pageSize: Number(event.target.value), page: 1 })}
-          className="h-11 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400"
+          className="h-11 rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400"
         >
           {PAGE_SIZE_OPTIONS.map((size) => (
             <option key={size} value={size}>
@@ -863,7 +908,7 @@ function WorkspaceToolbar({
       </div>
 
       {selectedCount > 0 && (
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+        <div className="rounded-3xl border border-slate-200 bg-slate-50/80 px-3 py-3">
           <div className="mb-3 flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
             <span>{selectedCount} selected</span>
             <span className="rounded-full bg-white px-2 py-1 text-[11px] font-semibold tracking-normal text-slate-700">Bulk actions</span>
@@ -880,7 +925,7 @@ function WorkspaceToolbar({
             <select
               value={bulkDraft.status}
               onChange={(event) => onBulkDraftChange({ status: event.target.value })}
-              className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+              className="rounded-2xl border border-slate-300 px-3 py-2.5 text-sm"
               disabled={disabled}
             >
               <option value="">Choose status</option>
@@ -890,13 +935,13 @@ function WorkspaceToolbar({
                 </option>
               ))}
             </select>
-            <button type="button" onClick={onBulkAssign} disabled={!bulkDraft.assignments?.length || disabled} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-700 disabled:opacity-40">
+            <button type="button" onClick={onBulkAssign} disabled={!bulkDraft.assignments?.length || disabled} className="rounded-full border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 disabled:opacity-40">
               Assign Artist
             </button>
-            <button type="button" onClick={onBulkStatus} disabled={!bulkDraft.status || disabled} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-700 disabled:opacity-40">
+            <button type="button" onClick={onBulkStatus} disabled={!bulkDraft.status || disabled} className="rounded-full border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 disabled:opacity-40">
               Change Status
             </button>
-            <button type="button" onClick={onBulkDelete} disabled={disabled} className="rounded-xl bg-rose-600 px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-40">
+            <button type="button" onClick={onBulkDelete} disabled={disabled} className="rounded-full bg-rose-600 px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-40">
               Delete Selected
             </button>
           </div>
@@ -981,7 +1026,7 @@ function MobileCard({ asset, stage, users, nowTick, disabled, onEdit, onDuplicat
   const leadAssignment = getLeadAssignment(getStageAssignments(stage), stage?.assignedUser);
 
   return (
-    <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/40">
+    <article className="rounded-[26px] border border-slate-200/80 bg-white/92 p-4 shadow-sm shadow-slate-200/35 backdrop-blur">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-sm font-bold text-slate-900">{asset.name}</p>
@@ -990,9 +1035,9 @@ function MobileCard({ asset, stage, users, nowTick, disabled, onEdit, onDuplicat
             <DurationPill minutes={duration} />
           </div>
         </div>
-        <button type="button" onClick={() => onEdit(asset)} className="rounded-lg border border-slate-300 p-2 text-slate-600">
-          <NotebookPen className="h-4 w-4" />
-        </button>
+          <button type="button" onClick={() => onEdit(asset)} className="rounded-xl border border-slate-300 p-2 text-slate-600">
+            <NotebookPen className="h-4 w-4" />
+          </button>
       </div>
 
       <div className="mt-4 grid gap-3">
@@ -1003,23 +1048,23 @@ function MobileCard({ asset, stage, users, nowTick, disabled, onEdit, onDuplicat
         </div>
 
         <div className="grid grid-cols-2 gap-3 text-sm text-slate-600">
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/90 px-3 py-2">
             <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Start</p>
             <p className="mt-1 text-slate-900">{formatDate(resolveStageStart(stage))}</p>
           </div>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/90 px-3 py-2">
             <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">End</p>
             <p className="mt-1 text-slate-900">{formatDate(resolveStageEnd(stage))}</p>
           </div>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={() => onEdit(asset)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Edit</button>
-          <button type="button" onClick={() => onDuplicate(asset)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Duplicate</button>
-          <button type="button" onClick={() => onArchive(asset, !asset.isArchived)} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">
+          <button type="button" onClick={() => onEdit(asset)} className="rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Edit</button>
+          <button type="button" onClick={() => onDuplicate(asset)} className="rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Duplicate</button>
+          <button type="button" onClick={() => onArchive(asset, !asset.isArchived)} className="rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">
             {asset.isArchived ? "Restore" : "Archive"}
           </button>
-          <button type="button" onClick={() => onDelete(asset)} className="rounded-lg border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-600">Delete</button>
+          <button type="button" onClick={() => onDelete(asset)} className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-600">Delete</button>
         </div>
       </div>
     </article>
@@ -1486,13 +1531,13 @@ export default function ModellingWorkspace({
   if (isHub) {
     return (
       <div className="space-y-5">
-        <section className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/40">
+        <section className="rounded-[32px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.12),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.94))] p-5 shadow-sm shadow-slate-200/45">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600">
+              <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600">
                 <Layers3 className="h-3.5 w-3.5" /> {displayStageLabel} Workspace
               </div>
-              <h2 className="mt-3 text-3xl font-bold tracking-tight text-slate-950">Asset production control</h2>
+              <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">Asset production control</h2>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
                 Split {displayStageLabel.toLowerCase()} into dedicated studio lanes so characters, props, and BG assets stay manageable across large productions.
               </p>
@@ -1526,16 +1571,16 @@ export default function ModellingWorkspace({
 
   return (
     <div className="space-y-5">
-      <section className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/40">
+      <section className="rounded-[32px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.12),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.94))] p-5 shadow-sm shadow-slate-200/45">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div>
-            <Link to={`/projects/${projectId}/workspace/${String(normalizedStageCode).toLowerCase()}`} state={breadcrumbState} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600 hover:bg-slate-100">
+            <Link to={`/projects/${projectId}/workspace/${String(normalizedStageCode).toLowerCase()}`} state={breadcrumbState} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600 hover:bg-slate-100">
               <ChevronLeft className="h-3.5 w-3.5" /> Back to {displayStageLabel} hub
             </Link>
             <div className={`mt-3 inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${activeSection.badge}`}>
               {activeSection.title}
             </div>
-            <h2 className="mt-3 text-3xl font-bold tracking-tight text-slate-950">{activeSection.singular} {displayStageLabel} Workspace</h2>
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">{activeSection.singular} {displayStageLabel} Workspace</h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">
               Project: <span className="font-semibold text-slate-900">{projectName}</span> · Compact spreadsheet-style production control for {activeSection.title.toLowerCase()}.
             </p>
@@ -1589,21 +1634,21 @@ export default function ModellingWorkspace({
       />
 
       {!detailEntries.length ? (
-        <section className="rounded-3xl border border-dashed border-slate-300 bg-white px-6 py-8 text-center shadow-sm shadow-slate-200/40">
+        <section className="rounded-[30px] border border-dashed border-slate-300 bg-white/90 px-6 py-7 text-center shadow-sm shadow-slate-200/35">
           <div className={`mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br ${activeSection.accent}`}>
             <Plus className="h-5 w-5 text-slate-800" />
           </div>
-          <h3 className="mt-4 text-xl font-bold text-slate-900">{hasAnySectionAssets ? `No ${activeSection.title} match current filters` : activeSection.emptyTitle}</h3>
+          <h3 className="mt-4 text-xl font-semibold tracking-tight text-slate-950">{hasAnySectionAssets ? `No ${activeSection.title} match current filters` : activeSection.emptyTitle}</h3>
           <p className="mt-1.5 text-sm text-slate-500">
             {hasAnySectionAssets ? "Adjust the filter bar or create a new row for this lane." : `Create your first ${activeSection.singular.toLowerCase()} asset.`}
           </p>
-          <button type="button" onClick={() => openCreate(activeSection.key)} className={`mt-4 inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white ${activeSection.button}`}>
+          <button type="button" onClick={() => openCreate(activeSection.key)} className={`mt-4 inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold text-white ${activeSection.button}`}>
             <Plus className="h-4 w-4" /> {hasAnySectionAssets ? `Add ${activeSection.singular}` : activeSection.emptyAction}
           </button>
         </section>
       ) : (
         <>
-          <section className="hidden overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm shadow-slate-200/40 lg:block">
+          <section className="hidden overflow-hidden rounded-[30px] border border-slate-200/80 bg-white/90 shadow-sm shadow-slate-200/35 lg:block">
             <div className="max-h-[68vh] overflow-auto">
               <table className="min-w-full border-separate border-spacing-0 text-sm">
                 <thead className="sticky top-0 z-10 bg-slate-950 text-white">
@@ -1658,7 +1703,7 @@ export default function ModellingWorkspace({
             ))}
           </div>
 
-          <section className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm shadow-slate-200/40 md:flex-row md:items-center md:justify-between">
+          <section className="flex flex-col gap-3 rounded-[28px] border border-slate-200/80 bg-white/88 px-4 py-3 shadow-sm shadow-slate-200/35 backdrop-blur md:flex-row md:items-center md:justify-between">
             <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
               <span>Showing <span className="font-semibold text-slate-900">{pagedEntries.length}</span> of <span className="font-semibold text-slate-900">{detailEntries.length}</span></span>
               <span className="text-slate-300">•</span>

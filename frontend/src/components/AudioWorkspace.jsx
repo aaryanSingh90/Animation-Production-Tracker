@@ -20,6 +20,8 @@ import api from "../lib/api";
 import Loader from "./Loader";
 import Modal from "./Modal";
 import FlexibleAssignmentField from "./FlexibleAssignmentField";
+import useEmployeeAvailabilitySummaries from "../hooks/useEmployeeAvailabilitySummaries";
+import { EmployeeAvailabilityHoverCard } from "./EmployeeAvailabilityHoverCard";
 import {
   STAGE_STATUSES,
   getStatusMeta,
@@ -136,9 +138,9 @@ function InlineError({ children }) {
 
 function MetricCard({ label, value, hint, tone = "text-slate-950" }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 shadow-sm">
+    <div className="rounded-3xl border border-slate-200/80 bg-white/85 px-4 py-3 shadow-sm shadow-slate-200/35 backdrop-blur">
       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</p>
-      <p className={`mt-1 text-2xl font-bold ${tone}`}>{value}</p>
+      <p className={`mt-1 text-2xl font-semibold tracking-tight ${tone}`}>{value}</p>
       <p className="mt-1 text-xs text-slate-500">{hint}</p>
     </div>
   );
@@ -159,19 +161,22 @@ function CompactStatusPill({ status }) {
 
 function SummaryArtistChip({ artist }) {
   const isFreelance = artist.employmentType === "FREELANCE";
+  const summariesByUserId = useEmployeeAvailabilitySummaries([artist]);
   return (
-    <span
-      className={`inline-flex max-w-full items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
-        isFreelance
-          ? "border-sky-200 bg-sky-50 text-sky-700"
-          : "border-emerald-200 bg-emerald-50 text-emerald-700"
-      }`}
-    >
-      <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-900 text-[10px] font-bold text-white">
-        {initials(artist.name)}
+    <EmployeeAvailabilityHoverCard user={artist} summary={summariesByUserId[Number(artist.id)]} roleLabel="Assigned Artist" className="block">
+      <span
+        className={`inline-flex max-w-full items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+          isFreelance
+            ? "border-sky-200 bg-sky-50 text-sky-700"
+            : "border-emerald-200 bg-emerald-50 text-emerald-700"
+        }`}
+      >
+        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-900 text-[10px] font-bold text-white">
+          {initials(artist.name)}
+        </span>
+        <span className="truncate">{artist.name}</span>
       </span>
-      <span className="truncate">{artist.name}</span>
-    </span>
+    </EmployeeAvailabilityHoverCard>
   );
 }
 
@@ -976,11 +981,11 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
 
   return (
     <div className="space-y-4">
-      <section className="rounded-3xl border border-slate-200 bg-white px-4 py-4 shadow-sm sm:px-5 sm:py-5">
+      <section className="rounded-[32px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(6,182,212,0.12),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.94))] px-4 py-4 shadow-sm shadow-slate-200/45 sm:px-5 sm:py-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-3xl">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Audio Workspace</p>
-            <h2 className="mt-2 text-xl font-bold text-slate-950 sm:text-2xl">{overview?.project?.name || "Project"} · Audio</h2>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Audio Workspace</p>
+            <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950 sm:text-2xl">{overview?.project?.name || "Project"} · Audio</h2>
             <p className="mt-1 max-w-2xl text-sm text-slate-500">
               Compact production tracking for voiceover, dubbing, approvals, and handoff tasks.
               {recommendedDepartment ? ` Recommended department: ${recommendedDepartment}. Managers can override any time.` : ""}
@@ -989,14 +994,14 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
           <div className="flex flex-wrap gap-2">
             <Link
               to={`/projects/${projectId}`}
-              className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              className="rounded-2xl border border-slate-300 bg-white/80 px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
             >
               Back To Overview
             </Link>
             <button
               type="button"
               onClick={openCreateModal}
-              className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+              className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
             >
               <Plus className="h-4 w-4" /> Add Audio Task
             </button>
@@ -1029,19 +1034,19 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
         ) : null}
       </section>
 
-      <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+      <section className="rounded-[30px] border border-slate-200/80 bg-white/90 shadow-sm shadow-slate-200/35 backdrop-blur">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-4 sm:px-5">
           <div>
-            <div className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-700">
+            <div className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600">
               Audio Tasks
             </div>
-            <h3 className="mt-2 text-lg font-bold text-slate-900">Production Audio Tracker</h3>
+            <h3 className="mt-2 text-lg font-semibold tracking-tight text-slate-950">Production Audio Tracker</h3>
             <p className="mt-1 text-sm text-slate-500">Compact task rows, expandable details, and responsive staffing controls with no horizontal scrolling.</p>
           </div>
           <button
             type="button"
             onClick={() => setFiltersOpen((prev) => !prev)}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 md:hidden"
+            className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 md:hidden"
           >
             <Filter className="h-4 w-4" /> {filtersOpen ? "Hide Filters" : "Show Filters"}
           </button>
@@ -1055,13 +1060,13 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
                 value={filters.search}
                 onChange={(event) => setFilters((prev) => ({ ...prev, search: event.target.value }))}
                 placeholder="Search tasks, notes, artists, departments"
-                className="w-full rounded-xl border border-slate-300 pl-9 pr-3 py-2 text-sm"
+                className="w-full rounded-2xl border border-slate-300 pl-9 pr-3 py-2.5 text-sm"
               />
             </label>
             <select
               value={filters.status}
               onChange={(event) => setFilters((prev) => ({ ...prev, status: event.target.value }))}
-              className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="rounded-2xl border border-slate-300 px-3 py-2.5 text-sm"
             >
               <option value="">All statuses</option>
               {STAGE_STATUSES.map((status) => (
@@ -1073,7 +1078,7 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
             <select
               value={filters.department}
               onChange={(event) => setFilters((prev) => ({ ...prev, department: event.target.value, artistId: "" }))}
-              className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="rounded-2xl border border-slate-300 px-3 py-2.5 text-sm"
             >
               <option value="">All departments</option>
               {departmentOptions.map((department) => (
@@ -1085,7 +1090,7 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
             <select
               value={filters.artistId}
               onChange={(event) => setFilters((prev) => ({ ...prev, artistId: event.target.value }))}
-              className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              className="rounded-2xl border border-slate-300 px-3 py-2.5 text-sm"
             >
               <option value="">All artists</option>
               {filteredArtists.map((artist) => (
@@ -1098,7 +1103,7 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
               <select
                 value={filters.sortBy}
                 onChange={(event) => setFilters((prev) => ({ ...prev, sortBy: event.target.value }))}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                className="w-full rounded-2xl border border-slate-300 px-3 py-2.5 text-sm"
               >
                 <option value="latest">Sort: Latest</option>
                 <option value="endDate">Sort: End Date</option>
@@ -1110,14 +1115,14 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
               <button
                 type="button"
                 onClick={() => setFilters((prev) => ({ ...prev, sortDir: prev.sortDir === "asc" ? "desc" : "asc" }))}
-                className="rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700"
+                className="rounded-2xl border border-slate-300 px-3 py-2.5 text-xs font-semibold uppercase tracking-[0.16em] text-slate-700"
               >
                 {String(filters.sortDir || "desc").toUpperCase()}
               </button>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-3xl border border-slate-200 bg-slate-50/80 px-3 py-2.5 text-xs text-slate-600">
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-semibold text-slate-900">{filteredArtists.length}</span>
               <span>assignable employees in</span>
@@ -1138,7 +1143,7 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
               <button
                 type="button"
                 onClick={toggleSelectVisible}
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
               >
                 {allVisibleSelected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
                 {allVisibleSelected ? "Clear" : "Select"} visible ({visibleItems.length})
@@ -1147,7 +1152,7 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
           </div>
 
           {selectedIds.length > 0 ? (
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+            <div className="rounded-3xl border border-slate-200 bg-slate-50/80 px-3 py-3">
               <div className="mb-2 flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
                 <span>{selectedIds.length} selected</span>
                 <span className="rounded-full bg-white px-2 py-1 text-[11px] tracking-normal text-slate-700">Bulk actions</span>
@@ -1164,7 +1169,7 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
                 <select
                   value={bulkDraft.status}
                   onChange={(event) => setBulkDraft((prev) => ({ ...prev, status: event.target.value }))}
-                  className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                  className="rounded-2xl border border-slate-300 px-3 py-2.5 text-sm"
                   disabled={busy}
                 >
                   <option value="">Choose status</option>
@@ -1178,7 +1183,7 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
                   type="button"
                   onClick={bulkAssign}
                   disabled={busy || !bulkDraft.assignments.length}
-                  className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
+                  className="rounded-full border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
                 >
                   Assign Artists
                 </button>
@@ -1186,7 +1191,7 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
                   type="button"
                   onClick={bulkStatusUpdate}
                   disabled={busy || !bulkDraft.status}
-                  className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
+                  className="rounded-full border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
                 >
                   Change Status
                 </button>
@@ -1194,7 +1199,7 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
                   type="button"
                   onClick={bulkDelete}
                   disabled={busy}
-                  className="rounded-xl bg-rose-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  className="rounded-full bg-rose-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                 >
                   Delete Selected
                 </button>
@@ -1206,18 +1211,18 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
         {error ? <div className="px-4 py-3 text-sm text-rose-700 sm:px-5">{error}</div> : null}
 
         {!visibleItems.length ? (
-          <div className="px-4 py-12 text-center sm:px-5">
+          <div className="px-4 py-9 text-center sm:px-5">
             <div className="mx-auto mb-3 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
               <Volume2 className="h-5 w-5" />
             </div>
-            <h4 className="text-lg font-bold text-slate-900">No Audio Tasks Yet</h4>
+            <h4 className="text-lg font-semibold tracking-tight text-slate-950">No Audio Tasks Yet</h4>
             <p className="mt-1 text-sm text-slate-500">
               Create the first audio production row for this project and start tracking assignments, approvals, and handoff work.
             </p>
             <button
               type="button"
               onClick={openCreateModal}
-              className="mt-4 inline-flex items-center gap-2 rounded-xl bg-slate-950 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+              className="mt-4 inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
             >
               <Plus className="h-4 w-4" /> Create First Audio Task
             </button>

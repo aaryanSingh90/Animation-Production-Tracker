@@ -8,19 +8,20 @@ import { isLateStatus } from "../utils/constants";
 
 function StatCard({ label, value, icon: Icon, tone = "slate" }) {
   const toneClass = {
-    slate: "bg-slate-900 text-white",
-    emerald: "bg-emerald-600 text-white",
-    rose: "bg-rose-500 text-white",
-    sky: "bg-sky-600 text-white",
-    indigo: "bg-indigo-600 text-white"
+    slate: "border-slate-200 bg-white/90 text-slate-950",
+    emerald: "border-emerald-200 bg-emerald-50/90 text-emerald-950",
+    rose: "border-rose-200 bg-rose-50/90 text-rose-950",
+    sky: "border-sky-200 bg-sky-50/90 text-sky-950",
+    indigo: "border-indigo-200 bg-indigo-50/90 text-indigo-950"
   };
-
   return (
-    <div className={`${toneClass[tone] || toneClass.slate} rounded-2xl p-4 shadow-sm`}>
-      <p className="text-xs uppercase tracking-wide text-white/85">{label}</p>
-      <div className="mt-2 flex items-center justify-between">
-        <p className="text-2xl font-bold">{value}</p>
-        {Icon ? <Icon size={18} className="text-white/80" /> : null}
+    <div className={`rounded-3xl border px-4 py-4 shadow-sm shadow-slate-200/40 backdrop-blur ${toneClass[tone] || toneClass.slate}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</p>
+          <p className="mt-1 text-2xl font-semibold tracking-tight">{value}</p>
+        </div>
+        {Icon ? <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-black/5 bg-white/70"><Icon size={18} className="text-slate-500" /></span> : null}
       </div>
     </div>
   );
@@ -31,12 +32,28 @@ function ProgressPill({ value }) {
   const tone = safe >= 75 ? "bg-emerald-500" : safe >= 40 ? "bg-amber-500" : "bg-rose-500";
 
   return (
-    <div className="w-28">
-      <div className="h-1.5 rounded-full bg-slate-200">
+    <div className="w-24">
+      <div className="h-1.5 rounded-full bg-slate-200/80">
         <div className={`h-1.5 rounded-full ${tone}`} style={{ width: `${safe}%` }} />
       </div>
-      <p className="mt-1 text-[11px] font-semibold text-slate-600">{Math.round(safe)}%</p>
+      <p className="mt-1 text-[11px] font-semibold text-slate-500">{Math.round(safe)}%</p>
     </div>
+  );
+}
+
+function SectionCard({ eyebrow, title, description, action, children }) {
+  return (
+    <section className="rounded-[28px] border border-slate-200/80 bg-white/85 p-4 shadow-sm shadow-slate-200/40 backdrop-blur lg:p-5">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">{eyebrow}</p>
+          <h3 className="mt-1 text-xl font-semibold tracking-tight text-slate-950">{title}</h3>
+          {description ? <p className="mt-1 text-sm text-slate-500">{description}</p> : null}
+        </div>
+        {action}
+      </div>
+      {children}
+    </section>
   );
 }
 
@@ -142,8 +159,25 @@ export default function ManagerDashboardPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+    <div className="space-y-5">
+      <section className="overflow-hidden rounded-[32px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.12),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.94))] p-5 shadow-sm shadow-slate-200/50 lg:p-6">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Studio Overview</p>
+            <h1 className="mt-1 text-3xl font-semibold tracking-tight text-slate-950">Production command center</h1>
+            <p className="mt-2 max-w-2xl text-sm text-slate-500">
+              Watch client activity, staffing pressure, and project health from one compact studio view.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-[11px] font-semibold text-slate-500">
+            <span className="rounded-full border border-slate-200 bg-white/80 px-3 py-1.5">{metrics.activeProjects} active projects</span>
+            <span className="rounded-full border border-slate-200 bg-white/80 px-3 py-1.5">{metrics.pendingApprovals} pending approvals</span>
+            <span className="rounded-full border border-slate-200 bg-white/80 px-3 py-1.5">{metrics.delayedStages} delayed stages</span>
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         <StatCard label="Total Clients" value={metrics.totalClients} icon={Building2} tone="indigo" />
         <StatCard label="Active Projects" value={metrics.activeProjects} icon={FolderKanban} tone="emerald" />
         <StatCard label="Active Employees" value={metrics.activeEmployees} icon={Users} tone="sky" />
@@ -151,22 +185,21 @@ export default function ManagerDashboardPage() {
         <StatCard label="Delayed Stages" value={metrics.delayedStages} icon={AlertTriangle} tone="rose" />
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-3">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 xl:col-span-1">
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-bold text-slate-900">Recent Clients</h3>
-              <p className="text-xs text-slate-500">Client accounts and active portfolio</p>
-            </div>
-            <button onClick={() => navigate("/clients")} className="text-xs font-semibold text-slate-600 hover:text-slate-900">
+      <section className="grid gap-5 xl:grid-cols-3">
+        <SectionCard
+          eyebrow="Clients"
+          title="Recent Clients"
+          description="Client accounts and active portfolio."
+          action={
+            <button onClick={() => navigate("/clients")} className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 transition hover:text-slate-900">
               View all
             </button>
-          </div>
-
+          }
+        >
           {!recentClients.length ? (
             <EmptyState title="No clients" description="Create a client to organize projects." />
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-2.5">
               {recentClients.map((client) => (
                 <button
                   key={client.id}
@@ -177,31 +210,37 @@ export default function ManagerDashboardPage() {
                       }
                     })
                   }
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-left transition hover:bg-slate-100"
+                  className="w-full rounded-2xl border border-slate-200/70 bg-slate-50/70 p-3 text-left transition hover:border-slate-300 hover:bg-white"
                 >
-                  <p className="text-sm font-semibold text-slate-900">{client.name}</p>
-                  <p className="text-xs text-slate-500">{client.stats?.totalProjects || 0} projects · {client.stats?.activeProjects || 0} active</p>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-950">{client.name}</p>
+                      <p className="text-xs text-slate-500">{client.stats?.totalProjects || 0} projects · {client.stats?.activeProjects || 0} active</p>
+                    </div>
+                    <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                      {client.stats?.totalShots || 0} shots
+                    </span>
+                  </div>
                 </button>
               ))}
             </div>
           )}
-        </div>
+        </SectionCard>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 xl:col-span-1">
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-bold text-slate-900">Recent Projects</h3>
-              <p className="text-xs text-slate-500">Latest client productions</p>
-            </div>
-            <button onClick={() => navigate("/clients")} className="text-xs font-semibold text-slate-600 hover:text-slate-900">
+        <SectionCard
+          eyebrow="Projects"
+          title="Recent Projects"
+          description="Latest client productions."
+          action={
+            <button onClick={() => navigate("/clients")} className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 transition hover:text-slate-900">
               Browse
             </button>
-          </div>
-
+          }
+        >
           {!recentProjects.length ? (
             <EmptyState title="No projects" description="Projects will appear here once created." />
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-2.5">
               {recentProjects.map((project) => (
                 <button
                   key={project.id}
@@ -214,11 +253,11 @@ export default function ManagerDashboardPage() {
                       }
                     })
                   }
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-left transition hover:bg-slate-100"
+                  className="w-full rounded-2xl border border-slate-200/70 bg-slate-50/70 p-3 text-left transition hover:border-slate-300 hover:bg-white"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-sm font-semibold text-slate-900">{project.name}</p>
+                      <p className="text-sm font-semibold text-slate-950">{project.name}</p>
                       <p className="text-xs text-slate-500">{project.client || "No client"}</p>
                     </div>
                     <ProgressPill value={project.progressPercent} />
@@ -227,31 +266,33 @@ export default function ManagerDashboardPage() {
               ))}
             </div>
           )}
-        </div>
+        </SectionCard>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 xl:col-span-1">
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-bold text-slate-900">Team Workload</h3>
-              <p className="text-xs text-slate-500">Capacity snapshot by artist</p>
-            </div>
-            <button onClick={() => navigate("/employees")} className="text-xs font-semibold text-slate-600 hover:text-slate-900 inline-flex items-center gap-1">
+        <SectionCard
+          eyebrow="Staffing"
+          title="Team Workload"
+          description="Capacity snapshot by artist."
+          action={
+            <button onClick={() => navigate("/employees")} className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 transition hover:text-slate-900">
               Employees <ArrowRight size={12} />
             </button>
-          </div>
-
+          }
+        >
           {!workloadRows.length ? (
             <EmptyState title="No workforce data" description="Employee utilization will appear after assignments." />
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               {workloadRows.map((row) => (
-                <div key={row.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <div className="mb-1 flex items-center justify-between">
-                    <p className="text-sm font-semibold text-slate-900">{row.name}</p>
+                <div key={row.id} className="rounded-2xl border border-slate-200/70 bg-slate-50/70 p-3">
+                  <div className="mb-1 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-950">{row.name}</p>
+                      <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">{row.availabilityStatus.replaceAll("_", " ")}</p>
+                    </div>
                     <p className="text-xs font-semibold text-slate-600">{row.utilization}%</p>
                   </div>
-                  <p className="mb-2 text-[11px] text-slate-500">{row.activeTasks} active tasks · {row.availabilityStatus.replaceAll("_", " ")}</p>
-                  <div className="h-1.5 rounded-full bg-slate-200">
+                  <p className="mb-2 text-[11px] text-slate-500">{row.activeTasks} active tasks</p>
+                  <div className="h-1.5 rounded-full bg-slate-200/80">
                     <div
                       className={`h-1.5 rounded-full ${row.utilization >= 85 ? "bg-rose-500" : row.utilization >= 55 ? "bg-amber-500" : "bg-emerald-500"}`}
                       style={{ width: `${row.utilization}%` }}
@@ -261,7 +302,7 @@ export default function ManagerDashboardPage() {
               ))}
             </div>
           )}
-        </div>
+        </SectionCard>
       </section>
     </div>
   );
