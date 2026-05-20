@@ -20,30 +20,40 @@ const TRACKING_GROUP_LABEL = {
 
 const STAGE_GROUP_BY_CODE = {
   AUDIO: "PROJECT",
+  EDITING: "PROJECT",
   ANIMATICS: "SHOT",
+  ANIMATION: "SHOT",
+  FX: "SHOT",
+  LIGHTING: "SHOT",
+  COMPOSITING: "SHOT",
+  MODELLING: "ASSET",
+  UNWRAPPING: "ASSET",
+  TEXTURING: "ASSET",
+  RIGGING: "ASSET",
+  // Legacy compatibility
   CHARACTER_MODELLING: "ASSET",
   BLENDSHAPES: "ASSET",
   BG_MODELLING: "ASSET",
-  RIGGING: "ASSET",
-  TEXTURING: "SHOT",
-  ANIMATION: "SHOT",
-  COMPOSITING: "PROJECT",
-  EDITING: "PROJECT"
+  RENDERING: "PROJECT"
 };
 
 const PIPELINE_STAGE_ORDER = [
   "AUDIO",
   "ANIMATICS",
+  "MODELLING",
+  "UNWRAPPING",
+  "TEXTURING",
+  "RIGGING",
+  "ANIMATION",
+  "FX",
+  "LIGHTING",
+  "COMPOSITING",
+  "EDITING",
+  // Legacy fallbacks
   "CHARACTER_MODELLING",
   "BLENDSHAPES",
   "BG_MODELLING",
-  "RIGGING",
-  "TEXTURING",
-  "ANIMATION",
-  "LIGHTING",
-  "RENDERING",
-  "COMPOSITING",
-  "EDITING"
+  "RENDERING"
 ];
 
 function resolveStageCode(stage) {
@@ -64,9 +74,7 @@ function normalizeTrackingGroup(value) {
 function resolveSummaryTrackingGroup(summary) {
   const stageCode = String(summary?.stageCode || "").toUpperCase();
   const trackingMode = normalizeTrackingGroup(summary?.trackingMode);
-  if (stageCode === "LIGHTING" || stageCode === "RENDERING") {
-    return trackingMode === "SHOT" ? "SHOT" : "PROJECT";
-  }
+  if (stageCode === "RENDERING") return trackingMode === "SHOT" ? "SHOT" : "PROJECT";
   return STAGE_GROUP_BY_CODE[stageCode] || trackingMode;
 }
 

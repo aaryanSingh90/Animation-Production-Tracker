@@ -2,6 +2,7 @@ const prisma = require("./prisma");
 
 async function recalculateProjectProgress(projectId) {
   const now = new Date();
+  const completedStatuses = new Set(["APPROVED", "DONE", "IHA", "OA"]);
   const [projectStages, shotStages, assetStages] = await Promise.all([
     prisma.projectStage.findMany({
       where: { projectId, isActive: true },
@@ -29,12 +30,12 @@ async function recalculateProjectProgress(projectId) {
 
   const allStages = [...projectStages, ...shotStages, ...assetStages];
   const totalStages = allStages.length;
-  const approvedStages = allStages.filter((stage) => stage.status === "APPROVED").length;
+  const approvedStages = allStages.filter((stage) => completedStatuses.has(stage.status)).length;
   const progressPercent = totalStages === 0 ? 0 : Number(((approvedStages / totalStages) * 100).toFixed(2));
 
   const hasIssues = allStages.some((stage) => stage.status === "ISSUE" || stage.isDeadlineMissed === true);
   const hasDelayed = allStages.some(
-    (stage) => stage.deadline && new Date(stage.deadline) < now && stage.status !== "APPROVED"
+    (stage) => stage.deadline && new Date(stage.deadline) < now && !completedStatuses.has(stage.status)
   );
 
   let overallStatus = "ON_TRACK";

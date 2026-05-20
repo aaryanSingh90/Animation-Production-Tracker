@@ -198,9 +198,13 @@ const updateStageSchema = z
   .object({
     status: stageStatusEnum.optional(),
     deadline: isoDate.nullable().optional(),
+    startDate: isoDate.nullable().optional(),
+    endDate: isoDate.nullable().optional(),
     assignedUserId: z.coerce.number().int().positive().nullable().optional(),
     notes: z.string().max(5000).optional(),
     feedback: z.string().max(5000).optional().nullable(),
+    audioStatus: stageStatusEnum.optional().nullable(),
+    finalOutput: z.string().max(5000).optional().nullable(),
     order: z.coerce.number().int().min(0).optional(),
     isActive: z.boolean().optional(),
     customName: z.string().max(255).optional().nullable(),
@@ -303,6 +307,10 @@ const teamLeadSchema = z.object({
 
 const createShotSchema = z.object({
   shotNumber: z.coerce.number().int().min(1).optional(),
+  label: z.string().max(255).optional().or(z.literal("")),
+  frameStart: z.coerce.number().int().min(0).optional(),
+  frameEnd: z.coerce.number().int().min(0),
+  seconds: z.coerce.number().positive().optional(),
   name: z.string().max(255).optional().or(z.literal("")),
   description: z.string().max(2000).optional().or(z.literal("")),
   duration: z.coerce.number().positive().optional(),
@@ -310,9 +318,25 @@ const createShotSchema = z.object({
   status: stageStatusEnum.optional()
 });
 
+const bulkCreateShotsSchema = z.object({
+  shots: z
+    .array(
+      z.object({
+        frameStart: z.coerce.number().int().min(0).optional(),
+        frameEnd: z.coerce.number().int().min(0)
+      })
+    )
+    .min(1)
+    .max(1000)
+});
+
 const updateShotSchema = z
   .object({
     shotNumber: z.coerce.number().int().min(1).optional(),
+    label: z.string().max(255).optional().or(z.literal("")),
+    frameStart: z.coerce.number().int().min(0).optional(),
+    frameEnd: z.coerce.number().int().min(0).optional(),
+    seconds: z.coerce.number().positive().optional().nullable(),
     name: z.string().max(255).optional().or(z.literal("")),
     description: z.string().max(2000).optional().or(z.literal("")),
     duration: z.coerce.number().positive().optional().nullable(),
@@ -323,7 +347,8 @@ const updateShotSchema = z
 
 const createAssetSchema = z.object({
   name: z.string().min(1).max(255),
-  type: z.enum(["CHARACTER", "PROP", "ENVIRONMENT"]),
+  type: z.enum(["CHARACTER", "PROP", "BG", "ENVIRONMENT"]),
+  subCategory: z.enum(["CHARACTER", "CHARACTER_BLENDSHAPES", "PROP", "BG"]).optional(),
   description: z.string().max(2000).optional().or(z.literal("")),
   referenceImageUrl: z.string().url().optional().or(z.literal("")),
   status: stageStatusEnum.optional()
@@ -332,7 +357,9 @@ const createAssetSchema = z.object({
 const updateAssetSchema = z
   .object({
     name: z.string().min(1).max(255).optional(),
-    type: z.enum(["CHARACTER", "PROP", "ENVIRONMENT"]).optional(),
+    type: z.enum(["CHARACTER", "PROP", "BG", "ENVIRONMENT"]).optional(),
+    subCategory: z.enum(["CHARACTER", "CHARACTER_BLENDSHAPES", "PROP", "BG"]).optional().nullable(),
+    order: z.coerce.number().int().min(0).optional(),
     description: z.string().max(2000).optional().or(z.literal("")),
     referenceImageUrl: z.string().url().optional().or(z.literal("")),
     status: stageStatusEnum.optional()
@@ -345,7 +372,7 @@ const stageWorkspaceQuerySchema = z.object({
   status: stageStatusEnum.optional(),
   artistId: z.coerce.number().int().positive().optional(),
   search: z.string().max(255).optional(),
-  type: z.enum(["CHARACTER", "PROP", "ENVIRONMENT"]).optional(),
+  type: z.enum(["CHARACTER", "PROP", "BG", "ENVIRONMENT"]).optional(),
   sequence: z.string().max(120).optional(),
   unassigned: z.coerce.boolean().optional(),
   overdue: z.coerce.boolean().optional(),
@@ -462,6 +489,7 @@ module.exports = {
   teamProjectSchema,
   teamLeadSchema,
   createShotSchema,
+  bulkCreateShotsSchema,
   updateShotSchema,
   createAssetSchema,
   updateAssetSchema,

@@ -36,6 +36,7 @@ const assignmentsRoutes = require("./routes/assignmentsRoutes");
 const shotsRoutes = require("./routes/shotsRoutes");
 const assetsRoutes = require("./routes/assetsRoutes");
 const trackingRoutes = require("./routes/trackingRoutes");
+const searchRoutes = require("./routes/searchRoutes");
 
 const app = express();
 const server = http.createServer(app);
@@ -127,6 +128,7 @@ app.use("/api", shotsRoutes);
 app.use("/api", assetsRoutes);
 app.use("/api", trackingRoutes);
 app.use("/api", commentsRoutes);
+app.use("/api/search", searchRoutes);
 
 app.use("*", (req, res) => {
   res.status(404).json({

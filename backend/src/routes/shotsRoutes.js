@@ -7,6 +7,7 @@ const {
   idParamSchema,
   stringIdParamSchema,
   createShotSchema,
+  bulkCreateShotsSchema,
   updateShotSchema,
   updateStageSchema,
   bulkShotAssignSchema,
@@ -24,6 +25,12 @@ router.post(
   requireRoles("BOSS", "PRODUCTION_MANAGER", "COORDINATOR"),
   validate({ params: idParamSchema, body: createShotSchema }),
   shotsController.createProjectShot
+);
+router.post(
+  "/projects/:id/shots/bulk",
+  requireRoles("BOSS", "PRODUCTION_MANAGER", "COORDINATOR"),
+  validate({ params: idParamSchema, body: bulkCreateShotsSchema }),
+  shotsController.bulkCreateProjectShots
 );
 
 router.put(

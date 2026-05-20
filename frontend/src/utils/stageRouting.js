@@ -1,23 +1,44 @@
 export const STAGE_SLUG_TO_CODE = {
   audio: "AUDIO",
   animatics: "ANIMATICS",
+  modelling: "MODELLING",
+  "character-modelling": "MODELLING",
+  "character-modeling": "MODELLING",
+  unwrapping: "UNWRAPPING",
   texturing: "TEXTURING",
-  animation: "ANIMATION",
-  lighting: "LIGHTING",
-  render: "RENDERING",
-  rendering: "RENDERING",
-  "character-modelling": "CHARACTER_MODELLING",
-  "character-modeling": "CHARACTER_MODELLING",
-  blendshapes: "BLENDSHAPES",
-  "bg-modelling": "BG_MODELLING",
-  "bg-modeling": "BG_MODELLING",
   rigging: "RIGGING",
+  animation: "ANIMATION",
+  fx: "FX",
+  lighting: "LIGHTING",
   comping: "COMPOSITING",
   compositing: "COMPOSITING",
-  editing: "EDITING"
+  editing: "EDITING",
+  // Backward compatibility
+  render: "RENDERING",
+  rendering: "RENDERING",
+  blendshapes: "BLENDSHAPES",
+  "bg-modelling": "BG_MODELLING",
+  "bg-modeling": "BG_MODELLING"
 };
 
-export const STAGE_CODE_TO_SLUG = Object.fromEntries(Object.entries(STAGE_SLUG_TO_CODE).map(([slug, code]) => [code, slug]));
+export const STAGE_CODE_TO_SLUG = {
+  AUDIO: "audio",
+  ANIMATICS: "animatics",
+  MODELLING: "modelling",
+  UNWRAPPING: "unwrapping",
+  TEXTURING: "texturing",
+  RIGGING: "rigging",
+  ANIMATION: "animation",
+  FX: "fx",
+  LIGHTING: "lighting",
+  COMPOSITING: "compositing",
+  EDITING: "editing",
+  // Legacy
+  CHARACTER_MODELLING: "character-modelling",
+  BLENDSHAPES: "blendshapes",
+  BG_MODELLING: "bg-modelling",
+  RENDERING: "rendering"
+};
 
 export function stageCodeFromSlug(slug) {
   return STAGE_SLUG_TO_CODE[String(slug || "").toLowerCase()] || null;

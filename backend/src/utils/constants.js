@@ -13,18 +13,18 @@ const STAGE_DEFAULTS = [
     recommendedArtists: 3
   },
   {
-    stageName: "CHARACTER_MODELLING",
-    departmentName: getDepartmentForStage("CHARACTER_MODELLING"),
+    stageName: "MODELLING",
+    departmentName: getDepartmentForStage("MODELLING"),
     recommendedArtists: 3
   },
   {
-    stageName: "BLENDSHAPES",
-    departmentName: getDepartmentForStage("BLENDSHAPES"),
+    stageName: "UNWRAPPING",
+    departmentName: getDepartmentForStage("UNWRAPPING"),
     recommendedArtists: 2
   },
   {
-    stageName: "BG_MODELLING",
-    departmentName: getDepartmentForStage("BG_MODELLING"),
+    stageName: "TEXTURING",
+    departmentName: getDepartmentForStage("TEXTURING"),
     recommendedArtists: 3
   },
   {
@@ -33,24 +33,19 @@ const STAGE_DEFAULTS = [
     recommendedArtists: 3
   },
   {
-    stageName: "TEXTURING",
-    departmentName: getDepartmentForStage("TEXTURING"),
-    recommendedArtists: 3
-  },
-  {
     stageName: "ANIMATION",
     departmentName: getDepartmentForStage("ANIMATION"),
     recommendedArtists: 10
   },
   {
-    stageName: "LIGHTING",
-    departmentName: getDepartmentForStage("LIGHTING"),
+    stageName: "FX",
+    departmentName: getDepartmentForStage("FX"),
     recommendedArtists: 4
   },
   {
-    stageName: "RENDER",
-    departmentName: getDepartmentForStage("RENDERING"),
-    recommendedArtists: 1
+    stageName: "LIGHTING",
+    departmentName: getDepartmentForStage("LIGHTING"),
+    recommendedArtists: 4
   },
   {
     stageName: "COMPOSITING",
@@ -75,7 +70,7 @@ const PIPELINE_TEMPLATES = [
   {
     id: "template_3d",
     name: "3D Template",
-    stages: ["AUDIO", "CHARACTER_MODELLING", "RIGGING", "ANIMATION", "LIGHTING", "RENDER", "COMPOSITING", "EDITING"]
+    stages: ["AUDIO", "MODELLING", "RIGGING", "ANIMATION", "LIGHTING", "COMPOSITING", "EDITING"]
   },
   {
     id: "template_full",
@@ -83,14 +78,13 @@ const PIPELINE_TEMPLATES = [
     stages: [
       "AUDIO",
       "ANIMATICS",
-      "CHARACTER_MODELLING",
-      "BLENDSHAPES",
-      "BG_MODELLING",
-      "RIGGING",
+      "MODELLING",
+      "UNWRAPPING",
       "TEXTURING",
+      "RIGGING",
       "ANIMATION",
+      "FX",
       "LIGHTING",
-      "RENDER",
       "COMPOSITING",
       "EDITING"
     ]

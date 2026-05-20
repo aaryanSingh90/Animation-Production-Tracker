@@ -16,14 +16,15 @@ import { useAuthStore } from "../store/authStore";
 const DEFAULT_PAGE_SIZE = 25;
 const DEFAULT_TRACKING_BY_STAGE = {
   AUDIO: "PROJECT",
-  COMPOSITING: "PROJECT",
   EDITING: "PROJECT",
   ANIMATICS: "SHOT",
-  TEXTURING: "SHOT",
+  FX: "SHOT",
+  LIGHTING: "SHOT",
+  COMPOSITING: "SHOT",
   ANIMATION: "SHOT",
-  CHARACTER_MODELLING: "ASSET",
-  BLENDSHAPES: "ASSET",
-  BG_MODELLING: "ASSET",
+  MODELLING: "ASSET",
+  UNWRAPPING: "ASSET",
+  TEXTURING: "ASSET",
   RIGGING: "ASSET"
 };
 
@@ -34,6 +35,7 @@ function isOverdue(deadline, status) {
 }
 
 function deriveShotCode(shot) {
+  if (shot?.label) return String(shot.label).trim();
   if (shot?.name) return String(shot.name).trim();
   if (Number.isInteger(shot?.shotNumber)) return `SH${String(shot.shotNumber).padStart(3, "0")}`;
   return "SHOT";
@@ -498,6 +500,7 @@ export default function ProjectStageWorkspacePage() {
               <option value="">All asset types</option>
               <option value="CHARACTER">Character</option>
               <option value="PROP">Prop</option>
+              <option value="BG">BG</option>
               <option value="ENVIRONMENT">Environment</option>
             </select>
           ) : trackingMode === "SHOT" ? (

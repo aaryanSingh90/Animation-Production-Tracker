@@ -12,17 +12,20 @@ export const STATUS_COLORS = {
 export const PROJECT_STAGES = [
   "AUDIO",
   "ANIMATICS",
+  "MODELLING",
+  "UNWRAPPING",
+  "TEXTURING",
+  "RIGGING",
+  "ANIMATION",
+  "FX",
+  "LIGHTING",
+  "COMPOSITING",
+  "EDITING",
+  // Legacy stage keys kept for existing records/routes.
   "CHARACTER_MODELLING",
   "BLENDSHAPES",
-  "CHARACTER_MODELLING_BLENDSHAPES",
   "BG_MODELLING",
-  "RIGGING",
-  "TEXTURING",
-  "ANIMATION",
-  "LIGHTING",
-  "RENDER",
-  "COMPOSITING",
-  "EDITING"
+  "RENDER"
 ];
 
 export const CHARACTER_STAGES = ["REFERENCE", "MODELLING", "BLENDSHAPES", "TEXTURING", "RIGGING"];

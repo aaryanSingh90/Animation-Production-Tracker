@@ -1,6 +1,12 @@
 export const STAGE_DEPARTMENT_MAP = {
   AUDIO: "Audio Department",
   ANIMATICS: "Animation Department",
+  MODELLING: "Modelling Department",
+  UNWRAPPING: "Texturing Department",
+  FX: "Animation Department",
+  COMPOSITING: "Compositing Department",
+  EDITING: "Editing Department",
+  // Backward compatibility
   CHARACTER_MODELLING: "Modelling Department",
   BLENDSHAPES: "Modelling Department",
   BG_MODELLING: "Modelling Department",
@@ -9,8 +15,7 @@ export const STAGE_DEPARTMENT_MAP = {
   LIGHTING: "Lighting Department",
   ANIMATION: "Animation Department",
   RENDERING: "Lighting Department",
-  COMPOSITING: "Compositing Department",
-  EDITING: "Editing Department"
+  RENDER: "Lighting Department"
 };
 
 export function normalizeStageCode(value) {

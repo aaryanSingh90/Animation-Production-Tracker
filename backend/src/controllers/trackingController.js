@@ -360,15 +360,26 @@ const getStageShotsWorkspace = asyncHandler(async (req, res) => {
   if (sequence) {
     where.shot = {
       ...where.shot,
-      name: {
-        contains: String(sequence),
-        mode: "insensitive"
-      }
+      OR: [
+        {
+          name: {
+            contains: String(sequence),
+            mode: "insensitive"
+          }
+        },
+        {
+          label: {
+            contains: String(sequence),
+            mode: "insensitive"
+          }
+        }
+      ]
     };
   }
   if (search) {
     const shotSearch = [
       { shot: { name: { contains: String(search), mode: "insensitive" } } },
+      { shot: { label: { contains: String(search), mode: "insensitive" } } },
       { shot: { shotNumber: Number.isNaN(Number(search)) ? undefined : Number(search) } }
     ].filter(Boolean);
     where.OR = where.OR ? [...where.OR, ...shotSearch] : shotSearch;
@@ -396,7 +407,11 @@ const getStageShotsWorkspace = asyncHandler(async (req, res) => {
           select: {
             id: true,
             shotNumber: true,
+            label: true,
             name: true,
+            frameStart: true,
+            frameEnd: true,
+            seconds: true,
             order: true,
             status: true
           }

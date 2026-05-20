@@ -204,6 +204,18 @@ const updateStage = asyncHandler(async (req, res) => {
   if (Object.prototype.hasOwnProperty.call(req.body, "notes")) {
     data.notes = req.body.notes;
   }
+  if (Object.prototype.hasOwnProperty.call(req.body, "startDate")) {
+    data.startDate = req.body.startDate ? new Date(req.body.startDate) : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body, "endDate")) {
+    data.endDate = req.body.endDate ? new Date(req.body.endDate) : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body, "audioStatus")) {
+    data.audioStatus = req.body.audioStatus || null;
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body, "finalOutput")) {
+    data.finalOutput = req.body.finalOutput || null;
+  }
   if (Object.prototype.hasOwnProperty.call(req.body, "order")) {
     data.order = Number(req.body.order);
   }
@@ -269,6 +281,14 @@ const updateStage = asyncHandler(async (req, res) => {
 
   if (data.status === "APPROVED") data.approvedAt = new Date();
   if (data.status === "REJECTED") data.rejectedAt = new Date();
+  if (data.status === "IN_PROGRESS" && !stage.actualStartedAt) {
+    data.actualStartedAt = new Date();
+  }
+  if (data.status === "APPROVED" && stage.actualStartedAt && !stage.actualDoneAt) {
+    const doneAt = new Date();
+    data.actualDoneAt = doneAt;
+    data.timeConsumedMin = Math.max(1, Math.round((doneAt.getTime() - new Date(stage.actualStartedAt).getTime()) / 60000));
+  }
 
   const updated = await prisma.projectStage.update({
     where: { id: stageId },

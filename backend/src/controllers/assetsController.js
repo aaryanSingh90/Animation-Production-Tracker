@@ -9,6 +9,20 @@ function isManager(role) {
   return MANAGER_ROLES.includes(role);
 }
 
+function normalizeAssetType(type) {
+  if (!type) return type;
+  if (type === "ENVIRONMENT") return "BG";
+  return type;
+}
+
+function deriveSubCategory(type, subCategory) {
+  if (subCategory) return subCategory;
+  if (type === "CHARACTER") return "CHARACTER";
+  if (type === "PROP") return "PROP";
+  if (type === "BG") return "BG";
+  return null;
+}
+
 async function refreshAssetStatus(assetId) {
   const stages = await prisma.assetStage.findMany({
     where: { assetId },
@@ -74,7 +88,7 @@ const listProjectAssets = asyncHandler(async (req, res) => {
           }
         }
       },
-      orderBy: [{ createdAt: "asc" }],
+      orderBy: [{ type: "asc" }, { order: "asc" }, { createdAt: "asc" }],
       skip: (page - 1) * pageSize,
       take: pageSize
     })
@@ -97,13 +111,18 @@ const createProjectAsset = asyncHandler(async (req, res) => {
   const project = await prisma.project.findUnique({ where: { id: projectId } });
   if (!project) throw new AppError("Project not found", 404);
 
+  const type = normalizeAssetType(req.body.type);
+  const order = (await prisma.asset.count({ where: { projectId } })) + 1;
+
   const asset = await prisma.asset.create({
     data: {
       projectId,
       name: req.body.name,
-      type: req.body.type,
+      type,
+      subCategory: deriveSubCategory(type, req.body.subCategory),
       description: req.body.description || null,
       referenceImageUrl: req.body.referenceImageUrl || null,
+      order,
       status: req.body.status || "NOT_STARTED"
     }
   });
@@ -154,7 +173,7 @@ const updateAsset = asyncHandler(async (req, res) => {
   if (!existing) throw new AppError("Asset not found", 404);
 
   const payload = {};
-  const fields = ["name", "type", "description", "referenceImageUrl", "status"];
+  const fields = ["name", "type", "subCategory", "description", "referenceImageUrl", "status", "order"];
   for (const field of fields) {
     if (Object.prototype.hasOwnProperty.call(req.body, field)) {
       payload[field] = req.body[field] || null;
@@ -166,6 +185,12 @@ const updateAsset = asyncHandler(async (req, res) => {
   }
   if (Object.prototype.hasOwnProperty.call(payload, "type") && !payload.type) {
     throw new AppError("Asset type is required", 400);
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "type") && payload.type) {
+    payload.type = normalizeAssetType(payload.type);
+    if (!Object.prototype.hasOwnProperty.call(payload, "subCategory")) {
+      payload.subCategory = deriveSubCategory(payload.type, null);
+    }
   }
 
   const updated = await prisma.asset.update({
@@ -254,6 +279,17 @@ const updateAssetStage = asyncHandler(async (req, res) => {
     throw new AppError("Employees can only move asset stages to IN_PROGRESS or SUBMITTED", 403);
   }
 
+  if (Object.prototype.hasOwnProperty.call(req.body, "startDate")) {
+    payload.startDate = req.body.startDate ? new Date(req.body.startDate) : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body, "endDate")) {
+    payload.endDate = req.body.endDate ? new Date(req.body.endDate) : null;
+  }
+
+  if (payload.status === "IN_PROGRESS" && !assetStage.actualStartedAt) {
+    payload.actualStartedAt = new Date();
+  }
+
   if (payload.status === "SUBMITTED") {
     payload.submittedAt = new Date();
   }
@@ -265,6 +301,12 @@ const updateAssetStage = asyncHandler(async (req, res) => {
 
   if (manager && ["REJECTED", "REVISION_REQUIRED"].includes(payload.status || "")) {
     payload.approvedAt = null;
+  }
+
+  if (payload.status === "APPROVED" && assetStage.actualStartedAt && !assetStage.actualDoneAt) {
+    const doneAt = new Date();
+    payload.actualDoneAt = doneAt;
+    payload.timeConsumedMin = Math.max(1, Math.round((doneAt.getTime() - new Date(assetStage.actualStartedAt).getTime()) / 60000));
   }
 
   const updated = await prisma.assetStage.update({

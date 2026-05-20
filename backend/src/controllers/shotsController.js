@@ -16,6 +16,15 @@ function shotLabel(shot) {
   return "Shot";
 }
 
+function shotLabelByNumber(shotNumber) {
+  return `Shot_${String(shotNumber).padStart(2, "0")}`;
+}
+
+function resolveShotSeconds(frameStart, frameEnd) {
+  if (!Number.isFinite(frameStart) || !Number.isFinite(frameEnd) || frameEnd < frameStart) return null;
+  return Number(((frameEnd - frameStart + 1) / 24).toFixed(2));
+}
+
 async function refreshShotStatus(shotId) {
   const stages = await prisma.shotStage.findMany({
     where: { shotId },
@@ -122,15 +131,28 @@ const createProjectShot = asyncHandler(async (req, res) => {
 
   const shotNumber = req.body.shotNumber || (existingMax._max.shotNumber || 0) + 1;
   const order = req.body.order || (existingMax._max.order || 0) + 1;
+  const frameStart = Number.isInteger(req.body.frameStart) ? Number(req.body.frameStart) : 101;
+  const frameEnd = Number(req.body.frameEnd);
+
+  if (!Number.isFinite(frameEnd) || frameEnd < frameStart) {
+    throw new AppError("frameEnd must be greater than or equal to frameStart", 400);
+  }
+
+  const seconds = resolveShotSeconds(frameStart, frameEnd);
+  const label = req.body.label || shotLabelByNumber(shotNumber);
 
   const shot = await prisma.shot.create({
     data: {
       projectId,
       shotNumber,
       order,
-      name: req.body.name || `Shot ${String(shotNumber).padStart(3, "0")}`,
+      label,
+      frameStart,
+      frameEnd,
+      seconds,
+      name: req.body.name || label,
       description: req.body.description || null,
-      duration: req.body.duration ? Number(req.body.duration) : null,
+      duration: req.body.duration ? Number(req.body.duration) : seconds,
       status: req.body.status || "NOT_STARTED"
     }
   });
@@ -183,6 +205,96 @@ const createProjectShot = asyncHandler(async (req, res) => {
   return res.status(201).json(hydrated);
 });
 
+const bulkCreateProjectShots = asyncHandler(async (req, res) => {
+  const projectId = Number(req.params.id);
+  const { shots } = req.body;
+
+  const project = await prisma.project.findUnique({
+    where: { id: projectId }
+  });
+  if (!project) throw new AppError("Project not found", 404);
+
+  if (!Array.isArray(shots) || shots.length === 0) {
+    throw new AppError("shots array is required", 400);
+  }
+
+  const existingMax = await prisma.shot.aggregate({
+    where: { projectId },
+    _max: {
+      shotNumber: true,
+      order: true
+    }
+  });
+
+  const startShotNumber = (existingMax._max.shotNumber || 0) + 1;
+  const startOrder = (existingMax._max.order || 0) + 1;
+
+  const snapshot = await getTrackingDefinitionSnapshot({ prisma, project });
+  const stageDefinitionIds = Array.from(snapshot.shotCodes)
+    .map((code) => snapshot.stageDefinitionsByCode.get(code)?.id)
+    .filter(Boolean);
+
+  const created = await prisma.$transaction(
+    shots.map((shotInput, index) => {
+      const shotNumber = startShotNumber + index;
+      const order = startOrder + index;
+      const frameStart = Number.isInteger(shotInput?.frameStart) ? Number(shotInput.frameStart) : 101;
+      const frameEnd = Number(shotInput?.frameEnd);
+
+      if (!Number.isFinite(frameEnd) || frameEnd < frameStart) {
+        throw new AppError(`Invalid frame range for shot ${shotNumber}`, 400);
+      }
+
+      const seconds = resolveShotSeconds(frameStart, frameEnd);
+      const label = shotLabelByNumber(shotNumber);
+
+      return prisma.shot.create({
+        data: {
+          projectId,
+          shotNumber,
+          order,
+          label,
+          frameStart,
+          frameEnd,
+          seconds,
+          name: label,
+          duration: seconds,
+          status: "NOT_STARTED",
+          stages: {
+            create: stageDefinitionIds.map((stageDefinitionId) => ({
+              stageDefinitionId,
+              status: "NOT_STARTED"
+            }))
+          }
+        },
+        include: {
+          stages: {
+            include: {
+              stageDefinition: true
+            },
+            orderBy: {
+              createdAt: "asc"
+            }
+          }
+        }
+      });
+    })
+  );
+
+  await prisma.project.update({
+    where: { id: projectId },
+    data: {
+      totalShots: {
+        increment: created.length
+      }
+    }
+  });
+
+  await recalculateProjectProgress(projectId);
+
+  return res.status(201).json(created);
+});
+
 const updateShot = asyncHandler(async (req, res) => {
   const shotId = req.params.id;
 
@@ -190,15 +302,42 @@ const updateShot = asyncHandler(async (req, res) => {
   if (!existing) throw new AppError("Shot not found", 404);
 
   const payload = {};
-  const fields = ["shotNumber", "name", "description", "duration", "order", "status"];
+  const fields = ["shotNumber", "label", "name", "description", "duration", "order", "status", "frameStart", "frameEnd", "seconds"];
   for (const field of fields) {
     if (Object.prototype.hasOwnProperty.call(req.body, field)) {
       payload[field] = req.body[field];
     }
   }
 
+  const nextFrameStart = Object.prototype.hasOwnProperty.call(payload, "frameStart")
+    ? Number(payload.frameStart)
+    : existing.frameStart ?? 101;
+  const nextFrameEnd = Object.prototype.hasOwnProperty.call(payload, "frameEnd")
+    ? Number(payload.frameEnd)
+    : existing.frameEnd;
+
+  if (Object.prototype.hasOwnProperty.call(payload, "frameStart") || Object.prototype.hasOwnProperty.call(payload, "frameEnd")) {
+    if (!Number.isFinite(nextFrameEnd) || nextFrameEnd < nextFrameStart) {
+      throw new AppError("Invalid frame range", 400);
+    }
+    payload.seconds = resolveShotSeconds(nextFrameStart, nextFrameEnd);
+    if (!Object.prototype.hasOwnProperty.call(payload, "duration")) {
+      payload.duration = payload.seconds;
+    }
+  }
+
   if (Object.prototype.hasOwnProperty.call(payload, "duration")) {
     payload.duration = payload.duration ? Number(payload.duration) : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "seconds")) {
+    payload.seconds = payload.seconds ? Number(payload.seconds) : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "name") && !payload.name) {
+    const numberForName = payload.shotNumber || existing.shotNumber;
+    payload.name = payload.label || existing.label || shotLabelByNumber(numberForName);
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "label") && !payload.label) {
+    payload.label = shotLabelByNumber(payload.shotNumber || existing.shotNumber);
   }
 
   const updated = await prisma.shot.update({
@@ -286,6 +425,12 @@ const updateShotStage = asyncHandler(async (req, res) => {
   if (Object.prototype.hasOwnProperty.call(req.body, "feedback")) {
     payload.feedback = req.body.feedback;
   }
+  if (Object.prototype.hasOwnProperty.call(req.body, "startDate")) {
+    payload.startDate = req.body.startDate ? new Date(req.body.startDate) : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body, "endDate")) {
+    payload.endDate = req.body.endDate ? new Date(req.body.endDate) : null;
+  }
   if (Object.prototype.hasOwnProperty.call(req.body, "assignedUserId") && manager) {
     payload.assignedUserId = req.body.assignedUserId ? Number(req.body.assignedUserId) : null;
   }
@@ -296,6 +441,10 @@ const updateShotStage = asyncHandler(async (req, res) => {
 
   if (!manager && payload.status && !["IN_PROGRESS", "SUBMITTED"].includes(payload.status)) {
     throw new AppError("Employees can only move shot stages to IN_PROGRESS or SUBMITTED", 403);
+  }
+
+  if (payload.status === "IN_PROGRESS" && !shotStage.actualStartedAt) {
+    payload.actualStartedAt = new Date();
   }
 
   if (payload.status === "SUBMITTED") {
@@ -309,6 +458,12 @@ const updateShotStage = asyncHandler(async (req, res) => {
 
   if (manager && ["REJECTED", "REVISION_REQUIRED"].includes(payload.status || "")) {
     payload.approvedAt = null;
+  }
+
+  if (payload.status === "APPROVED" && shotStage.actualStartedAt && !shotStage.actualDoneAt) {
+    const doneAt = new Date();
+    payload.actualDoneAt = doneAt;
+    payload.timeConsumedMin = Math.max(1, Math.round((doneAt.getTime() - new Date(shotStage.actualStartedAt).getTime()) / 60000));
   }
 
   const updated = await prisma.shotStage.update({
@@ -672,6 +827,7 @@ const rangeAssignShotStages = asyncHandler(async (req, res) => {
 module.exports = {
   listProjectShots,
   createProjectShot,
+  bulkCreateProjectShots,
   updateShot,
   deleteShot,
   updateShotStage,

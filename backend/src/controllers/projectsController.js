@@ -41,6 +41,20 @@ function buildDepartmentLookup() {
   return map;
 }
 
+const BLUEPRINT_ACTIVE_CODES = [
+  "AUDIO",
+  "ANIMATICS",
+  "MODELLING",
+  "UNWRAPPING",
+  "TEXTURING",
+  "RIGGING",
+  "ANIMATION",
+  "FX",
+  "LIGHTING",
+  "COMPOSITING",
+  "EDITING"
+];
+
 function deriveSequenceFromShotCode(code) {
   const value = String(code || "").trim();
   if (!value) return null;
@@ -131,9 +145,7 @@ async function initializeDynamicTracking({
   const departmentLookup = buildDepartmentLookup();
 
   const requestedCodes = new Set(
-    (activeStageCodes.length ? activeStageCodes : stageDefinitions.map((definition) => definition.code)).map((code) =>
-      normalizeStageCode(code)
-    )
+    (activeStageCodes.length ? activeStageCodes : BLUEPRINT_ACTIVE_CODES).map((code) => normalizeStageCode(code))
   );
 
   const filteredDefinitions = stageDefinitions
@@ -191,12 +203,22 @@ async function initializeDynamicTracking({
 
   if (shotsToCreate > 0) {
     for (let index = 0; index < shotsToCreate; index += 1) {
+      const shotNumber = index + 1;
+      const label = `Shot_${String(shotNumber).padStart(2, "0")}`;
+      const frameStart = 101;
+      const frameEnd = 124;
+      const seconds = Number(((frameEnd - frameStart + 1) / 24).toFixed(2));
       const shot = await prisma.shot.create({
         data: {
           projectId,
-          shotNumber: index + 1,
-          name: `Shot ${String(index + 1).padStart(3, "0")}`,
-          order: index + 1,
+          shotNumber,
+          label,
+          frameStart,
+          frameEnd,
+          seconds,
+          name: label,
+          duration: seconds,
+          order: shotNumber,
           status: "NOT_STARTED"
         }
       });
@@ -425,7 +447,11 @@ const createProject = asyncHandler(async (req, res) => {
     const safeLightingMode = lightingMode === "SHOT" ? "SHOT" : "PROJECT";
     const safeRenderingMode = renderingMode === "SHOT" ? "SHOT" : "PROJECT";
     const normalizedActiveCodes = Array.from(
-      new Set((activeStageCodes || []).map((code) => normalizeStageCode(code)).filter(Boolean))
+      new Set(
+        ((activeStageCodes || []).length ? activeStageCodes : BLUEPRINT_ACTIVE_CODES)
+          .map((code) => normalizeStageCode(code))
+          .filter(Boolean)
+      )
     );
 
     project = await prisma.project.create({
@@ -1157,7 +1183,7 @@ const getMyTasks = asyncHandler(async (req, res) => {
       assignmentType: stage.assignments[0]?.user?.employmentType || req.user.employmentType || "INHOUSE"
     })),
     ...shotStages.map((stage) => {
-      const shotCode = stage.shot?.name || (stage.shot?.shotNumber ? `SH${String(stage.shot.shotNumber).padStart(3, "0")}` : null);
+      const shotCode = stage.shot?.label || stage.shot?.name || (stage.shot?.shotNumber ? `SH${String(stage.shot.shotNumber).padStart(3, "0")}` : null);
       return {
         id: stage.id,
         trackingType: "SHOT",

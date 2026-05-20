@@ -95,6 +95,7 @@ const getApprovalQueue = asyncHandler(async (req, res) => {
         shot: {
           select: {
             id: true,
+            label: true,
             name: true,
             shotNumber: true,
             project: {
@@ -170,7 +171,7 @@ const getApprovalQueue = asyncHandler(async (req, res) => {
       };
     }),
     ...shotStages.map((stage) => {
-      const shotCode = stage.shot?.name || (Number.isInteger(stage.shot?.shotNumber) ? `SH${String(stage.shot.shotNumber).padStart(3, "0")}` : null);
+      const shotCode = stage.shot?.label || stage.shot?.name || (Number.isInteger(stage.shot?.shotNumber) ? `SH${String(stage.shot.shotNumber).padStart(3, "0")}` : null);
       return {
         id: stage.id,
         queueKey: `shot:${stage.id}`,
@@ -189,6 +190,7 @@ const getApprovalQueue = asyncHandler(async (req, res) => {
         shot: {
           id: stage.shot?.id || null,
           shotNumber: stage.shot?.shotNumber || null,
+          label: stage.shot?.label || null,
           name: stage.shot?.name || null,
           shotCode,
           sequence: deriveSequenceFromShotCode(shotCode)

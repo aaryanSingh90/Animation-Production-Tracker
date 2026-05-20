@@ -21,6 +21,7 @@ const WorkforcePage = lazy(() => import("./pages/WorkforcePage"));
 const TeamsPage = lazy(() => import("./pages/TeamsPage"));
 const AssignmentsPage = lazy(() => import("./pages/AssignmentsPage"));
 const AnalyticsPage = lazy(() => import("./pages/AnalyticsPage"));
+const SearchPage = lazy(() => import("./pages/SearchPage"));
 const DepartmentsPage = lazy(() => import("./pages/DepartmentsPage"));
 const ReportsPage = lazy(() => import("./pages/ReportsPage"));
 const MyTasksPage = lazy(() => import("./pages/MyTasksPage"));
@@ -176,6 +177,14 @@ export default function App() {
             element={
               <ManagerLayout>
                 <AnalyticsPage />
+              </ManagerLayout>
+            }
+          />
+          <Route
+            path="/search"
+            element={
+              <ManagerLayout>
+                <SearchPage />
               </ManagerLayout>
             }
           />
