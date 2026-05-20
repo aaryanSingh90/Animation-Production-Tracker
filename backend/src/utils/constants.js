@@ -3,14 +3,14 @@ const { getDepartmentForStage } = require("../constants/stageDepartmentMap");
 
 const STAGE_DEFAULTS = [
   {
-    stageName: "AUDIO",
-    departmentName: getDepartmentForStage("AUDIO"),
-    recommendedArtists: 2
-  },
-  {
     stageName: "ANIMATICS",
     departmentName: getDepartmentForStage("ANIMATICS"),
     recommendedArtists: 3
+  },
+  {
+    stageName: "AUDIO",
+    departmentName: getDepartmentForStage("AUDIO"),
+    recommendedArtists: 2
   },
   {
     stageName: "MODELLING",
@@ -48,11 +48,6 @@ const STAGE_DEFAULTS = [
     recommendedArtists: 4
   },
   {
-    stageName: "RENDERING",
-    departmentName: getDepartmentForStage("RENDERING"),
-    recommendedArtists: 2
-  },
-  {
     stageName: "COMPOSITING",
     departmentName: getDepartmentForStage("COMPOSITING"),
     recommendedArtists: 2
@@ -70,19 +65,19 @@ const PIPELINE_TEMPLATES = [
   {
     id: "template_2d",
     name: "2D Template",
-    stages: ["AUDIO", "ANIMATICS", "ANIMATION", "EDITING"]
+    stages: ["ANIMATICS", "AUDIO", "ANIMATION", "COMPOSITING", "EDITING"]
   },
   {
     id: "template_3d",
     name: "3D Template",
-    stages: ["AUDIO", "MODELLING", "RIGGING", "ANIMATION", "LIGHTING", "RENDERING", "COMPOSITING", "EDITING"]
+    stages: ["ANIMATICS", "AUDIO", "MODELLING", "UNWRAPPING", "TEXTURING", "RIGGING", "ANIMATION", "FX", "LIGHTING", "COMPOSITING", "EDITING"]
   },
   {
     id: "template_full",
     name: "Full Studio Template",
     stages: [
-      "AUDIO",
       "ANIMATICS",
+      "AUDIO",
       "MODELLING",
       "UNWRAPPING",
       "TEXTURING",
@@ -90,7 +85,6 @@ const PIPELINE_TEMPLATES = [
       "ANIMATION",
       "FX",
       "LIGHTING",
-      "RENDERING",
       "COMPOSITING",
       "EDITING"
     ]
@@ -99,7 +93,7 @@ const PIPELINE_TEMPLATES = [
 
 function humanizeStageName(stageName) {
   if (!stageName) return "Stage";
-  if (stageName === "COMPOSITING") return "Comping";
+  if (stageName === "COMPOSITING") return "Composite";
   if (stageName === "RENDER" || stageName === "RENDERING") return "Rendering";
   return stageName.replaceAll("_", " ");
 }

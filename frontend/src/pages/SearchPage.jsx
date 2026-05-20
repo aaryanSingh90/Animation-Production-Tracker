@@ -4,7 +4,7 @@ import api from "../lib/api";
 import Loader from "../components/Loader";
 import EmptyState from "../components/EmptyState";
 import StatusBadge from "../components/StatusBadge";
-import { stageSlugFromCode } from "../utils/stageRouting";
+import { buildStageWorkspacePath, stageSlugFromCode } from "../utils/stageRouting";
 import { useToastStore } from "../store/toastStore";
 
 function stageLabelFromCode(code) {
@@ -163,7 +163,7 @@ export default function SearchPage() {
               <tbody>
                 {flat.map((row) => {
                   const stageSlug = stageSlugFromCode(row.stageCode || "");
-                  const href = row.projectId && stageSlug ? `/projects/${row.projectId}/${stageSlug}` : null;
+                  const href = row.projectId && stageSlug ? buildStageWorkspacePath(row.projectId, stageSlug) : null;
                   return (
                     <tr key={row.key} className="border-b border-slate-100">
                       <td className="py-3">

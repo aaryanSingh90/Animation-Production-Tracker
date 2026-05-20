@@ -60,6 +60,7 @@ const STAGE_EMOJI = {
   texturing: "🎨",
   animation: "🎬",
   lighting: "💡",
+  composite: "🎞️",
   rendering: "🖥️",
   comping: "🎞️",
   compositing: "🎞️",
@@ -78,6 +79,7 @@ const DEFAULT_STAGE_HOURS = {
   texturing: 18,
   animation: 30,
   lighting: 20,
+  composite: 12,
   rendering: 16,
   comping: 12,
   compositing: 12,
@@ -274,7 +276,7 @@ export default function CreateProjectWizardModal({
     totalShots: 0,
     startDate: "",
     dueDate: "",
-    lightingMode: "PROJECT",
+    lightingMode: "SHOT",
     renderingMode: "PROJECT",
     colorTag: COLOR_TAGS[0],
     thumbnailUrl: ""
@@ -362,7 +364,7 @@ export default function CreateProjectWizardModal({
       totalShots: 0,
       startDate: "",
       dueDate: "",
-      lightingMode: "PROJECT",
+      lightingMode: "SHOT",
       renderingMode: "PROJECT",
       colorTag: COLOR_TAGS[0],
       thumbnailUrl: ""
@@ -781,28 +783,17 @@ export default function CreateProjectWizardModal({
                     </button>
                   </div>
 
-                  <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:grid-cols-2">
-                    <div>
-                      <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">Lighting Mode</label>
-                      <select
-                        value={details.lightingMode}
-                        onChange={(event) => setDetails((prev) => ({ ...prev, lightingMode: event.target.value }))}
-                        className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                      >
-                        <option value="PROJECT">Project-level</option>
-                        <option value="SHOT">Shot-level</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600">Rendering Mode</label>
-                      <select
-                        value={details.renderingMode}
-                        onChange={(event) => setDetails((prev) => ({ ...prev, renderingMode: event.target.value }))}
-                        className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                      >
-                        <option value="PROJECT">Project-level</option>
-                        <option value="SHOT">Shot-level</option>
-                      </select>
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Pipeline Tracking Rules</p>
+                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                        <p className="text-sm font-semibold text-slate-900">Lighting</p>
+                        <p className="mt-1 text-xs text-slate-600">Locked to shot-level tracking for production continuity.</p>
+                      </div>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                        <p className="text-sm font-semibold text-slate-900">Rendering</p>
+                        <p className="mt-1 text-xs text-slate-600">Removed from the default pipeline. Legacy rendering workspaces remain accessible if older projects still use them.</p>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -912,8 +903,7 @@ export default function CreateProjectWizardModal({
                       <p><span className="font-semibold text-slate-700">Start Date:</span> {details.startDate || "-"}</p>
                       <p><span className="font-semibold text-slate-700">Due Date:</span> {details.dueDate || "-"}</p>
                       <p><span className="font-semibold text-slate-700">Total Shots:</span> {details.totalShots}</p>
-                      <p><span className="font-semibold text-slate-700">Lighting:</span> {details.lightingMode}</p>
-                      <p><span className="font-semibold text-slate-700">Rendering:</span> {details.renderingMode}</p>
+                      <p><span className="font-semibold text-slate-700">Lighting:</span> Shot-level only</p>
                       <p><span className="font-semibold text-slate-700">Thumbnail:</span> {details.thumbnailUrl ? "Provided" : "Not set"}</p>
                     </div>
                   </div>

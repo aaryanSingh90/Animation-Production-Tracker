@@ -1,5 +1,5 @@
 import { Suspense, lazy } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useParams } from "react-router-dom";
 import AppShell from "./components/AppShell";
 import ProtectedRoute from "./components/ProtectedRoute";
 import PageSkeleton from "./components/PageSkeleton";
@@ -7,6 +7,7 @@ import ToastViewport from "./components/ToastViewport";
 import { useAuthBootstrap } from "./hooks/useAuthBootstrap";
 import { useAuthStore } from "./store/authStore";
 import { MANAGER_ROLES } from "./utils/constants";
+import { buildStageWorkspacePath } from "./utils/stageRouting";
 
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const ManagerDashboardPage = lazy(() => import("./pages/ManagerDashboardPage"));
@@ -51,6 +52,11 @@ function EmployeeLayout({ children }) {
       <AppShell>{children}</AppShell>
     </ProtectedRoute>
   );
+}
+
+function LegacyWorkspaceRedirect() {
+  const { projectId, stageSlug } = useParams();
+  return <Navigate to={buildStageWorkspacePath(projectId, stageSlug)} replace />;
 }
 
 export default function App() {
@@ -110,10 +116,18 @@ export default function App() {
             }
           />
           <Route
-            path="/projects/:projectId/:stageSlug"
+            path="/projects/:projectId/workspace/:stageSlug"
             element={
               <ManagerLayout>
                 <ProjectStageWorkspacePage />
+              </ManagerLayout>
+            }
+          />
+          <Route
+            path="/projects/:projectId/:stageSlug"
+            element={
+              <ManagerLayout>
+                <LegacyWorkspaceRedirect />
               </ManagerLayout>
             }
           />

@@ -10,8 +10,8 @@ export const STATUS_COLORS = {
 };
 
 export const PROJECT_STAGES = [
-  "AUDIO",
   "ANIMATICS",
+  "AUDIO",
   "MODELLING",
   "UNWRAPPING",
   "TEXTURING",
@@ -19,7 +19,6 @@ export const PROJECT_STAGES = [
   "ANIMATION",
   "FX",
   "LIGHTING",
-  "RENDERING",
   "COMPOSITING",
   "EDITING",
   // Legacy stage keys kept for existing records/routes.

@@ -9,7 +9,7 @@ import StatusBadge from "../components/StatusBadge";
 import StageCommentThread from "../components/StageCommentThread";
 import { formatDate, formatDateInput, initials, labelize } from "../utils/format";
 import { STAGE_STATUSES } from "../utils/constants";
-import { stageCodeFromSlug, stageLabelFromSlug } from "../utils/stageRouting";
+import { stageCodeFromSlug, stageLabelFromSlug, stageWorkspaceVariantFromSlug } from "../utils/stageRouting";
 import { isDepartmentMatch, stageDepartmentFromCode } from "../utils/stageDepartmentMap";
 import { useToastStore } from "../store/toastStore";
 import { useAuthStore } from "../store/authStore";
@@ -20,14 +20,42 @@ const DEFAULT_TRACKING_BY_STAGE = {
   EDITING: "PROJECT",
   ANIMATICS: "SHOT",
   FX: "SHOT",
-  LIGHTING: "PROJECT",
+  LIGHTING: "SHOT",
   RENDERING: "PROJECT",
-  COMPOSITING: "SHOT",
+  COMPOSITING: "PROJECT",
   ANIMATION: "SHOT",
   MODELLING: "ASSET",
   UNWRAPPING: "ASSET",
   TEXTURING: "ASSET",
   RIGGING: "ASSET"
+};
+
+const ASSET_LANE_OPTIONS = {
+  MODELLING: [
+    { value: "", label: "All Assets" },
+    { value: "CHARACTER", label: "Characters" },
+    { value: "CHARACTER_BLENDSHAPES", label: "Blendshapes" },
+    { value: "PROP", label: "Props" },
+    { value: "BG", label: "BG" }
+  ],
+  UNWRAPPING: [
+    { value: "", label: "All Assets" },
+    { value: "CHARACTER", label: "Characters" },
+    { value: "PROP", label: "Props" },
+    { value: "BG", label: "BG" }
+  ],
+  TEXTURING: [
+    { value: "", label: "All Assets" },
+    { value: "CHARACTER", label: "Characters" },
+    { value: "PROP", label: "Props" },
+    { value: "BG", label: "BG" }
+  ],
+  RIGGING: [
+    { value: "", label: "All Assets" },
+    { value: "CHARACTER", label: "Characters" },
+    { value: "PROP", label: "Props" },
+    { value: "BG", label: "BG" }
+  ]
 };
 
 function isOverdue(deadline, status) {
@@ -175,6 +203,8 @@ export default function ProjectStageWorkspacePage() {
   const currentUser = useAuthStore((state) => state.user);
 
   const stageCode = stageCodeFromSlug(stageSlug);
+  const workspaceVariant = stageWorkspaceVariantFromSlug(stageSlug);
+  const workspaceTitle = stageLabelFromSlug(stageSlug);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -189,6 +219,7 @@ export default function ProjectStageWorkspacePage() {
     artistId: "",
     search: "",
     type: "",
+    subCategory: workspaceVariant || "",
     sequence: "",
     unassigned: false,
     overdue: false,
@@ -222,6 +253,7 @@ export default function ProjectStageWorkspacePage() {
   const isShotMode = trackingMode === "SHOT";
   const isAnimaticsWorkspace = stageCode === "ANIMATICS" && isShotMode;
   const isEditingWorkspace = stageCode === "EDITING";
+  const assetLaneOptions = useMemo(() => ASSET_LANE_OPTIONS[String(stageCode || "").toUpperCase()] || [], [stageCode]);
 
   const requiredDepartment = useMemo(() => stageDepartmentFromCode(stageCode), [stageCode]);
   const eligibleUsers = useMemo(() => {
@@ -392,6 +424,7 @@ export default function ProjectStageWorkspacePage() {
       if (nextFilters.artistId) query.artistId = nextFilters.artistId;
       if (nextFilters.search) query.search = nextFilters.search;
       if (nextFilters.type) query.type = nextFilters.type;
+      if (nextFilters.subCategory) query.subCategory = nextFilters.subCategory;
       if (nextFilters.sequence) query.sequence = nextFilters.sequence;
       if (nextFilters.unassigned) query.unassigned = true;
       if (nextFilters.overdue) query.overdue = true;
@@ -450,6 +483,7 @@ export default function ProjectStageWorkspacePage() {
             assignedUser: entry.assignedUser,
             feedback: entry.feedback,
             notes: entry.notes,
+            asset: entry.asset,
             raw: entry
           }))
         );
@@ -502,10 +536,27 @@ export default function ProjectStageWorkspacePage() {
   }, [projectId, stageCode]);
 
   useEffect(() => {
+    setFilters((prev) => ({
+      ...prev,
+      page: 1,
+      status: "",
+      artistId: "",
+      search: "",
+      type: "",
+      subCategory: workspaceVariant || "",
+      sequence: "",
+      unassigned: false,
+      overdue: false,
+      sortBy: "shotNumber",
+      sortDir: "asc"
+    }));
+  }, [projectId, stageCode, workspaceVariant]);
+
+  useEffect(() => {
     if (!stageCode) return;
     const timeout = setTimeout(() => loadWorkspace(filters, { withLoader: false }), 220);
     return () => clearTimeout(timeout);
-  }, [filters.page, filters.pageSize, filters.status, filters.artistId, filters.search, filters.type, filters.sequence, filters.unassigned, filters.overdue, filters.sortBy, filters.sortDir]);
+  }, [filters.page, filters.pageSize, filters.status, filters.artistId, filters.search, filters.type, filters.subCategory, filters.sequence, filters.unassigned, filters.overdue, filters.sortBy, filters.sortDir]);
 
   function patchOneItem(stageId, patch) {
     setItems((prev) => prev.map((item) => (item.stageId === stageId ? applyStagePatch(item, patch) : item)));
@@ -713,7 +764,7 @@ export default function ProjectStageWorkspacePage() {
         <div className="mb-3 flex items-start justify-between gap-3">
           <div>
             <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Stage Workspace</p>
-            <h3 className="text-xl font-bold text-slate-900">{stageSummary?.stageName || stageLabelFromSlug(stageSlug)}</h3>
+            <h3 className="text-xl font-bold text-slate-900">{workspaceTitle || stageSummary?.stageName || "Stage Workspace"}</h3>
             <p className="text-sm text-slate-500">
               {trackingMode} tracking mode
               {requiredDepartment ? ` · ${requiredDepartment}` : ""}
@@ -825,6 +876,28 @@ export default function ProjectStageWorkspacePage() {
             <span className="rounded-full bg-amber-50 px-2 py-1 text-amber-700">{unassignedShotsCount} unassigned</span>
             <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700">{items.length} visible</span>
             {saving && <span className="rounded-full bg-blue-50 px-2 py-1 text-blue-700">Saving updates...</span>}
+          </div>
+        )}
+
+        {trackingMode === "ASSET" && assetLaneOptions.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {assetLaneOptions.map((option) => {
+              const selected = filters.subCategory === option.value;
+              return (
+                <button
+                  key={option.value || "ALL"}
+                  type="button"
+                  onClick={() => setFilters((prev) => ({ ...prev, subCategory: option.value, page: 1 }))}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                    selected
+                      ? "border-slate-900 bg-slate-900 text-white"
+                      : "border-slate-300 bg-white text-slate-700 hover:border-slate-500"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
           </div>
         )}
       </section>

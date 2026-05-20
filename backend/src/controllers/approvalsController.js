@@ -26,7 +26,7 @@ function deriveSequenceFromShotCode(code) {
 function stageDisplayFromDefinition(stageDefinition, fallback = "Stage") {
   if (stageDefinition?.name) return stageDefinition.name;
   if (stageDefinition?.code === "RENDER") return "Rendering";
-  if (stageDefinition?.code === "COMPOSITING") return "Comping";
+  if (stageDefinition?.code === "COMPOSITING") return "Composite";
   if (stageDefinition?.code) return stageDefinition.code.replaceAll("_", " ");
   return fallback;
 }

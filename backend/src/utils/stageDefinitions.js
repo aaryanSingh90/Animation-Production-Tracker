@@ -1,6 +1,6 @@
 const CURRENT_PIPELINE_STAGE_CODES = [
-  "AUDIO",
   "ANIMATICS",
+  "AUDIO",
   "MODELLING",
   "UNWRAPPING",
   "TEXTURING",
@@ -8,31 +8,30 @@ const CURRENT_PIPELINE_STAGE_CODES = [
   "ANIMATION",
   "FX",
   "LIGHTING",
-  "RENDERING",
   "COMPOSITING",
   "EDITING"
 ];
 
 const DEFAULT_STAGE_DEFINITIONS = [
   {
-    code: "AUDIO",
-    name: "Audio",
-    trackingMode: "PROJECT",
-    isHybrid: false,
-    requiresApproval: true,
-    order: 1,
-    color: "#6366F1",
-    icon: "music"
-  },
-  {
     code: "ANIMATICS",
     name: "Animatics",
     trackingMode: "SHOT",
     isHybrid: false,
     requiresApproval: true,
-    order: 2,
+    order: 1,
     color: "#8B5CF6",
     icon: "clapperboard"
+  },
+  {
+    code: "AUDIO",
+    name: "Audio",
+    trackingMode: "PROJECT",
+    isHybrid: false,
+    requiresApproval: true,
+    order: 2,
+    color: "#6366F1",
+    icon: "music"
   },
   {
     code: "MODELLING",
@@ -97,30 +96,20 @@ const DEFAULT_STAGE_DEFINITIONS = [
   {
     code: "LIGHTING",
     name: "Lighting",
-    trackingMode: "PROJECT",
-    isHybrid: true,
+    trackingMode: "SHOT",
+    isHybrid: false,
     requiresApproval: true,
     order: 9,
     color: "#F97316",
     icon: "sun"
   },
   {
-    code: "RENDERING",
-    name: "Rendering",
-    trackingMode: "PROJECT",
-    isHybrid: true,
-    requiresApproval: true,
-    order: 10,
-    color: "#14B8A6",
-    icon: "monitor"
-  },
-  {
     code: "COMPOSITING",
-    name: "Compositing",
-    trackingMode: "SHOT",
+    name: "Composite",
+    trackingMode: "PROJECT",
     isHybrid: false,
     requiresApproval: true,
-    order: 11,
+    order: 10,
     color: "#84CC16",
     icon: "layers"
   },
@@ -130,9 +119,20 @@ const DEFAULT_STAGE_DEFINITIONS = [
     trackingMode: "PROJECT",
     isHybrid: false,
     requiresApproval: true,
-    order: 12,
+    order: 11,
     color: "#06B6D4",
     icon: "scissors"
+  },
+  {
+    code: "RENDERING",
+    name: "Rendering (Legacy)",
+    trackingMode: "PROJECT",
+    isHybrid: true,
+    requiresApproval: true,
+    order: 89,
+    color: "#14B8A6",
+    icon: "monitor",
+    isActive: false
   },
   // Legacy codes kept for backward compatibility with existing projects.
   {
@@ -143,7 +143,8 @@ const DEFAULT_STAGE_DEFINITIONS = [
     requiresApproval: true,
     order: 90,
     color: "#EC4899",
-    icon: "box"
+    icon: "box",
+    isActive: false
   },
   {
     code: "BLENDSHAPES",
@@ -153,7 +154,8 @@ const DEFAULT_STAGE_DEFINITIONS = [
     requiresApproval: true,
     order: 91,
     color: "#D946EF",
-    icon: "sparkles"
+    icon: "sparkles",
+    isActive: false
   },
   {
     code: "BG_MODELLING",
@@ -163,8 +165,9 @@ const DEFAULT_STAGE_DEFINITIONS = [
     requiresApproval: true,
     order: 92,
     color: "#10B981",
-    icon: "mountain"
-  },
+    icon: "mountain",
+    isActive: false
+  }
 ];
 
 const STAGE_CODE_TO_LEGACY_NAME = {
@@ -193,10 +196,10 @@ const LEGACY_STAGE_NAME_TO_CODE = {
 };
 
 const TRACKING_GROUPS = {
-  PROJECT: ["AUDIO", "EDITING"],
-  SHOT: ["ANIMATICS", "ANIMATION", "FX", "COMPOSITING"],
+  PROJECT: ["AUDIO", "COMPOSITING", "EDITING"],
+  SHOT: ["ANIMATICS", "ANIMATION", "FX", "LIGHTING"],
   ASSET: ["MODELLING", "UNWRAPPING", "TEXTURING", "RIGGING"],
-  HYBRID: ["LIGHTING", "RENDERING"]
+  HYBRID: ["RENDERING"]
 };
 
 function normalizeStageCode(value) {
@@ -228,7 +231,7 @@ async function ensureDefaultStageDefinitions(prisma) {
           order: definition.order,
           color: definition.color,
           icon: definition.icon,
-          isActive: true
+          isActive: definition.isActive !== false
         }
       })
     )

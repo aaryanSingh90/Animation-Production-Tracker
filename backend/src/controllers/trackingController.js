@@ -460,6 +460,7 @@ const getStageAssetsWorkspace = asyncHandler(async (req, res) => {
   const artistId = req.query.artistId ? Number(req.query.artistId) : null;
   const search = req.query.search;
   const type = req.query.type;
+  const subCategory = req.query.subCategory;
 
   await assertProjectAccess(projectId, req.user);
 
@@ -491,6 +492,12 @@ const getStageAssetsWorkspace = asyncHandler(async (req, res) => {
       type
     };
   }
+  if (subCategory) {
+    where.asset = {
+      ...where.asset,
+      subCategory
+    };
+  }
   if (search) {
     where.asset = {
       ...where.asset,
@@ -511,6 +518,7 @@ const getStageAssetsWorkspace = asyncHandler(async (req, res) => {
             id: true,
             name: true,
             type: true,
+            subCategory: true,
             referenceImageUrl: true,
             status: true
           }

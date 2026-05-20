@@ -1,6 +1,6 @@
 const PRIMARY_STAGE_TEMPLATE_NAMES = [
-  "Audio",
   "Animatics",
+  "Audio",
   "Modelling",
   "Unwrapping",
   "Texturing",
@@ -8,14 +8,13 @@ const PRIMARY_STAGE_TEMPLATE_NAMES = [
   "Animation",
   "FX",
   "Lighting",
-  "Rendering",
-  "Compositing",
+  "Composite",
   "Editing"
 ];
 
 const DEFAULT_STAGE_TEMPLATES = [
-  { name: "Audio", legacyStageName: "AUDIO", color: "#6366F1" },
   { name: "Animatics", legacyStageName: "ANIMATICS", color: "#8B5CF6" },
+  { name: "Audio", legacyStageName: "AUDIO", color: "#6366F1" },
   { name: "Modelling", legacyStageName: "MODELLING", color: "#EC4899" },
   { name: "Unwrapping", legacyStageName: "UNWRAPPING", color: "#D946EF" },
   { name: "Texturing", legacyStageName: "TEXTURING", color: "#EF4444" },
@@ -23,13 +22,14 @@ const DEFAULT_STAGE_TEMPLATES = [
   { name: "Animation", legacyStageName: "ANIMATION", color: "#3B82F6" },
   { name: "FX", legacyStageName: "FX", color: "#A855F7" },
   { name: "Lighting", legacyStageName: "LIGHTING", color: "#F97316" },
+  { name: "Composite", legacyStageName: "COMPOSITING", color: "#84CC16" },
   { name: "Rendering", legacyStageName: "RENDERING", color: "#14B8A6" },
-  { name: "Compositing", legacyStageName: "COMPOSITING", color: "#84CC16" },
   { name: "Editing", legacyStageName: "EDITING", color: "#06B6D4" },
   // Legacy
   { name: "Character Modelling", legacyStageName: "CHARACTER_MODELLING", color: "#EC4899" },
   { name: "Blendshapes", legacyStageName: "BLENDSHAPES", color: "#D946EF" },
   { name: "BG Modelling", legacyStageName: "BG_MODELLING", color: "#10B981" },
+  { name: "Compositing", legacyStageName: "COMPOSITING", color: "#84CC16" },
   { name: "Comping", legacyStageName: "COMPOSITING", color: "#84CC16" },
   {
     name: "Character Modelling & Blendshapes",
@@ -51,6 +51,7 @@ const LEGACY_STAGE_NAME_BY_TEMPLATE = {
   texturing: "TEXTURING",
   animation: "ANIMATION",
   lighting: "LIGHTING",
+  composite: "COMPOSITING",
   render: "RENDERING",
   rendering: "RENDERING",
   comping: "COMPOSITING",
@@ -68,7 +69,7 @@ function displayStageName(stage) {
   if (!stage) return "Stage";
   if (stage.customName) return stage.customName;
   if (stage.stageTemplate?.name) return stage.stageTemplate.name;
-  if (stage.stageName === "COMPOSITING") return "Comping";
+  if (stage.stageName === "COMPOSITING") return "Composite";
   if (stage.stageName === "RENDER" || stage.stageName === "RENDERING") return "Rendering";
   return String(stage.stageName || "Stage").replaceAll("_", " ");
 }

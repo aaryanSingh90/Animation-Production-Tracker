@@ -25,7 +25,7 @@ const listStageTemplates = asyncHandler(async (req, res) => {
     pipelineTemplates: PIPELINE_TEMPLATES,
     projectCreationDefaults: {
       activeStageCodes: defaultCodes,
-      lightingMode: "PROJECT",
+      lightingMode: "SHOT",
       renderingMode: "PROJECT",
       hybridCodes: TRACKING_GROUPS.HYBRID,
       hasLighting: Boolean(stageDefinitionsByCode.LIGHTING),

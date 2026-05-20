@@ -43,8 +43,8 @@ function buildDepartmentLookup() {
 }
 
 const BLUEPRINT_ACTIVE_CODES = [
-  "AUDIO",
   "ANIMATICS",
+  "AUDIO",
   "MODELLING",
   "UNWRAPPING",
   "TEXTURING",
@@ -52,7 +52,6 @@ const BLUEPRINT_ACTIVE_CODES = [
   "ANIMATION",
   "FX",
   "LIGHTING",
-  "RENDERING",
   "COMPOSITING",
   "EDITING"
 ];
@@ -164,7 +163,7 @@ async function buildStageRecordsFromInput(stageInputs = []) {
 async function initializeDynamicTracking({
   projectId,
   totalShots = 0,
-  lightingMode = "PROJECT",
+  lightingMode = "SHOT",
   renderingMode = "PROJECT",
   activeStageCodes = []
 }) {
@@ -641,7 +640,7 @@ const createProject = asyncHandler(async (req, res) => {
     stages,
     activeStageCodes = [],
     totalShots = 0,
-    lightingMode = "PROJECT",
+    lightingMode = "SHOT",
     renderingMode = "PROJECT",
     startDate,
     dueDate
@@ -655,7 +654,7 @@ const createProject = asyncHandler(async (req, res) => {
   let project;
 
   if (advancedTracking) {
-    const safeLightingMode = lightingMode === "SHOT" ? "SHOT" : "PROJECT";
+    const safeLightingMode = "SHOT";
     const safeRenderingMode = renderingMode === "SHOT" ? "SHOT" : "PROJECT";
     const normalizedActiveCodes = Array.from(
       new Set(
@@ -718,7 +717,7 @@ const createProject = asyncHandler(async (req, res) => {
               .filter(Boolean)
           )
         ),
-        lightingMode: lightingMode === "SHOT" ? "SHOT" : "PROJECT",
+        lightingMode: "SHOT",
         renderingMode: renderingMode === "SHOT" ? "SHOT" : "PROJECT",
         overallStatus: "ON_TRACK",
         stages: {
@@ -1095,7 +1094,7 @@ const updateProject = asyncHandler(async (req, res) => {
     );
   }
   if (Object.prototype.hasOwnProperty.call(payload, "lightingMode")) {
-    payload.lightingMode = payload.lightingMode === "SHOT" ? "SHOT" : "PROJECT";
+    payload.lightingMode = "SHOT";
   }
   if (Object.prototype.hasOwnProperty.call(payload, "renderingMode")) {
     payload.renderingMode = payload.renderingMode === "SHOT" ? "SHOT" : "PROJECT";

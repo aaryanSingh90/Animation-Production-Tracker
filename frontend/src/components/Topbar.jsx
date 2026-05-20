@@ -49,7 +49,9 @@ function buildBreadcrumbs(location) {
       base.push({ label: state?.breadcrumbProjectName || `Project #${second}`, to: `/projects/${second}` });
     }
 
-    if (third) {
+    if (third === "workspace" && segments[3]) {
+      base.push({ label: stageLabelFromSlug(segments[3]) });
+    } else if (third) {
       base.push({ label: stageLabelFromSlug(third) });
     }
 
