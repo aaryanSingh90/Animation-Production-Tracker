@@ -5,8 +5,10 @@ import api from "../lib/api";
 import Loader from "./Loader";
 import Modal from "./Modal";
 import StatusBadge from "./StatusBadge";
+import FlexibleAssignmentField from "./FlexibleAssignmentField";
 import { STAGE_STATUSES, getStatusOptionLabel, isCompleteStatus, isLateStatus } from "../utils/constants";
 import { formatDateInput, initials } from "../utils/format";
+import { getLeadAssignment, normalizeAssignmentList } from "../utils/assignments";
 
 function sortAudioRows(rows, sortBy, sortDir) {
   const direction = sortDir === "asc" ? 1 : -1;
@@ -23,7 +25,24 @@ function sortAudioRows(rows, sortBy, sortDir) {
   });
 }
 
-function AudioDesktopRow({ item, artists, selected, disabled, canMoveUp, canMoveDown, onToggleSelect, onUpdate, onMove, onDuplicate, onDelete }) {
+function getAudioAssignments(item) {
+  return item?.taskAssignments?.length ? item.taskAssignments : normalizeAssignmentList(item);
+}
+
+function AudioDesktopRow({
+  item,
+  users,
+  recommendedDepartment,
+  selected,
+  disabled,
+  canMoveUp,
+  canMoveDown,
+  onToggleSelect,
+  onUpdate,
+  onMove,
+  onDuplicate,
+  onDelete
+}) {
   const [nameDraft, setNameDraft] = useState(item.name || "");
   const [notesDraft, setNotesDraft] = useState(item.notes || "");
 
@@ -73,24 +92,28 @@ function AudioDesktopRow({ item, artists, selected, disabled, canMoveUp, canMove
         </div>
       </td>
       <td className="px-3 py-3">
-        <select
-          value={item.assignedUser?.id || ""}
-          onChange={(event) => {
-            const value = event.target.value;
-            const assignedUserId = value ? Number(value) : null;
-            const assignedUser = artists.find((artist) => artist.id === assignedUserId) || null;
-            onUpdate(item.id, { assignedUserId }, { assignedUser });
-          }}
-          className="w-full min-w-[220px] rounded-lg border border-slate-300 px-3 py-2 text-sm"
-          disabled={disabled}
-        >
-          <option value="">Unassigned</option>
-          {artists.map((artist) => (
-            <option key={artist.id} value={artist.id}>
-              {artist.name}
-            </option>
-          ))}
-        </select>
+        <div className="min-w-[280px]">
+          <FlexibleAssignmentField
+            users={users}
+            recommendedDepartment={recommendedDepartment}
+            assignments={item.taskAssignments?.length ? item.taskAssignments : normalizeAssignmentList(item)}
+            onChange={(assignments) => {
+              const lead = getLeadAssignment(assignments);
+              onUpdate(
+                item.id,
+                { assignments, assignedUserId: lead?.employeeId || null },
+                {
+                  taskAssignments: assignments.map((assignment) => ({
+                    ...assignment,
+                    employee: users.find((user) => user.id === assignment.employeeId) || assignment.employee || null
+                  })),
+                  assignedUser: lead?.employee || users.find((user) => user.id === lead?.employeeId) || null
+                }
+              );
+            }}
+            disabled={disabled}
+          />
+        </div>
       </td>
       <td className="px-3 py-3">
         <input
@@ -145,7 +168,20 @@ function AudioDesktopRow({ item, artists, selected, disabled, canMoveUp, canMove
   );
 }
 
-function AudioMobileCard({ item, artists, selected, disabled, canMoveUp, canMoveDown, onToggleSelect, onUpdate, onMove, onDuplicate, onDelete }) {
+function AudioMobileCard({
+  item,
+  users,
+  recommendedDepartment,
+  selected,
+  disabled,
+  canMoveUp,
+  canMoveDown,
+  onToggleSelect,
+  onUpdate,
+  onMove,
+  onDuplicate,
+  onDelete
+}) {
   const [nameDraft, setNameDraft] = useState(item.name || "");
   const [notesDraft, setNotesDraft] = useState(item.notes || "");
 
@@ -193,24 +229,26 @@ function AudioMobileCard({ item, artists, selected, disabled, canMoveUp, canMove
             </option>
           ))}
         </select>
-        <select
-          value={item.assignedUser?.id || ""}
-          onChange={(event) => {
-            const value = event.target.value;
-            const assignedUserId = value ? Number(value) : null;
-            const assignedUser = artists.find((artist) => artist.id === assignedUserId) || null;
-            onUpdate(item.id, { assignedUserId }, { assignedUser });
+        <FlexibleAssignmentField
+          users={users}
+          recommendedDepartment={recommendedDepartment}
+          assignments={item.taskAssignments?.length ? item.taskAssignments : normalizeAssignmentList(item)}
+          onChange={(assignments) => {
+            const lead = getLeadAssignment(assignments);
+            onUpdate(
+              item.id,
+              { assignments, assignedUserId: lead?.employeeId || null },
+              {
+                taskAssignments: assignments.map((assignment) => ({
+                  ...assignment,
+                  employee: users.find((user) => user.id === assignment.employeeId) || assignment.employee || null
+                })),
+                assignedUser: lead?.employee || users.find((user) => user.id === lead?.employeeId) || null
+              }
+            );
           }}
-          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
           disabled={disabled}
-        >
-          <option value="">Unassigned</option>
-          {artists.map((artist) => (
-            <option key={artist.id} value={artist.id}>
-              {artist.name}
-            </option>
-          ))}
-        </select>
+        />
         <div className="grid grid-cols-2 gap-3">
           <input
             type="date"
@@ -251,7 +289,8 @@ function AudioMobileCard({ item, artists, selected, disabled, canMoveUp, canMove
   );
 }
 
-export default function AudioWorkspace({ projectId, overview, stageSummary, eligibleUsers, requiredDepartment, showToast }) {
+export default function AudioWorkspace({ projectId, overview, stageSummary, users = [], recommendedDepartment, showToast }) {
+  const activeUsers = useMemo(() => users.filter((user) => user?.isActive !== false), [users]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [items, setItems] = useState([]);
@@ -259,10 +298,10 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, elig
   const [filters, setFilters] = useState({ search: "", status: "", artistId: "", sortBy: "latest", sortDir: "desc" });
   const [selectedIds, setSelectedIds] = useState([]);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
-  const [quickAddForm, setQuickAddForm] = useState({ name: "", assignedUserId: "", status: "YTS", startDate: "", endDate: "", notes: "" });
-  const [bulkDraft, setBulkDraft] = useState({ assignedUserId: "", status: "" });
+  const [quickAddForm, setQuickAddForm] = useState({ name: "", assignments: [], status: "YTS", startDate: "", endDate: "", notes: "" });
+  const [bulkDraft, setBulkDraft] = useState({ assignments: [], status: "" });
   const [createOpen, setCreateOpen] = useState(false);
-  const [createForm, setCreateForm] = useState({ name: "", assignedUserId: "", status: "YTS", startDate: "", endDate: "", notes: "" });
+  const [createForm, setCreateForm] = useState({ name: "", assignments: [], status: "YTS", startDate: "", endDate: "", notes: "" });
   const [deleteTarget, setDeleteTarget] = useState(null);
 
   useEffect(() => {
@@ -295,7 +334,10 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, elig
       const searchNeedle = String(filters.search || "").trim().toLowerCase();
       const matchesSearch = !searchNeedle || String(item.name || "").toLowerCase().includes(searchNeedle);
       const matchesStatus = !filters.status || item.status === filters.status;
-      const matchesArtist = !filters.artistId || item.assignedUser?.id === Number(filters.artistId);
+      const matchesArtist =
+        !filters.artistId ||
+        getAudioAssignments(item).some((assignment) => Number(assignment.employeeId || assignment.employee?.id) === Number(filters.artistId)) ||
+        item.assignedUser?.id === Number(filters.artistId);
       return matchesSearch && matchesStatus && matchesArtist;
     });
 
@@ -304,7 +346,9 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, elig
 
   const metrics = useMemo(() => {
     const completed = items.filter((item) => isCompleteStatus(item.status)).length;
-    const assignedArtists = new Set(items.map((item) => item.assignedUser?.id).filter(Boolean)).size;
+    const assignedArtists = new Set(
+      items.flatMap((item) => getAudioAssignments(item).map((assignment) => Number(assignment.employeeId || assignment.employee?.id || 0)).filter(Boolean))
+    ).size;
     return {
       total: items.length,
       completed,
@@ -321,10 +365,12 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, elig
   }
 
   async function createAudioTask(values) {
+    const lead = getLeadAssignment(values.assignments || []);
     const payload = {
       projectId: Number(projectId),
       name: String(values.name || "").trim(),
-      assignedUserId: values.assignedUserId ? Number(values.assignedUserId) : null,
+      assignedUserId: lead?.employeeId || null,
+      assignments: values.assignments || [],
       status: values.status || "YTS",
       startDate: values.startDate || null,
       endDate: values.endDate || null,
@@ -347,7 +393,7 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, elig
       const created = await createAudioTask(quickAddForm);
       if (created) {
         showToast?.("success", "Audio task created");
-        setQuickAddForm({ name: "", assignedUserId: "", status: "YTS", startDate: "", endDate: "", notes: "" });
+        setQuickAddForm({ name: "", assignments: [], status: "YTS", startDate: "", endDate: "", notes: "" });
         setQuickAddOpen(true);
       }
     } catch (err) {
@@ -364,7 +410,7 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, elig
       if (created) {
         showToast?.("success", "Audio task created");
         setCreateOpen(false);
-        setCreateForm({ name: "", assignedUserId: "", status: "YTS", startDate: "", endDate: "", notes: "" });
+        setCreateForm({ name: "", assignments: [], status: "YTS", startDate: "", endDate: "", notes: "" });
       }
     } catch (err) {
       showToast?.("error", err.userMessage || err.response?.data?.message || "Unable to create audio task");
@@ -423,7 +469,7 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, elig
     try {
       const created = await createAudioTask({
         name: `${item.name} Copy`,
-        assignedUserId: item.assignedUser?.id || "",
+        assignments: getAudioAssignments(item),
         status: item.status,
         startDate: formatDateInput(item.startDate),
         endDate: formatDateInput(item.endDate),
@@ -460,17 +506,32 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, elig
   }
 
   async function bulkAssign() {
-    if (!selectedIds.length || !bulkDraft.assignedUserId) return;
-    const userId = bulkDraft.assignedUserId === "__UNASSIGN__" ? null : Number(bulkDraft.assignedUserId);
-    const assignedUser = userId ? eligibleUsers.find((user) => user.id === userId) || null : null;
+    const lead = getLeadAssignment(bulkDraft.assignments || []);
+    const userId = lead?.employeeId || null;
+    const nextAssignments = bulkDraft.assignments || [];
+    if (!selectedIds.length || (!nextAssignments.length && userId !== null)) return;
+    const assignedUser = lead?.employee || activeUsers.find((user) => user.id === userId) || null;
     const previous = items;
 
-    setAudioList((list) => list.map((item) => (selectedIds.includes(item.id) ? { ...item, assignedUser } : item)));
+    setAudioList((list) =>
+      list.map((item) =>
+        selectedIds.includes(item.id)
+          ? {
+              ...item,
+              assignedUser,
+              taskAssignments: nextAssignments.map((assignment) => ({
+                ...assignment,
+                employee: activeUsers.find((user) => user.id === assignment.employeeId) || assignment.employee || null
+              }))
+            }
+          : item
+      )
+    );
     setBusy(true);
     try {
-      await Promise.all(selectedIds.map((id) => api.patch(`/audio/${id}`, { assignedUserId: userId })));
+      await Promise.all(selectedIds.map((id) => api.patch(`/audio/${id}`, { assignedUserId: userId, assignments: nextAssignments })));
       setSelectedIds([]);
-      setBulkDraft((prev) => ({ ...prev, assignedUserId: "" }));
+      setBulkDraft((prev) => ({ ...prev, assignments: [] }));
       showToast?.("success", "Bulk artist assignment applied");
     } catch (err) {
       setItems(previous);
@@ -541,7 +602,7 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, elig
             <h2 className="mt-2 text-2xl font-bold text-slate-950">{overview?.project?.name || "Project"} · Audio</h2>
             <p className="mt-1 text-sm text-slate-500">
               Fully editable production audio tracker for voiceover, dubbing, approval, and handoff tasks.
-              {requiredDepartment ? ` Assigned department: ${requiredDepartment}.` : ""}
+              {recommendedDepartment ? ` Recommended department: ${recommendedDepartment}. Managers can override any time.` : ""}
             </p>
           </div>
           <Link to={`/projects/${projectId}`} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
@@ -572,9 +633,9 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, elig
           </div>
         </div>
 
-        {eligibleUsers.length > 0 && (
+        {activeUsers.length > 0 && (
           <div className="mt-4 flex flex-wrap gap-2">
-            {eligibleUsers.slice(0, 10).map((artist) => (
+            {activeUsers.slice(0, 10).map((artist) => (
               <span key={artist.id} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700">
                 <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-900 text-[10px] font-bold text-white">{initials(artist.name)}</span>
                 {artist.name}
@@ -606,14 +667,14 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, elig
         {quickAddOpen && (
           <div className="border-b border-slate-200 bg-slate-50 px-4 py-4">
             <div className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Quick add row</div>
-            <div className="grid gap-2 xl:grid-cols-[1.4fr_220px_180px_160px_160px_minmax(0,1fr)_auto]">
+            <div className="grid gap-2 xl:grid-cols-[1.2fr_minmax(0,1.4fr)_180px_160px_160px_minmax(0,1fr)_auto]">
               <input value={quickAddForm.name} onChange={(event) => setQuickAddForm((prev) => ({ ...prev, name: event.target.value }))} placeholder="Audio task name" className="rounded-xl border border-slate-300 px-3 py-2 text-sm" />
-              <select value={quickAddForm.assignedUserId} onChange={(event) => setQuickAddForm((prev) => ({ ...prev, assignedUserId: event.target.value }))} className="rounded-xl border border-slate-300 px-3 py-2 text-sm">
-                <option value="">Unassigned</option>
-                {eligibleUsers.map((artist) => (
-                  <option key={artist.id} value={artist.id}>{artist.name}</option>
-                ))}
-              </select>
+              <FlexibleAssignmentField
+                users={activeUsers}
+                recommendedDepartment={recommendedDepartment}
+                assignments={quickAddForm.assignments}
+                onChange={(assignments) => setQuickAddForm((prev) => ({ ...prev, assignments }))}
+              />
               <select value={quickAddForm.status} onChange={(event) => setQuickAddForm((prev) => ({ ...prev, status: event.target.value }))} className="rounded-xl border border-slate-300 px-3 py-2 text-sm">
                 {STAGE_STATUSES.map((status) => (
                   <option key={status} value={status}>{getStatusOptionLabel(status)}</option>
@@ -644,7 +705,7 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, elig
             </select>
             <select value={filters.artistId} onChange={(event) => setFilters((prev) => ({ ...prev, artistId: event.target.value }))} className="rounded-xl border border-slate-300 px-3 py-2 text-sm">
               <option value="">All artists</option>
-              {eligibleUsers.map((artist) => (
+              {activeUsers.map((artist) => (
                 <option key={artist.id} value={artist.id}>{artist.name}</option>
               ))}
             </select>
@@ -672,21 +733,22 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, elig
                 <span>{selectedIds.length} selected</span>
                 <span className="rounded-full bg-white px-2 py-1 text-[11px] tracking-normal text-slate-700">Bulk actions</span>
               </div>
-              <div className="grid gap-2 lg:grid-cols-[220px_220px_auto_auto_auto]">
-                <select value={bulkDraft.assignedUserId} onChange={(event) => setBulkDraft((prev) => ({ ...prev, assignedUserId: event.target.value }))} className="rounded-xl border border-slate-300 px-3 py-2 text-sm" disabled={busy}>
-                  <option value="">Choose artist</option>
-                  <option value="__UNASSIGN__">Unassign selected</option>
-                  {eligibleUsers.map((artist) => (
-                    <option key={artist.id} value={artist.id}>{artist.name}</option>
-                  ))}
-                </select>
+              <div className="grid gap-2 lg:grid-cols-[minmax(0,1.6fr)_220px_auto_auto_auto]">
+                <FlexibleAssignmentField
+                  users={activeUsers}
+                  recommendedDepartment={recommendedDepartment}
+                  assignments={bulkDraft.assignments}
+                  onChange={(assignments) => setBulkDraft((prev) => ({ ...prev, assignments }))}
+                  allowMultiple={false}
+                  disabled={busy}
+                />
                 <select value={bulkDraft.status} onChange={(event) => setBulkDraft((prev) => ({ ...prev, status: event.target.value }))} className="rounded-xl border border-slate-300 px-3 py-2 text-sm" disabled={busy}>
                   <option value="">Choose status</option>
                   {STAGE_STATUSES.map((status) => (
                     <option key={status} value={status}>{getStatusOptionLabel(status)}</option>
                   ))}
                 </select>
-                <button type="button" onClick={bulkAssign} disabled={busy || !bulkDraft.assignedUserId} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">Assign Artist</button>
+                <button type="button" onClick={bulkAssign} disabled={busy || !bulkDraft.assignments.length} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">Assign Artist</button>
                 <button type="button" onClick={bulkStatusUpdate} disabled={busy || !bulkDraft.status} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">Change Status</button>
                 <button type="button" onClick={bulkDelete} disabled={busy} className="rounded-xl bg-rose-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">Delete Selected</button>
               </div>
@@ -728,7 +790,8 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, elig
                     <AudioDesktopRow
                       key={item.id}
                       item={item}
-                      artists={eligibleUsers}
+                      users={activeUsers}
+                      recommendedDepartment={recommendedDepartment}
                       selected={selectedIds.includes(item.id)}
                       disabled={busy}
                       canMoveUp={index > 0}
@@ -749,7 +812,8 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, elig
                 <AudioMobileCard
                   key={item.id}
                   item={item}
-                  artists={eligibleUsers}
+                  users={activeUsers}
+                  recommendedDepartment={recommendedDepartment}
                   selected={selectedIds.includes(item.id)}
                   disabled={busy}
                   canMoveUp={index > 0}
@@ -774,13 +838,13 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, elig
               <input value={createForm.name} onChange={(event) => setCreateForm((prev) => ({ ...prev, name: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
             </label>
             <label className="space-y-1">
-              <span className="text-sm font-medium text-slate-700">Artist</span>
-              <select value={createForm.assignedUserId} onChange={(event) => setCreateForm((prev) => ({ ...prev, assignedUserId: event.target.value }))} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm">
-                <option value="">Unassigned</option>
-                {eligibleUsers.map((artist) => (
-                  <option key={artist.id} value={artist.id}>{artist.name}</option>
-                ))}
-              </select>
+              <span className="text-sm font-medium text-slate-700">Assignment</span>
+              <FlexibleAssignmentField
+                users={activeUsers}
+                recommendedDepartment={recommendedDepartment}
+                assignments={createForm.assignments}
+                onChange={(assignments) => setCreateForm((prev) => ({ ...prev, assignments }))}
+              />
             </label>
             <label className="space-y-1">
               <span className="text-sm font-medium text-slate-700">Status</span>

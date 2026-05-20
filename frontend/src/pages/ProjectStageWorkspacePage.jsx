@@ -5,6 +5,7 @@ import api from "../lib/api";
 import Loader from "../components/Loader";
 import AudioWorkspace from "../components/AudioWorkspace";
 import ModellingWorkspace from "../components/ModellingWorkspace";
+import ShotPipelineWorkspace from "../components/ShotPipelineWorkspace";
 import EmptyState from "../components/EmptyState";
 import Modal from "../components/Modal";
 import StatusBadge from "../components/StatusBadge";
@@ -32,18 +33,20 @@ import { useAuthStore } from "../store/authStore";
 const DEFAULT_PAGE_SIZE = 25;
 const DEFAULT_TRACKING_BY_STAGE = {
   AUDIO: "PROJECT",
-  EDITING: "PROJECT",
+  EDITING: "SHOT",
   ANIMATICS: "SHOT",
   FX: "SHOT",
   LIGHTING: "SHOT",
   RENDERING: "PROJECT",
-  COMPOSITING: "PROJECT",
+  COMPOSITING: "SHOT",
   ANIMATION: "SHOT",
   MODELLING: "ASSET",
   UNWRAPPING: "ASSET",
   TEXTURING: "ASSET",
   RIGGING: "ASSET"
 };
+
+const DEDICATED_SHOT_WORKSPACE_STAGE_CODES = new Set(["ANIMATICS", "ANIMATION", "FX", "LIGHTING", "COMPOSITING", "EDITING"]);
 
 const ASSET_LANE_OPTIONS = {
   MODELLING: [
@@ -430,6 +433,13 @@ export default function ProjectStageWorkspacePage() {
 
       setWorkspaceMode(resolvedTrackingMode);
 
+      if (DEDICATED_SHOT_WORKSPACE_STAGE_CODES.has(stageCode)) {
+        setItems([]);
+        setEditorialShots([]);
+        setPagination({ page: 1, pageSize: DEFAULT_PAGE_SIZE, total: 0, totalPages: 1 });
+        return;
+      }
+
       const query = {
         page: nextFilters.page,
         pageSize: nextFilters.pageSize,
@@ -780,8 +790,8 @@ export default function ProjectStageWorkspacePage() {
         projectId={projectId}
         overview={overview}
         stageSummary={stageSummary}
-        eligibleUsers={eligibleUsers}
-        requiredDepartment={requiredDepartment}
+        users={users}
+        recommendedDepartment={requiredDepartment}
         showToast={showToast}
       />
     );
@@ -793,11 +803,27 @@ export default function ProjectStageWorkspacePage() {
         projectId={projectId}
         overview={overview}
         stageSummary={stageSummary}
-        eligibleUsers={eligibleUsers}
-        requiredDepartment={requiredDepartment}
+        users={users}
+        recommendedDepartment={requiredDepartment}
         workspaceVariant={workspaceVariant}
         stageCode={stageCode}
         stageLabel={stageSummary?.stageName || stageDisplayLabel || "Asset Workspace"}
+        showToast={showToast}
+      />
+    );
+  }
+
+  if (DEDICATED_SHOT_WORKSPACE_STAGE_CODES.has(stageCode)) {
+    return (
+      <ShotPipelineWorkspace
+        projectId={projectId}
+        overview={overview}
+        stageSummary={stageSummary}
+        users={users}
+        recommendedDepartment={requiredDepartment}
+        stageCode={stageCode}
+        stageLabel={stageSummary?.stageName || stageDisplayLabel || "Shot Workspace"}
+        currentUser={currentUser}
         showToast={showToast}
       />
     );

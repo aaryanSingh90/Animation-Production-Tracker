@@ -5,6 +5,12 @@ const { getTrackingDefinitionSnapshot, computeStatusFromChildren } = require("..
 const { recalculateProjectProgress } = require("../utils/progress");
 const { createNotification, notifyManagers } = require("../utils/notifications");
 const {
+  TASK_ASSIGNMENT_INCLUDE,
+  syncTaskAssignments,
+  notifyTaskAssignmentUsers,
+  getAssignedEmployeeIds
+} = require("../utils/taskAssignments");
+const {
   ARTIST_MUTABLE_STATUSES,
   isApprovedStatus,
   isCompleteStatus,
@@ -79,7 +85,7 @@ const listProjectAssets = asyncHandler(async (req, res) => {
   if (artistId) {
     where.stages = {
       some: {
-        assignedUserId: artistId
+        OR: [{ assignedUserId: artistId }, { taskAssignments: { some: { employeeId: artistId } } }]
       }
     };
   }
@@ -113,7 +119,8 @@ const listProjectAssets = asyncHandler(async (req, res) => {
                   select: { id: true, name: true, color: true }
                 }
               }
-            }
+            },
+            ...TASK_ASSIGNMENT_INCLUDE
           },
           orderBy: {
             createdAt: "asc"
@@ -178,14 +185,15 @@ const createProjectAsset = asyncHandler(async (req, res) => {
     where: { id: asset.id },
     include: {
       stages: {
-        include: {
-          stageDefinition: true,
-          assignedUser: {
+          include: {
+            stageDefinition: true,
+            assignedUser: {
             select: {
               id: true,
               name: true
             }
-          }
+          },
+          ...TASK_ASSIGNMENT_INCLUDE
         },
         orderBy: {
           createdAt: "asc"
@@ -234,14 +242,15 @@ const updateAsset = asyncHandler(async (req, res) => {
     data: payload,
     include: {
       stages: {
-        include: {
-          stageDefinition: true,
-          assignedUser: {
+          include: {
+            stageDefinition: true,
+            assignedUser: {
             select: {
               id: true,
               name: true
             }
-          }
+          },
+          ...TASK_ASSIGNMENT_INCLUDE
         },
         orderBy: {
           createdAt: "asc"
@@ -271,6 +280,7 @@ const updateAssetStage = asyncHandler(async (req, res) => {
     where: { id: assetStageId },
     include: {
       stageDefinition: true,
+      ...TASK_ASSIGNMENT_INCLUDE,
       asset: {
         include: {
           project: true
@@ -285,7 +295,8 @@ const updateAssetStage = asyncHandler(async (req, res) => {
   const previousStatus = assetStage.status;
   const previousAssignedUserId = assetStage.assignedUserId;
   const previousDeadline = assetStage.deadline ? new Date(assetStage.deadline).toISOString() : null;
-  if (!manager && assetStage.assignedUserId !== req.user.id) {
+  const previousAssignedEmployeeIds = getAssignedEmployeeIds(assetStage, assetStage.assignedUserId);
+  if (!manager && !previousAssignedEmployeeIds.includes(req.user.id)) {
     throw new AppError("Forbidden", 403);
   }
 
@@ -403,18 +414,63 @@ const updateAssetStage = asyncHandler(async (req, res) => {
             select: { id: true, name: true, color: true }
           }
         }
-      }
+      },
+      ...TASK_ASSIGNMENT_INCLUDE
     }
   });
 
-  await refreshAssetStatus(updated.assetId);
+  let hydrated = updated;
+  let addedEmployeeIds = [];
+
+  if (manager && (Object.prototype.hasOwnProperty.call(req.body, "assignments") || Object.prototype.hasOwnProperty.call(payload, "assignedUserId"))) {
+    const syncResult = await syncTaskAssignments({
+      resourceType: "assetStage",
+      recordId: assetStageId,
+      projectId: assetStage.asset.projectId,
+      assignments: Object.prototype.hasOwnProperty.call(req.body, "assignments")
+        ? req.body.assignments
+        : payload.assignedUserId
+          ? [{ employeeId: Number(payload.assignedUserId), roleType: "LEAD" }]
+          : [],
+      fallbackAssignedUserId: Object.prototype.hasOwnProperty.call(payload, "assignedUserId") ? payload.assignedUserId : assetStage.assignedUserId,
+      assignedById: req.user.id,
+      parentModel: "assetStage",
+      include: {
+        stageDefinition: true,
+        assignedUser: {
+          select: {
+            id: true,
+            name: true,
+            departmentId: true,
+            departmentName: true,
+            department: {
+              select: { id: true, name: true, color: true }
+            }
+          }
+        },
+        ...TASK_ASSIGNMENT_INCLUDE
+      }
+    });
+
+    hydrated = syncResult.hydrated || updated;
+    addedEmployeeIds = syncResult.addedEmployeeIds || [];
+  }
+
+  await refreshAssetStatus(hydrated.assetId);
   await recalculateProjectProgress(assetStage.asset.projectId);
 
-  const stageName = updated.stageDefinition?.name || updated.stageDefinition?.code || "Asset Stage";
+  const stageName = hydrated.stageDefinition?.name || hydrated.stageDefinition?.code || "Asset Stage";
   const assetName = assetStage.asset?.name || "Asset";
   const projectName = assetStage.asset.project?.name || "Project";
+  const currentAssignedEmployeeIds = getAssignedEmployeeIds(hydrated, hydrated.assignedUserId);
 
-  if (Object.prototype.hasOwnProperty.call(payload, "assignedUserId") && payload.assignedUserId && payload.assignedUserId !== previousAssignedUserId) {
+  if (addedEmployeeIds.length) {
+    await notifyTaskAssignmentUsers({
+      employeeIds: addedEmployeeIds,
+      message: `${req.user.name} assigned you to ${stageName} for ${assetName} in ${projectName}.`,
+      relatedProjectId: assetStage.asset.projectId
+    });
+  } else if (Object.prototype.hasOwnProperty.call(payload, "assignedUserId") && payload.assignedUserId && payload.assignedUserId !== previousAssignedUserId) {
     await createNotification({
       userId: payload.assignedUserId,
       message: `You were assigned ${stageName} for ${assetName} in ${projectName}.`,
@@ -425,13 +481,17 @@ const updateAssetStage = asyncHandler(async (req, res) => {
 
   if (Object.prototype.hasOwnProperty.call(payload, "deadline")) {
     const nextDeadline = payload.deadline ? new Date(payload.deadline).toISOString() : null;
-    if (updated.assignedUserId && previousDeadline !== nextDeadline && nextDeadline) {
-      await createNotification({
-        userId: updated.assignedUserId,
-        message: `Deadline updated for ${stageName} on ${assetName} in ${projectName}.`,
-        type: "DEADLINE_WARNING",
-        relatedProjectId: assetStage.asset.projectId
-      });
+    if (currentAssignedEmployeeIds.length && previousDeadline !== nextDeadline && nextDeadline) {
+      await Promise.all(
+        currentAssignedEmployeeIds.map((employeeId) =>
+          createNotification({
+            userId: employeeId,
+            message: `Deadline updated for ${stageName} on ${assetName} in ${projectName}.`,
+            type: "DEADLINE_WARNING",
+            relatedProjectId: assetStage.asset.projectId
+          })
+        )
+      );
     }
   }
 
@@ -443,25 +503,33 @@ const updateAssetStage = asyncHandler(async (req, res) => {
     });
   }
 
-  if (manager && updated.assignedUserId && isApprovedStatus(updated.status) && !isApprovedStatus(previousStatus)) {
-    await createNotification({
-      userId: updated.assignedUserId,
-      message: `${stageName} ${updated.status === "FINAL" ? "final approved" : "lead approved"} for ${assetName} in ${projectName}.`,
-      type: "APPROVED",
-      relatedProjectId: assetStage.asset.projectId
-    });
+  if (manager && currentAssignedEmployeeIds.length && isApprovedStatus(hydrated.status) && !isApprovedStatus(previousStatus)) {
+    await Promise.all(
+      currentAssignedEmployeeIds.map((employeeId) =>
+        createNotification({
+          userId: employeeId,
+          message: `${stageName} ${hydrated.status === "FINAL" ? "final approved" : "lead approved"} for ${assetName} in ${projectName}.`,
+          type: "APPROVED",
+          relatedProjectId: assetStage.asset.projectId
+        })
+      )
+    );
   }
 
-  if (manager && updated.assignedUserId && isRetakeStatus(updated.status) && previousStatus !== updated.status) {
-    await createNotification({
-      userId: updated.assignedUserId,
-      message: `${stageName} needs a retake on ${assetName} in ${projectName}.${updated.feedback ? ` Feedback: ${updated.feedback}` : ""}`,
-      type: "REJECTED",
-      relatedProjectId: assetStage.asset.projectId
-    });
+  if (manager && currentAssignedEmployeeIds.length && isRetakeStatus(hydrated.status) && previousStatus !== hydrated.status) {
+    await Promise.all(
+      currentAssignedEmployeeIds.map((employeeId) =>
+        createNotification({
+          userId: employeeId,
+          message: `${stageName} needs a retake on ${assetName} in ${projectName}.${hydrated.feedback ? ` Feedback: ${hydrated.feedback}` : ""}`,
+          type: "REJECTED",
+          relatedProjectId: assetStage.asset.projectId
+        })
+      )
+    );
   }
 
-  return res.json(updated);
+  return res.json(hydrated);
 });
 
 module.exports = {

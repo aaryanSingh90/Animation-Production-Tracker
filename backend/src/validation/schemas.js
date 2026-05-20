@@ -11,6 +11,7 @@ const stageStatusEnum = z.enum([
   "FINAL",
   "LATE"
 ]);
+const assignmentRoleTypeEnum = z.enum(["LEAD", "SUPPORT"]);
 const trackingModeEnum = z.enum(["PROJECT", "SHOT", "ASSET"]);
 const hybridStageModeEnum = z.enum(["PROJECT", "SHOT"]);
 
@@ -209,6 +210,16 @@ const updateStageSchema = z
     assignedUserId: z.coerce.number().int().positive().nullable().optional(),
     notes: z.string().max(5000).optional(),
     feedback: z.string().max(5000).optional().nullable(),
+    assignments: z
+      .array(
+        z.object({
+          employeeId: z.coerce.number().int().positive(),
+          departmentId: z.string().min(1).optional().nullable().or(z.literal("")),
+          roleType: assignmentRoleTypeEnum.optional()
+        })
+      )
+      .max(20)
+      .optional(),
     audioStatus: stageStatusEnum.optional().nullable(),
     finalOutput: z.string().max(5000).optional().nullable(),
     order: z.coerce.number().int().min(0).optional(),
@@ -321,6 +332,7 @@ const createShotSchema = z.object({
   description: z.string().max(2000).optional().or(z.literal("")),
   duration: z.coerce.number().positive().optional(),
   order: z.coerce.number().int().min(1).optional(),
+  priority: z.coerce.number().int().min(1).max(5).optional(),
   status: stageStatusEnum.optional()
 });
 
@@ -347,9 +359,17 @@ const updateShotSchema = z
     description: z.string().max(2000).optional().or(z.literal("")),
     duration: z.coerce.number().positive().optional().nullable(),
     order: z.coerce.number().int().min(1).optional(),
+    priority: z.coerce.number().int().min(1).max(5).optional(),
     status: stageStatusEnum.optional(),
     audioStatus: stageStatusEnum.optional().nullable(),
-    finalOutput: z.string().max(5000).optional().nullable()
+    audioWorkflowStatus: z.enum(["RECV", "IP", "YTS", "FINAL", "RTK", "DONE", "WIP", "APPROVED"]).optional().nullable(),
+    finalOutput: z.string().max(5000).optional().nullable(),
+    finalOutputName: z.string().max(255).optional().nullable(),
+    finalOutputVersion: z.string().max(120).optional().nullable(),
+    finalOutputApprovalStatus: stageStatusEnum.optional().nullable(),
+    finalOutputDeliveryDate: isoDate.nullable().optional(),
+    finalOutputClientReview: z.string().max(2000).optional().nullable(),
+    finalOutputNotes: z.string().max(5000).optional().nullable()
   })
   .refine((value) => Object.keys(value).length > 0, "At least one field is required");
 
@@ -381,6 +401,16 @@ const createAudioTaskSchema = z.object({
   projectId: z.coerce.number().int().positive(),
   name: z.string().min(1).max(255),
   assignedUserId: z.coerce.number().int().positive().nullable().optional(),
+  assignments: z
+    .array(
+      z.object({
+        employeeId: z.coerce.number().int().positive(),
+        departmentId: z.string().min(1).optional().nullable().or(z.literal("")),
+        roleType: assignmentRoleTypeEnum.optional()
+      })
+    )
+    .max(20)
+    .optional(),
   status: stageStatusEnum.optional(),
   startDate: isoDate.nullable().optional(),
   endDate: isoDate.nullable().optional(),
@@ -392,6 +422,16 @@ const updateAudioTaskSchema = z
   .object({
     name: z.string().min(1).max(255).optional(),
     assignedUserId: z.coerce.number().int().positive().nullable().optional(),
+    assignments: z
+      .array(
+        z.object({
+          employeeId: z.coerce.number().int().positive(),
+          departmentId: z.string().min(1).optional().nullable().or(z.literal("")),
+          roleType: assignmentRoleTypeEnum.optional()
+        })
+      )
+      .max(20)
+      .optional(),
     status: stageStatusEnum.optional(),
     startDate: isoDate.nullable().optional(),
     endDate: isoDate.nullable().optional(),
@@ -421,7 +461,7 @@ const stageWorkspaceQuerySchema = z.object({
   sequence: z.string().max(120).optional(),
   unassigned: z.coerce.boolean().optional(),
   overdue: z.coerce.boolean().optional(),
-  sortBy: z.enum(["shotNumber", "deadline", "priority", "status", "artist"]).optional(),
+  sortBy: z.enum(["shotNumber", "deadline", "priority", "status", "artist", "duration", "latest"]).optional(),
   sortDir: z.enum(["asc", "desc"]).optional()
 });
 

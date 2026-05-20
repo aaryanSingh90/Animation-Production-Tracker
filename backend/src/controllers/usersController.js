@@ -679,26 +679,36 @@ const getWorkload = asyncHandler(async (req, res) => {
 
   const [shotStages, assetStages] = await Promise.all([
     prisma.shotStage.findMany({
-      where: { assignedUserId: userId },
+      where: {
+        OR: [{ assignedUserId: userId }, { taskAssignments: { some: { employeeId: userId } } }]
+      },
       include: {
         shot: {
           include: {
             project: { select: { id: true, name: true, priority: true } }
           }
         },
-        stageDefinition: true
+        stageDefinition: true,
+        taskAssignments: {
+          where: { employeeId: userId }
+        }
       },
       orderBy: [{ status: "asc" }, { deadline: "asc" }]
     }),
     prisma.assetStage.findMany({
-      where: { assignedUserId: userId },
+      where: {
+        OR: [{ assignedUserId: userId }, { taskAssignments: { some: { employeeId: userId } } }]
+      },
       include: {
         asset: {
           include: {
             project: { select: { id: true, name: true, priority: true } }
           }
         },
-        stageDefinition: true
+        stageDefinition: true,
+        taskAssignments: {
+          where: { employeeId: userId }
+        }
       },
       orderBy: [{ status: "asc" }, { deadline: "asc" }]
     })

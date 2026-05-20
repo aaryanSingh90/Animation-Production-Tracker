@@ -18,9 +18,11 @@ import api from "../lib/api";
 import Loader from "./Loader";
 import Modal from "./Modal";
 import StatusBadge from "./StatusBadge";
+import FlexibleAssignmentField from "./FlexibleAssignmentField";
 import { formatDateTimeInput, formatDurationMinutes, initials } from "../utils/format";
 import { STAGE_STATUSES, getStatusOptionLabel, isCompleteStatus, isLateStatus } from "../utils/constants";
 import { buildAssetCategoryPath } from "../utils/stageRouting";
+import { getLeadAssignment, normalizeAssignmentList } from "../utils/assignments";
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
 
@@ -94,7 +96,7 @@ function createInitialForm(sectionKey) {
   return {
     name: "",
     status: "YTS",
-    artistId: "",
+    assignments: [],
     priority: "3",
     startedAt: "",
     endedAt: "",
@@ -167,7 +169,11 @@ function isOverdue(stage) {
 }
 
 function uniqueArtistCount(entries) {
-  return new Set(entries.map((entry) => entry.stage?.assignedUser?.id).filter(Boolean)).size;
+  return new Set(
+    entries.flatMap((entry) =>
+      getStageAssignments(entry.stage).map((assignment) => Number(assignment.employeeId || assignment.employee?.id || 0)).filter(Boolean)
+    )
+  ).size;
 }
 
 function sumDurationMinutes(entries, nowTick) {
@@ -197,6 +203,10 @@ function patchAssetStage(asset, stageId, patch) {
     ...asset,
     stages: (asset.stages || []).map((stage) => (stage.id === stageId ? { ...stage, ...patch } : stage))
   };
+}
+
+function getStageAssignments(stage) {
+  return stage?.taskAssignments?.length ? stage.taskAssignments : normalizeAssignmentList(stage);
 }
 
 function WorkspaceMetric({ label, value, caption, tone = "text-slate-900" }) {
@@ -265,7 +275,8 @@ function DurationPill({ minutes }) {
 function WorkspaceToolbar({
   filters,
   onFilterChange,
-  eligibleUsers,
+  users,
+  recommendedDepartment,
   section,
   selectedCount,
   bulkDraft,
@@ -316,7 +327,7 @@ function WorkspaceToolbar({
         </select>
         <select value={filters.artistId} onChange={(event) => onFilterChange({ artistId: event.target.value, page: 1 })} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
           <option value="">All artists</option>
-          {eligibleUsers.map((artist) => (
+          {users.map((artist) => (
             <option key={artist.id} value={artist.id}>
               {artist.name}
             </option>
@@ -363,21 +374,15 @@ function WorkspaceToolbar({
             <span>{selectedCount} selected</span>
             <span className="rounded-full bg-white px-2 py-1 text-[11px] font-semibold tracking-normal text-slate-700">Bulk actions</span>
           </div>
-          <div className="grid gap-2 xl:grid-cols-[220px_220px_auto_auto_auto]">
-            <select
-              value={bulkDraft.artistId}
-              onChange={(event) => onBulkDraftChange({ artistId: event.target.value })}
-              className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+          <div className="grid gap-2 xl:grid-cols-[minmax(0,1.5fr)_220px_auto_auto_auto]">
+            <FlexibleAssignmentField
+              users={users}
+              recommendedDepartment={recommendedDepartment}
+              assignments={bulkDraft.assignments}
+              onChange={(assignments) => onBulkDraftChange({ assignments })}
+              allowMultiple={false}
               disabled={disabled}
-            >
-              <option value="">Choose artist</option>
-              <option value="__UNASSIGN__">Unassign selected</option>
-              {eligibleUsers.map((artist) => (
-                <option key={artist.id} value={artist.id}>
-                  {artist.name}
-                </option>
-              ))}
-            </select>
+            />
             <select
               value={bulkDraft.status}
               onChange={(event) => onBulkDraftChange({ status: event.target.value })}
@@ -391,7 +396,7 @@ function WorkspaceToolbar({
                 </option>
               ))}
             </select>
-            <button type="button" onClick={onBulkAssign} disabled={!bulkDraft.artistId || disabled} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-700 disabled:opacity-40">
+            <button type="button" onClick={onBulkAssign} disabled={!bulkDraft.assignments?.length || disabled} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-700 disabled:opacity-40">
               Assign Artist
             </button>
             <button type="button" onClick={onBulkStatus} disabled={!bulkDraft.status || disabled} className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-700 disabled:opacity-40">
@@ -410,7 +415,8 @@ function WorkspaceToolbar({
 function DesktopRow({
   asset,
   stage,
-  artists,
+  users,
+  recommendedDepartment,
   selected,
   nowTick,
   disabled,
@@ -467,23 +473,29 @@ function DesktopRow({
         </select>
       </td>
       <td className="px-3 py-3">
-        <select
-          value={stage?.assignedUser?.id || ""}
-          onChange={(event) => {
-            const assignedUserId = event.target.value ? Number(event.target.value) : null;
-            const assignedUser = artists.find((artist) => artist.id === assignedUserId) || null;
-            onUpdateStage(asset.id, stage.id, { assignedUserId }, { assignedUser, assignedUserId });
-          }}
-          className="w-full min-w-[220px] rounded-xl border border-slate-300 px-3 py-2 text-sm"
-          disabled={disabled}
-        >
-          <option value="">Unassigned</option>
-          {artists.map((artist) => (
-            <option key={artist.id} value={artist.id}>
-              {artist.name}
-            </option>
-          ))}
-        </select>
+        <div className="min-w-[280px]">
+          <FlexibleAssignmentField
+            users={users}
+            recommendedDepartment={recommendedDepartment}
+            assignments={getStageAssignments(stage)}
+            onChange={(assignments) => {
+              const lead = getLeadAssignment(assignments);
+              onUpdateStage(
+                asset.id,
+                stage.id,
+                { assignments, assignedUserId: lead?.employeeId || null },
+                {
+                  assignedUser: lead?.employee || users.find((user) => user.id === lead?.employeeId) || null,
+                  taskAssignments: assignments.map((assignment) => ({
+                    ...assignment,
+                    employee: users.find((user) => user.id === assignment.employeeId) || assignment.employee || null
+                  }))
+                }
+              );
+            }}
+            disabled={disabled}
+          />
+        </div>
       </td>
       <td className="px-3 py-3">
         <input
@@ -575,7 +587,7 @@ function DesktopRow({
   );
 }
 
-function MobileCard({ asset, stage, artists, nowTick, disabled, onUpdateStage, onUpdateAsset, onEdit, onDuplicate, onArchive, onDelete }) {
+function MobileCard({ asset, stage, users, recommendedDepartment, nowTick, disabled, onUpdateStage, onUpdateAsset, onEdit, onDuplicate, onArchive, onDelete }) {
   const duration = resolveDurationMinutes(stage, nowTick);
 
   return (
@@ -595,23 +607,27 @@ function MobileCard({ asset, stage, artists, nowTick, disabled, onUpdateStage, o
       </div>
 
       <div className="mt-4 grid gap-3">
-        <select
-          value={stage?.assignedUser?.id || ""}
-          onChange={(event) => {
-            const assignedUserId = event.target.value ? Number(event.target.value) : null;
-            const assignedUser = artists.find((artist) => artist.id === assignedUserId) || null;
-            onUpdateStage(asset.id, stage.id, { assignedUserId }, { assignedUser, assignedUserId });
+        <FlexibleAssignmentField
+          users={users}
+          recommendedDepartment={recommendedDepartment}
+          assignments={getStageAssignments(stage)}
+          onChange={(assignments) => {
+            const lead = getLeadAssignment(assignments);
+            onUpdateStage(
+              asset.id,
+              stage.id,
+              { assignments, assignedUserId: lead?.employeeId || null },
+              {
+                assignedUser: lead?.employee || users.find((user) => user.id === lead?.employeeId) || null,
+                taskAssignments: assignments.map((assignment) => ({
+                  ...assignment,
+                  employee: users.find((user) => user.id === assignment.employeeId) || assignment.employee || null
+                }))
+              }
+            );
           }}
-          className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
           disabled={disabled}
-        >
-          <option value="">Unassigned</option>
-          {artists.map((artist) => (
-            <option key={artist.id} value={artist.id}>
-              {artist.name}
-            </option>
-          ))}
-        </select>
+        />
 
         <div className="grid grid-cols-2 gap-3">
           <input
@@ -673,13 +689,14 @@ export default function ModellingWorkspace({
   projectId,
   overview,
   stageSummary,
-  eligibleUsers,
-  requiredDepartment,
+  users = [],
+  recommendedDepartment,
   workspaceVariant,
   showToast,
   stageCode = "MODELLING",
   stageLabel = "Modelling"
 }) {
+  const activeUsers = useMemo(() => users.filter((user) => user?.isActive !== false), [users]);
   const normalizedStageCode = String(stageCode || "MODELLING").toUpperCase();
   const displayStageLabel = normalizeStageLabel(stageLabel || normalizedStageCode);
   const sectionKeys = STAGE_SECTION_KEYS[normalizedStageCode] || ["CHARACTER", "PROP", "BG"];
@@ -704,7 +721,7 @@ export default function ModellingWorkspace({
     pageSize: 25
   });
   const [selectedIds, setSelectedIds] = useState([]);
-  const [bulkDraft, setBulkDraft] = useState({ artistId: "", status: "" });
+  const [bulkDraft, setBulkDraft] = useState({ assignments: [], status: "" });
   const [editor, setEditor] = useState({ open: false, mode: "create", sectionKey: sections[0]?.key || "CHARACTER", asset: null, form: createInitialForm(sections[0]?.key || "CHARACTER") });
   const [confirmDelete, setConfirmDelete] = useState({ open: false, assets: [] });
   const [nowTick, setNowTick] = useState(Date.now());
@@ -787,7 +804,10 @@ export default function ModellingWorkspace({
           String(entry.asset.description || "").toLowerCase().includes(searchNeedle) ||
           String(entry.stage.notes || "").toLowerCase().includes(searchNeedle);
         const matchesStatus = !filters.status || entry.stage.status === filters.status;
-        const matchesArtist = !filters.artistId || entry.stage.assignedUser?.id === Number(filters.artistId);
+        const matchesArtist =
+          !filters.artistId ||
+          getStageAssignments(entry.stage).some((assignment) => Number(assignment.employeeId || assignment.employee?.id) === Number(filters.artistId)) ||
+          entry.stage.assignedUser?.id === Number(filters.artistId);
         const matchesPriority = !filters.priority || Number(entry.asset.priority || 3) === Number(filters.priority);
         const matchesArchived = filters.archived === "all" || (filters.archived === "archived" ? entry.asset.isArchived : !entry.asset.isArchived);
         const matchesOverdue = !filters.overdueOnly || isOverdue(entry.stage);
@@ -854,7 +874,7 @@ export default function ModellingWorkspace({
       form: {
         name: asset.name || "",
         status: stage?.status || "YTS",
-        artistId: stage?.assignedUser?.id ? String(stage.assignedUser.id) : "",
+        assignments: getStageAssignments(stage),
         priority: String(asset.priority || 3),
         startedAt: formatDateTimeInput(resolveStageStart(stage)),
         endedAt: formatDateTimeInput(resolveStageEnd(stage)),
@@ -891,7 +911,8 @@ export default function ModellingWorkspace({
     const stage = getStageForCode(createdAsset, normalizedStageCode);
     if (stage) {
       await api.put(`/asset-stages/${stage.id}`, {
-        assignedUserId: values.artistId ? Number(values.artistId) : null,
+        assignedUserId: getLeadAssignment(values.assignments || [])?.employeeId || null,
+        assignments: values.assignments || [],
         status: values.status || "YTS",
         startedAt: values.startedAt || null,
         endedAt: values.endedAt || null,
@@ -949,7 +970,8 @@ export default function ModellingWorkspace({
         if (stage) {
           await api.put(`/asset-stages/${stage.id}`, {
             status: editor.form.status,
-            assignedUserId: editor.form.artistId ? Number(editor.form.artistId) : null,
+            assignedUserId: getLeadAssignment(editor.form.assignments || [])?.employeeId || null,
+            assignments: editor.form.assignments || [],
             startedAt: editor.form.startedAt || null,
             endedAt: editor.form.endedAt || null,
             startDate: editor.form.startedAt || null,
@@ -1001,7 +1023,7 @@ export default function ModellingWorkspace({
       await createAsset(sectionKey, {
         name: `${asset.name} Copy`,
         status: stage?.status || "YTS",
-        artistId: stage?.assignedUser?.id ? String(stage.assignedUser.id) : "",
+        assignments: getStageAssignments(stage),
         priority: String(asset.priority || 3),
         startedAt: formatDateTimeInput(resolveStageStart(stage)),
         endedAt: formatDateTimeInput(resolveStageEnd(stage)),
@@ -1051,14 +1073,16 @@ export default function ModellingWorkspace({
   }
 
   async function bulkAssign() {
-    if (!bulkDraft.artistId) return;
+    if (!bulkDraft.assignments?.length) return;
     const targets = detailEntries.filter((entry) => selectedIds.includes(entry.asset.id));
+    const lead = getLeadAssignment(bulkDraft.assignments || []);
     setBusy(true);
     try {
       await Promise.all(
         targets.map((entry) =>
           api.put(`/asset-stages/${entry.stage.id}`, {
-            assignedUserId: bulkDraft.artistId === "__UNASSIGN__" ? null : Number(bulkDraft.artistId)
+            assignedUserId: lead?.employeeId || null,
+            assignments: bulkDraft.assignments || []
           })
         )
       );
@@ -1112,7 +1136,7 @@ export default function ModellingWorkspace({
               </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <WorkspaceMetric label="Project" value={projectName} caption={requiredDepartment || `${displayStageLabel} Department`} />
+              <WorkspaceMetric label="Project" value={projectName} caption={recommendedDepartment || `${displayStageLabel} Department`} />
               <WorkspaceMetric label="Progress" value={`${stageSummary?.completionPercent || 0}%`} caption="Stage completion" tone="text-slate-900" />
               <WorkspaceMetric label="Assigned Artists" value={uniqueArtistCount(assets.filter((asset) => !asset.isArchived).map((asset) => ({ stage: getStageForCode(asset, normalizedStageCode) })).filter((entry) => entry.stage))} caption="Across all active lanes" tone="text-sky-700" />
               <WorkspaceMetric label="Active Assets" value={assets.filter((asset) => !asset.isArchived && sectionKeys.includes(getSectionKeyForAsset(asset))).length} caption={sections.map((section) => section.title).join(" · ")} tone="text-violet-700" />
@@ -1167,7 +1191,8 @@ export default function ModellingWorkspace({
       <WorkspaceToolbar
         filters={filters}
         onFilterChange={updateFilters}
-        eligibleUsers={eligibleUsers}
+        users={activeUsers}
+        recommendedDepartment={recommendedDepartment}
         section={activeSection}
         selectedCount={selectedIds.length}
         bulkDraft={bulkDraft}
@@ -1219,7 +1244,8 @@ export default function ModellingWorkspace({
                       key={asset.id}
                       asset={asset}
                       stage={stage}
-                      artists={eligibleUsers}
+                      users={activeUsers}
+                      recommendedDepartment={recommendedDepartment}
                       selected={selectedIds.includes(asset.id)}
                       nowTick={nowTick}
                       disabled={busy}
@@ -1244,7 +1270,8 @@ export default function ModellingWorkspace({
                 key={asset.id}
                 asset={asset}
                 stage={stage}
-                artists={eligibleUsers}
+                users={activeUsers}
+                recommendedDepartment={recommendedDepartment}
                 nowTick={nowTick}
                 disabled={busy}
                 onUpdateStage={persistStageUpdate}
@@ -1283,13 +1310,13 @@ export default function ModellingWorkspace({
             <input value={editor.form.name} onChange={(event) => setEditor((prev) => ({ ...prev, form: { ...prev.form, name: event.target.value } }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm" />
           </label>
           <label className="space-y-2">
-            <span className="text-sm font-semibold text-slate-700">Artist</span>
-            <select value={editor.form.artistId} onChange={(event) => setEditor((prev) => ({ ...prev, form: { ...prev.form, artistId: event.target.value } }))} className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm">
-              <option value="">Unassigned</option>
-              {eligibleUsers.map((artist) => (
-                <option key={artist.id} value={artist.id}>{artist.name}</option>
-              ))}
-            </select>
+            <span className="text-sm font-semibold text-slate-700">Assignment</span>
+            <FlexibleAssignmentField
+              users={activeUsers}
+              recommendedDepartment={recommendedDepartment}
+              assignments={editor.form.assignments}
+              onChange={(assignments) => setEditor((prev) => ({ ...prev, form: { ...prev.form, assignments } }))}
+            />
           </label>
           <label className="space-y-2">
             <span className="text-sm font-semibold text-slate-700">Status</span>

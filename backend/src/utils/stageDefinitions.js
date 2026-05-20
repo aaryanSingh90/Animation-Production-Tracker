@@ -106,7 +106,7 @@ const DEFAULT_STAGE_DEFINITIONS = [
   {
     code: "COMPOSITING",
     name: "Composite",
-    trackingMode: "PROJECT",
+    trackingMode: "SHOT",
     isHybrid: false,
     requiresApproval: true,
     order: 10,
@@ -116,7 +116,7 @@ const DEFAULT_STAGE_DEFINITIONS = [
   {
     code: "EDITING",
     name: "Editing",
-    trackingMode: "PROJECT",
+    trackingMode: "SHOT",
     isHybrid: false,
     requiresApproval: true,
     order: 11,
@@ -196,8 +196,8 @@ const LEGACY_STAGE_NAME_TO_CODE = {
 };
 
 const TRACKING_GROUPS = {
-  PROJECT: ["AUDIO", "COMPOSITING", "EDITING"],
-  SHOT: ["ANIMATICS", "ANIMATION", "FX", "LIGHTING"],
+  PROJECT: ["AUDIO"],
+  SHOT: ["ANIMATICS", "ANIMATION", "FX", "LIGHTING", "COMPOSITING", "EDITING"],
   ASSET: ["MODELLING", "UNWRAPPING", "TEXTURING", "RIGGING"],
   HYBRID: ["RENDERING"]
 };

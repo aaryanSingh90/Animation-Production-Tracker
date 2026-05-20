@@ -99,6 +99,11 @@ enum OverallStatus {
   HAS_ISSUES
 }
 
+enum AssignmentRoleType {
+  LEAD
+  SUPPORT
+}
+
 model User {
   id                      Int                @id @default(autoincrement())
   name                    String
@@ -132,6 +137,8 @@ model User {
   notifications           Notification[]
   activityLogs            ActivityLog[]
   stageComments           StageComment[]     @relation("CommentAuthor")
+  taskAssignments         TaskAssignment[]   @relation("TaskAssignmentEmployee")
+  taskAssignmentsCreated  TaskAssignment[]   @relation("TaskAssignmentCreator")
 }
 
 model Client {
@@ -174,6 +181,7 @@ model Project {
   teamProjects      TeamProject[]
   notifications     Notification[]
   activityLogs      ActivityLog[]
+  taskAssignments   TaskAssignment[]
 
   @@index([clientId])
 }
@@ -217,6 +225,7 @@ model ProjectStage {
   notifications         Notification[]
   activityLogs          ActivityLog[]
   comments              StageComment[]
+  taskAssignments       TaskAssignment[]
 
   @@unique([projectId, stageName, customName])
   @@index([projectId, order])
@@ -238,6 +247,7 @@ model AudioTask {
   updatedAt      DateTime       @updatedAt
   project        Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   assignedUser   User?          @relation("UserAudioTasks", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  taskAssignments TaskAssignment[]
 
   @@index([projectId, order])
   @@index([assignedUserId])
@@ -341,6 +351,7 @@ model Department {
   employees        User[]
   teams            Team[]
   stageAssignments StageDepartmentAssignment[]
+  taskAssignments  TaskAssignment[]
 }
 
 model Team {
@@ -428,9 +439,17 @@ model Shot {
   description String?
   duration    Float?
   order       Int
+  priority    Int         @default(3)
   status      PipelineStatus @default(YTS)
   audioStatus PipelineStatus?
+  audioWorkflowStatus String?
   finalOutput String?
+  finalOutputName String?
+  finalOutputVersion String?
+  finalOutputApprovalStatus PipelineStatus?
+  finalOutputDeliveryDate DateTime?
+  finalOutputClientReview String?
+  finalOutputNotes String?
   project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
   stages      ShotStage[]
   createdAt   DateTime    @default(now())
@@ -448,6 +467,10 @@ model ShotStage {
   status            PipelineStatus  @default(YTS)
   startDate         DateTime?
   endDate           DateTime?
+  startedAt         DateTime?
+  endedAt           DateTime?
+  durationMinutes   Int?
+  isTimerRunning    Boolean         @default(false)
   actualStartedAt   DateTime?
   actualDoneAt      DateTime?
   timeConsumedMin   Int?
@@ -460,6 +483,7 @@ model ShotStage {
   stageDefinition   StageDefinition @relation(fields: [stageDefinitionId], references: [id], onDelete: Cascade)
   assignedUser      User?           @relation("UserShotStages", fields: [assignedUserId], references: [id], onDelete: SetNull)
   comments          ShotStageComment[]
+  taskAssignments   TaskAssignment[]
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
 
@@ -513,6 +537,7 @@ model AssetStage {
   stageDefinition   StageDefinition @relation(fields: [stageDefinitionId], references: [id], onDelete: Cascade)
   assignedUser      User?           @relation("UserAssetStages", fields: [assignedUserId], references: [id], onDelete: SetNull)
   comments          AssetStageComment[]
+  taskAssignments   TaskAssignment[]
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
 
@@ -559,6 +584,37 @@ model AssetStageComment {
 
   @@index([assetStageId, createdAt])
   @@index([authorId])
+}
+
+model TaskAssignment {
+  id             String              @id @default(cuid())
+  projectId      Int
+  project        Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectStageId Int?
+  projectStage   ProjectStage?       @relation(fields: [projectStageId], references: [id], onDelete: Cascade)
+  shotStageId    String?
+  shotStage      ShotStage?          @relation(fields: [shotStageId], references: [id], onDelete: Cascade)
+  assetStageId   String?
+  assetStage     AssetStage?         @relation(fields: [assetStageId], references: [id], onDelete: Cascade)
+  audioTaskId    String?
+  audioTask      AudioTask?          @relation(fields: [audioTaskId], references: [id], onDelete: Cascade)
+  departmentId   String?
+  department     Department?         @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  employeeId     Int
+  employee       User                @relation("TaskAssignmentEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
+  roleType       AssignmentRoleType  @default(LEAD)
+  assignedAt     DateTime            @default(now())
+  assignedById   Int?
+  assignedBy     User?               @relation("TaskAssignmentCreator", fields: [assignedById], references: [id], onDelete: SetNull)
+
+  @@unique([projectStageId, employeeId])
+  @@unique([shotStageId, employeeId])
+  @@unique([assetStageId, employeeId])
+  @@unique([audioTaskId, employeeId])
+  @@index([projectId])
+  @@index([departmentId])
+  @@index([employeeId])
+  @@index([assignedById])
 }
 
 model StageComment {

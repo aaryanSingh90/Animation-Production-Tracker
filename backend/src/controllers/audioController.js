@@ -3,6 +3,7 @@ const { AppError, asyncHandler } = require("../utils/http");
 const { MANAGER_ROLES } = require("../utils/constants");
 const { recalculateProjectProgress } = require("../utils/progress");
 const { normalizePipelineStatus } = require("../utils/pipelineStatus");
+const { TASK_ASSIGNMENT_INCLUDE, syncTaskAssignments, notifyTaskAssignmentUsers } = require("../utils/taskAssignments");
 
 function isManagerRole(role) {
   return MANAGER_ROLES.includes(role);
@@ -42,7 +43,16 @@ async function assertAudioProjectAccess(projectId, user) {
         {
           audioTasks: {
             some: {
-              assignedUserId: user.id
+              OR: [
+                { assignedUserId: user.id },
+                {
+                  taskAssignments: {
+                    some: {
+                      employeeId: user.id
+                    }
+                  }
+                }
+              ]
             }
           }
         },
@@ -51,7 +61,7 @@ async function assertAudioProjectAccess(projectId, user) {
             some: {
               stages: {
                 some: {
-                  assignedUserId: user.id
+                  OR: [{ assignedUserId: user.id }, { taskAssignments: { some: { employeeId: user.id } } }]
                 }
               }
             }
@@ -62,7 +72,7 @@ async function assertAudioProjectAccess(projectId, user) {
             some: {
               stages: {
                 some: {
-                  assignedUserId: user.id
+                  OR: [{ assignedUserId: user.id }, { taskAssignments: { some: { employeeId: user.id } } }]
                 }
               }
             }
@@ -112,7 +122,8 @@ async function hydrateAudioTask(id) {
             }
           }
         }
-      }
+      },
+      ...TASK_ASSIGNMENT_INCLUDE
     }
   });
 }
@@ -131,7 +142,9 @@ const listProjectAudio = asyncHandler(async (req, res) => {
 
   const where = { projectId };
   if (status) where.status = status;
-  if (artistId) where.assignedUserId = artistId;
+  if (artistId) {
+    where.OR = [{ assignedUserId: artistId }, { taskAssignments: { some: { employeeId: artistId } } }];
+  }
   if (search) {
     where.name = {
       contains: String(search),
@@ -158,7 +171,8 @@ const listProjectAudio = asyncHandler(async (req, res) => {
               }
             }
           }
-        }
+        },
+        ...TASK_ASSIGNMENT_INCLUDE
       },
       orderBy: buildAudioOrder(sortBy, sortDir),
       skip: (page - 1) * pageSize,
@@ -200,6 +214,48 @@ const createAudioTask = asyncHandler(async (req, res) => {
     }
   });
 
+  if (Object.prototype.hasOwnProperty.call(req.body, "assignments") || created.assignedUserId) {
+    const { addedEmployeeIds } = await syncTaskAssignments({
+      resourceType: "audioTask",
+      recordId: created.id,
+      projectId,
+      assignments: Object.prototype.hasOwnProperty.call(req.body, "assignments")
+        ? req.body.assignments
+        : created.assignedUserId
+          ? [{ employeeId: Number(created.assignedUserId), roleType: "LEAD" }]
+          : [],
+      fallbackAssignedUserId: created.assignedUserId,
+      assignedById: req.user.id,
+      parentModel: "audioTask",
+      include: {
+        assignedUser: {
+          select: {
+            id: true,
+            name: true,
+            departmentId: true,
+            departmentName: true,
+            department: {
+              select: {
+                id: true,
+                name: true,
+                color: true
+              }
+            }
+          }
+        },
+        ...TASK_ASSIGNMENT_INCLUDE
+      }
+    });
+
+    if (addedEmployeeIds.length) {
+      await notifyTaskAssignmentUsers({
+        employeeIds: addedEmployeeIds,
+        message: `${req.user.name} assigned you to audio task ${created.name} in ${project.name}.`,
+        relatedProjectId: projectId
+      });
+    }
+  }
+
   await recalculateProjectProgress(projectId);
 
   const hydrated = await hydrateAudioTask(created.id);
@@ -225,6 +281,52 @@ const updateAudioTask = asyncHandler(async (req, res) => {
     where: { id },
     data: payload
   });
+
+  if (Object.prototype.hasOwnProperty.call(req.body, "assignments") || Object.prototype.hasOwnProperty.call(payload, "assignedUserId")) {
+    const { addedEmployeeIds } = await syncTaskAssignments({
+      resourceType: "audioTask",
+      recordId: id,
+      projectId: existing.projectId,
+      assignments: Object.prototype.hasOwnProperty.call(req.body, "assignments")
+        ? req.body.assignments
+        : payload.assignedUserId
+          ? [{ employeeId: Number(payload.assignedUserId), roleType: "LEAD" }]
+          : [],
+      fallbackAssignedUserId: Object.prototype.hasOwnProperty.call(payload, "assignedUserId") ? payload.assignedUserId : existing.assignedUserId,
+      assignedById: req.user.id,
+      parentModel: "audioTask",
+      include: {
+        assignedUser: {
+          select: {
+            id: true,
+            name: true,
+            departmentId: true,
+            departmentName: true,
+            department: {
+              select: {
+                id: true,
+                name: true,
+                color: true
+              }
+            }
+          }
+        },
+        ...TASK_ASSIGNMENT_INCLUDE
+      }
+    });
+
+    if (addedEmployeeIds.length) {
+      const project = await prisma.project.findUnique({
+        where: { id: existing.projectId },
+        select: { name: true }
+      });
+      await notifyTaskAssignmentUsers({
+        employeeIds: addedEmployeeIds,
+        message: `${req.user.name} assigned you to audio task ${payload.name || existing.name} in ${project?.name || "Project"}.`,
+        relatedProjectId: existing.projectId
+      });
+    }
+  }
 
   await recalculateProjectProgress(existing.projectId);
 

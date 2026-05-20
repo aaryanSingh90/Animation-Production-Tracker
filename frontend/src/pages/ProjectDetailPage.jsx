@@ -21,8 +21,8 @@ const CORE_PIPELINE = [
   { id: "animation", label: "Animation", stageCode: "ANIMATION", workspaceSlug: "animation", tracking: "SHOT", color: "#3B82F6" },
   { id: "fx", label: "FX", stageCode: "FX", workspaceSlug: "fx", tracking: "SHOT", color: "#A855F7" },
   { id: "lighting", label: "Lighting", stageCode: "LIGHTING", workspaceSlug: "lighting", tracking: "SHOT", color: "#F97316" },
-  { id: "composite", label: "Composite", stageCode: "COMPOSITING", workspaceSlug: "composite", tracking: "PROJECT", color: "#84CC16" },
-  { id: "editing", label: "Editing", stageCode: "EDITING", workspaceSlug: "editing", tracking: "PROJECT", color: "#06B6D4" }
+  { id: "composite", label: "Composite", stageCode: "COMPOSITING", workspaceSlug: "composite", tracking: "SHOT", color: "#84CC16" },
+  { id: "editing", label: "Editing", stageCode: "EDITING", workspaceSlug: "editing", tracking: "SHOT", color: "#06B6D4" }
 ];
 
 const EXTRA_WORKSPACE_ORDER = ["RENDERING"];

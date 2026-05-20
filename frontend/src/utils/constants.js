@@ -18,25 +18,25 @@ export const STATUS_META = {
   TEST: {
     shortKey: "TEST",
     label: "Test Shot",
-    background: "#7C3AED",
-    text: "#FFFFFF",
-    border: "#6D28D9",
-    dot: "#DDD6FE"
+    background: "#22D3EE",
+    text: "#083344",
+    border: "#06B6D4",
+    dot: "#A5F3FC"
   },
   DONE: {
     shortKey: "DONE",
     label: "Done",
-    background: "#0F766E",
+    background: "#8B5CF6",
     text: "#FFFFFF",
-    border: "#115E59",
-    dot: "#99F6E4"
+    border: "#7C3AED",
+    dot: "#DDD6FE"
   },
   APPROVED: {
     shortKey: "APPROVED",
     label: "Lead Approval",
-    background: "#16A34A",
+    background: "#10B981",
     text: "#FFFFFF",
-    border: "#15803D",
+    border: "#059669",
     dot: "#BBF7D0"
   },
   RTK: {

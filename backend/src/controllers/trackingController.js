@@ -1,8 +1,9 @@
 const prisma = require("../utils/prisma");
 const { asyncHandler, AppError } = require("../utils/http");
-const { getTrackingDefinitionSnapshot } = require("../utils/trackingSetup");
+const { getTrackingDefinitionSnapshot, ensureProjectShotStageCoverage } = require("../utils/trackingSetup");
 const { getLegacyStageNameFromCode, normalizeStageCode } = require("../utils/stageDefinitions");
 const { MANAGER_ROLES } = require("../utils/constants");
+const { TASK_ASSIGNMENT_INCLUDE } = require("../utils/taskAssignments");
 const {
   COMPLETED_STATUSES,
   isApprovedStatus,
@@ -67,7 +68,7 @@ async function assertProjectAccess(projectId, user) {
         {
           audioTasks: {
             some: {
-              assignedUserId: user.id
+              OR: [{ assignedUserId: user.id }, { taskAssignments: { some: { employeeId: user.id } } }]
             }
           }
         },
@@ -76,7 +77,7 @@ async function assertProjectAccess(projectId, user) {
             some: {
               stages: {
                 some: {
-                  assignedUserId: user.id
+                  OR: [{ assignedUserId: user.id }, { taskAssignments: { some: { employeeId: user.id } } }]
                 }
               }
             }
@@ -87,7 +88,7 @@ async function assertProjectAccess(projectId, user) {
             some: {
               stages: {
                 some: {
-                  assignedUserId: user.id
+                  OR: [{ assignedUserId: user.id }, { taskAssignments: { some: { employeeId: user.id } } }]
                 }
               }
             }
@@ -108,78 +109,95 @@ const getProjectOverview = asyncHandler(async (req, res) => {
 
   await assertProjectAccess(projectId, req.user);
 
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
-    include: {
-      stages: {
-        where: { isActive: true },
-        include: {
-          stageDefinition: true,
-          stageTemplate: true,
-          assignedUser: {
-            select: {
-              id: true,
-              name: true
-            }
-          },
-          assignments: {
-            select: {
-              userId: true
-            }
+  const projectInclude = {
+    stages: {
+      where: { isActive: true },
+      include: {
+        stageDefinition: true,
+        stageTemplate: true,
+        assignedUser: {
+          select: {
+            id: true,
+            name: true
+          }
+        },
+        assignments: {
+          select: {
+            userId: true
           }
         }
-      },
-      audioTasks: {
-        include: {
-          assignedUser: {
-            select: {
-              id: true,
-              name: true
-            }
+      }
+    },
+    audioTasks: {
+      include: {
+        assignedUser: {
+          select: {
+            id: true,
+            name: true
           }
         }
-      },
-      shots: {
-        include: {
-          stages: {
-            include: {
-              stageDefinition: true,
-              assignedUser: {
-                select: {
-                  id: true,
-                  name: true
-                }
+      }
+    },
+    shots: {
+      include: {
+        stages: {
+          include: {
+            stageDefinition: true,
+            assignedUser: {
+              select: {
+                id: true,
+                name: true
               }
             }
           }
         }
-      },
-      assets: {
-        include: {
-          stages: {
-            include: {
-              stageDefinition: true,
-              assignedUser: {
-                select: {
-                  id: true,
-                  name: true
-                }
+      }
+    },
+    assets: {
+      include: {
+        stages: {
+          include: {
+            stageDefinition: true,
+            assignedUser: {
+              select: {
+                id: true,
+                name: true
               }
             }
           }
         }
       }
     }
+  };
+
+  let project = await prisma.project.findUnique({
+    where: { id: projectId },
+    include: projectInclude
   });
 
   if (!project) throw new AppError("Project not found", 404);
 
   const now = new Date();
   const snapshot = await getTrackingDefinitionSnapshot({ prisma, project });
+  const createdShotStages = await ensureProjectShotStageCoverage({ prisma, projectId, snapshot });
+
+  if (createdShotStages > 0) {
+    project = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: projectInclude
+    });
+  }
 
   const projectStages = project.stages || [];
   const audioTasks = project.audioTasks || [];
-  const projectStagesWithoutAudio = audioTasks.length ? projectStages.filter((stage) => !isAudioStageRow(stage)) : projectStages;
+  const projectStagesWithoutAudio = projectStages.filter((stage) => {
+    const code = normalizeOverviewStageCode(stage.stageDefinition?.code || stage.stageName);
+    if (audioTasks.length && isAudioStageRow(stage)) return false;
+    if (snapshot.projectCodes.size) {
+      return snapshot.projectCodes.has(code);
+    }
+    return true;
+  });
   const projectLevelRows = [
     ...projectStagesWithoutAudio,
     ...audioTasks.map((task) => ({
@@ -379,6 +397,21 @@ const getStageShotsWorkspace = asyncHandler(async (req, res) => {
 
   await assertProjectAccess(projectId, req.user);
 
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: {
+      id: true,
+      activeStageCodes: true,
+      lightingMode: true,
+      renderingMode: true
+    }
+  });
+
+  if (!project) throw new AppError("Project not found", 404);
+
+  const snapshot = await getTrackingDefinitionSnapshot({ prisma, project });
+  await ensureProjectShotStageCoverage({ prisma, projectId, snapshot });
+
   const stageDefinition = await prisma.stageDefinition.findUnique({
     where: { code: stageCode },
     select: {
@@ -400,8 +433,13 @@ const getStageShotsWorkspace = asyncHandler(async (req, res) => {
   };
 
   if (status) where.status = status;
-  if (artistId) where.assignedUserId = artistId;
-  if (unassigned) where.assignedUserId = null;
+  if (artistId) {
+    where.OR = [{ assignedUserId: artistId }, { taskAssignments: { some: { employeeId: artistId } } }];
+  }
+  if (unassigned) {
+    where.assignedUserId = null;
+    where.taskAssignments = { none: {} };
+  }
   if (overdue) {
     where.deadline = { lt: new Date() };
     if (!status) {
@@ -439,8 +477,12 @@ const getStageShotsWorkspace = asyncHandler(async (req, res) => {
   let orderBy = [{ shot: { order: "asc" } }, { shot: { shotNumber: "asc" } }];
   if (sortBy === "deadline") {
     orderBy = [{ deadline: sortDir }, { shot: { order: "asc" } }];
+  } else if (sortBy === "duration") {
+    orderBy = [{ durationMinutes: sortDir }, { timeConsumedMin: sortDir }, { shot: { order: "asc" } }];
+  } else if (sortBy === "latest") {
+    orderBy = [{ updatedAt: sortDir }, { shot: { order: "asc" } }];
   } else if (sortBy === "priority") {
-    orderBy = [{ shot: { order: sortDir } }, { shot: { shotNumber: "asc" } }];
+    orderBy = [{ shot: { priority: sortDir } }, { shot: { order: "asc" } }];
   } else if (sortBy === "status") {
     orderBy = [{ status: sortDir }, { shot: { order: "asc" } }];
   } else if (sortBy === "artist") {
@@ -464,7 +506,18 @@ const getStageShotsWorkspace = asyncHandler(async (req, res) => {
             frameEnd: true,
             seconds: true,
             order: true,
-            status: true
+            status: true,
+            priority: true,
+            audioStatus: true,
+            audioWorkflowStatus: true,
+            finalOutput: true,
+            finalOutputName: true,
+            finalOutputVersion: true,
+            finalOutputApprovalStatus: true,
+            finalOutputDeliveryDate: true,
+            finalOutputClientReview: true,
+            finalOutputNotes: true,
+            updatedAt: true
           }
         },
         stageDefinition: true,
@@ -481,7 +534,8 @@ const getStageShotsWorkspace = asyncHandler(async (req, res) => {
                 color: true
               }
             }
-          }
+          },
+          ...TASK_ASSIGNMENT_INCLUDE
         }
       },
       orderBy,
@@ -536,7 +590,9 @@ const getStageAssetsWorkspace = asyncHandler(async (req, res) => {
   };
 
   if (status) where.status = status;
-  if (artistId) where.assignedUserId = artistId;
+  if (artistId) {
+    where.OR = [{ assignedUserId: artistId }, { taskAssignments: { some: { employeeId: artistId } } }];
+  }
   if (type) {
     where.asset = {
       ...where.asset,
@@ -590,7 +646,8 @@ const getStageAssetsWorkspace = asyncHandler(async (req, res) => {
                 color: true
               }
             }
-          }
+          },
+          ...TASK_ASSIGNMENT_INCLUDE
         }
       },
       orderBy: [{ asset: { order: "asc" } }, { asset: { name: "asc" } }, { createdAt: "asc" }],

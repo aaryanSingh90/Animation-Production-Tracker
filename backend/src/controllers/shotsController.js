@@ -6,6 +6,12 @@ const { recalculateProjectProgress } = require("../utils/progress");
 const { normalizeStageCode } = require("../utils/stageDefinitions");
 const { createNotification, notifyManagers } = require("../utils/notifications");
 const {
+  TASK_ASSIGNMENT_INCLUDE,
+  syncTaskAssignments,
+  notifyTaskAssignmentUsers,
+  getAssignedEmployeeIds
+} = require("../utils/taskAssignments");
+const {
   ARTIST_MUTABLE_STATUSES,
   isApprovedStatus,
   isCompleteStatus,
@@ -31,6 +37,20 @@ function shotLabelByNumber(shotNumber) {
 function resolveShotSeconds(frameStart, frameEnd) {
   if (!Number.isFinite(frameStart) || !Number.isFinite(frameEnd) || frameEnd < frameStart) return null;
   return Number(((frameEnd - frameStart + 1) / 24).toFixed(2));
+}
+
+function resolveDurationMinutesFromRange(startValue, endValue) {
+  if (!startValue || !endValue) return null;
+  const startedAt = new Date(startValue).getTime();
+  const endedAt = new Date(endValue).getTime();
+  if (!Number.isFinite(startedAt) || !Number.isFinite(endedAt) || endedAt <= startedAt) return null;
+  return Math.max(1, Math.round((endedAt - startedAt) / 60000));
+}
+
+function normalizeNullableString(value) {
+  if (value === null || value === undefined) return null;
+  const normalized = String(value).trim();
+  return normalized ? normalized : null;
 }
 
 async function refreshShotStatus(shotId) {
@@ -73,7 +93,7 @@ const listProjectShots = asyncHandler(async (req, res) => {
   if (artistId) {
     where.stages = {
       some: {
-        assignedUserId: artistId
+        OR: [{ assignedUserId: artistId }, { taskAssignments: { some: { employeeId: artistId } } }]
       }
     };
   }
@@ -97,7 +117,8 @@ const listProjectShots = asyncHandler(async (req, res) => {
                   select: { id: true, name: true, color: true }
                 }
               }
-            }
+            },
+            ...TASK_ASSIGNMENT_INCLUDE
           },
           orderBy: {
             createdAt: "asc"
@@ -161,6 +182,7 @@ const createProjectShot = asyncHandler(async (req, res) => {
       name: req.body.name || label,
       description: req.body.description || null,
       duration: req.body.duration ? Number(req.body.duration) : seconds,
+      priority: Number(req.body.priority || 3),
       status: normalizePipelineStatus(req.body.status, "YTS")
     }
   });
@@ -199,7 +221,8 @@ const createProjectShot = asyncHandler(async (req, res) => {
               id: true,
               name: true
             }
-          }
+          },
+          ...TASK_ASSIGNMENT_INCLUDE
         },
         orderBy: {
           createdAt: "asc"
@@ -267,6 +290,7 @@ const bulkCreateProjectShots = asyncHandler(async (req, res) => {
           seconds,
           name: label,
           duration: seconds,
+          priority: Number(shotInput?.priority || 3),
           status: "YTS",
           stages: {
             create: stageDefinitionIds.map((stageDefinitionId) => ({
@@ -317,12 +341,20 @@ const updateShot = asyncHandler(async (req, res) => {
     "description",
     "duration",
     "order",
+    "priority",
     "status",
     "frameStart",
     "frameEnd",
     "seconds",
     "audioStatus",
-    "finalOutput"
+    "audioWorkflowStatus",
+    "finalOutput",
+    "finalOutputName",
+    "finalOutputVersion",
+    "finalOutputApprovalStatus",
+    "finalOutputDeliveryDate",
+    "finalOutputClientReview",
+    "finalOutputNotes"
   ];
   for (const field of fields) {
     if (Object.prototype.hasOwnProperty.call(req.body, field)) {
@@ -363,8 +395,32 @@ const updateShot = asyncHandler(async (req, res) => {
   if (Object.prototype.hasOwnProperty.call(payload, "audioStatus")) {
     payload.audioStatus = payload.audioStatus || null;
   }
+  if (Object.prototype.hasOwnProperty.call(payload, "audioWorkflowStatus")) {
+    payload.audioWorkflowStatus = normalizeNullableString(payload.audioWorkflowStatus);
+  }
   if (Object.prototype.hasOwnProperty.call(payload, "finalOutput")) {
-    payload.finalOutput = payload.finalOutput || null;
+    payload.finalOutput = normalizeNullableString(payload.finalOutput);
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "finalOutputName")) {
+    payload.finalOutputName = normalizeNullableString(payload.finalOutputName);
+    if (!Object.prototype.hasOwnProperty.call(payload, "finalOutput")) {
+      payload.finalOutput = payload.finalOutputName;
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "finalOutputVersion")) {
+    payload.finalOutputVersion = normalizeNullableString(payload.finalOutputVersion);
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "finalOutputApprovalStatus")) {
+    payload.finalOutputApprovalStatus = payload.finalOutputApprovalStatus || null;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "finalOutputDeliveryDate")) {
+    payload.finalOutputDeliveryDate = payload.finalOutputDeliveryDate ? new Date(payload.finalOutputDeliveryDate) : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "finalOutputClientReview")) {
+    payload.finalOutputClientReview = normalizeNullableString(payload.finalOutputClientReview);
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "finalOutputNotes")) {
+    payload.finalOutputNotes = normalizeNullableString(payload.finalOutputNotes);
   }
 
   const updated = await prisma.shot.update({
@@ -379,7 +435,8 @@ const updateShot = asyncHandler(async (req, res) => {
               id: true,
               name: true
             }
-          }
+          },
+          ...TASK_ASSIGNMENT_INCLUDE
         },
         orderBy: {
           createdAt: "asc"
@@ -419,6 +476,7 @@ const updateShotStage = asyncHandler(async (req, res) => {
   const shotStage = await prisma.shotStage.findUnique({
     where: { id: shotStageId },
     include: {
+      ...TASK_ASSIGNMENT_INCLUDE,
       shot: {
         include: {
           project: true
@@ -434,7 +492,8 @@ const updateShotStage = asyncHandler(async (req, res) => {
   const previousStatus = shotStage.status;
   const previousAssignedUserId = shotStage.assignedUserId;
   const previousDeadline = shotStage.deadline ? new Date(shotStage.deadline).toISOString() : null;
-  if (!manager && shotStage.assignedUserId !== req.user.id) {
+  const previousAssignedEmployeeIds = getAssignedEmployeeIds(shotStage, shotStage.assignedUserId);
+  if (!manager && !previousAssignedEmployeeIds.includes(req.user.id)) {
     throw new AppError("Forbidden", 403);
   }
 
@@ -458,6 +517,18 @@ const updateShotStage = asyncHandler(async (req, res) => {
   if (Object.prototype.hasOwnProperty.call(req.body, "endDate")) {
     payload.endDate = req.body.endDate ? new Date(req.body.endDate) : null;
   }
+  if (Object.prototype.hasOwnProperty.call(req.body, "startedAt")) {
+    payload.startedAt = req.body.startedAt ? new Date(req.body.startedAt) : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body, "endedAt")) {
+    payload.endedAt = req.body.endedAt ? new Date(req.body.endedAt) : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body, "durationMinutes")) {
+    payload.durationMinutes = req.body.durationMinutes ? Number(req.body.durationMinutes) : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(req.body, "isTimerRunning")) {
+    payload.isTimerRunning = Boolean(req.body.isTimerRunning);
+  }
   if (Object.prototype.hasOwnProperty.call(req.body, "assignedUserId") && manager) {
     payload.assignedUserId = req.body.assignedUserId ? Number(req.body.assignedUserId) : null;
   }
@@ -472,6 +543,15 @@ const updateShotStage = asyncHandler(async (req, res) => {
 
   if (payload.status === "IP" && !shotStage.actualStartedAt) {
     payload.actualStartedAt = new Date();
+  }
+  if (payload.status === "IP" && !shotStage.startedAt) {
+    payload.startedAt = payload.startedAt || new Date();
+  }
+  if (payload.status === "IP" && !Object.prototype.hasOwnProperty.call(payload, "isTimerRunning")) {
+    payload.isTimerRunning = true;
+  }
+  if (payload.startedAt && !payload.endedAt && !Object.prototype.hasOwnProperty.call(payload, "isTimerRunning")) {
+    payload.isTimerRunning = true;
   }
 
   if (isPendingReviewStatus(payload.status)) {
@@ -492,6 +572,27 @@ const updateShotStage = asyncHandler(async (req, res) => {
     payload.actualDoneAt = doneAt;
     payload.timeConsumedMin = Math.max(1, Math.round((doneAt.getTime() - new Date(shotStage.actualStartedAt).getTime()) / 60000));
   }
+  if (isCompleteStatus(payload.status) && !payload.endedAt) {
+    payload.endedAt = new Date();
+  }
+
+  const resolvedStartedAt = Object.prototype.hasOwnProperty.call(payload, "startedAt")
+    ? payload.startedAt
+    : shotStage.startedAt || shotStage.actualStartedAt || shotStage.startDate || null;
+  const resolvedEndedAt = Object.prototype.hasOwnProperty.call(payload, "endedAt")
+    ? payload.endedAt
+    : shotStage.endedAt || shotStage.actualDoneAt || shotStage.endDate || null;
+  const derivedDurationMinutes = resolveDurationMinutesFromRange(resolvedStartedAt, resolvedEndedAt);
+
+  if (!Object.prototype.hasOwnProperty.call(payload, "durationMinutes") && derivedDurationMinutes) {
+    payload.durationMinutes = derivedDurationMinutes;
+  }
+  if (payload.durationMinutes && !payload.timeConsumedMin) {
+    payload.timeConsumedMin = payload.durationMinutes;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "endedAt") && payload.endedAt && !Object.prototype.hasOwnProperty.call(payload, "isTimerRunning")) {
+    payload.isTimerRunning = false;
+  }
 
   const updated = await prisma.shotStage.update({
     where: { id: shotStageId },
@@ -508,18 +609,63 @@ const updateShotStage = asyncHandler(async (req, res) => {
             select: { id: true, name: true, color: true }
           }
         }
-      }
+      },
+      ...TASK_ASSIGNMENT_INCLUDE
     }
   });
 
-  await refreshShotStatus(updated.shotId);
+  let hydrated = updated;
+  let addedEmployeeIds = [];
+
+  if (manager && (Object.prototype.hasOwnProperty.call(req.body, "assignments") || Object.prototype.hasOwnProperty.call(payload, "assignedUserId"))) {
+    const syncResult = await syncTaskAssignments({
+      resourceType: "shotStage",
+      recordId: shotStageId,
+      projectId: shotStage.shot.projectId,
+      assignments: Object.prototype.hasOwnProperty.call(req.body, "assignments")
+        ? req.body.assignments
+        : payload.assignedUserId
+          ? [{ employeeId: Number(payload.assignedUserId), roleType: "LEAD" }]
+          : [],
+      fallbackAssignedUserId: Object.prototype.hasOwnProperty.call(payload, "assignedUserId") ? payload.assignedUserId : shotStage.assignedUserId,
+      assignedById: req.user.id,
+      parentModel: "shotStage",
+      include: {
+        stageDefinition: true,
+        assignedUser: {
+          select: {
+            id: true,
+            name: true,
+            departmentId: true,
+            departmentName: true,
+            department: {
+              select: { id: true, name: true, color: true }
+            }
+          }
+        },
+        ...TASK_ASSIGNMENT_INCLUDE
+      }
+    });
+
+    hydrated = syncResult.hydrated || updated;
+    addedEmployeeIds = syncResult.addedEmployeeIds || [];
+  }
+
+  await refreshShotStatus(hydrated.shotId);
   await recalculateProjectProgress(shotStage.shot.projectId);
 
-  const stageName = updated.stageDefinition?.name || updated.stageDefinition?.code || "Shot Stage";
+  const stageName = hydrated.stageDefinition?.name || hydrated.stageDefinition?.code || "Shot Stage";
   const shotName = shotLabel(shotStage.shot);
   const projectName = shotStage.shot.project?.name || "Project";
+  const currentAssignedEmployeeIds = getAssignedEmployeeIds(hydrated, hydrated.assignedUserId);
 
-  if (Object.prototype.hasOwnProperty.call(payload, "assignedUserId") && payload.assignedUserId && payload.assignedUserId !== previousAssignedUserId) {
+  if (addedEmployeeIds.length) {
+    await notifyTaskAssignmentUsers({
+      employeeIds: addedEmployeeIds,
+      message: `${req.user.name} assigned you to ${stageName} for ${shotName} in ${projectName}.`,
+      relatedProjectId: shotStage.shot.projectId
+    });
+  } else if (Object.prototype.hasOwnProperty.call(payload, "assignedUserId") && payload.assignedUserId && payload.assignedUserId !== previousAssignedUserId) {
     await createNotification({
       userId: payload.assignedUserId,
       message: `You were assigned ${stageName} for ${shotName} in ${projectName}.`,
@@ -530,17 +676,21 @@ const updateShotStage = asyncHandler(async (req, res) => {
 
   if (Object.prototype.hasOwnProperty.call(payload, "deadline")) {
     const nextDeadline = payload.deadline ? new Date(payload.deadline).toISOString() : null;
-    if (updated.assignedUserId && previousDeadline !== nextDeadline && nextDeadline) {
-      await createNotification({
-        userId: updated.assignedUserId,
-        message: `Deadline updated for ${stageName} on ${shotName} in ${projectName}.`,
-        type: "DEADLINE_WARNING",
-        relatedProjectId: shotStage.shot.projectId
-      });
+    if (currentAssignedEmployeeIds.length && previousDeadline !== nextDeadline && nextDeadline) {
+      await Promise.all(
+        currentAssignedEmployeeIds.map((employeeId) =>
+          createNotification({
+            userId: employeeId,
+            message: `Deadline updated for ${stageName} on ${shotName} in ${projectName}.`,
+            type: "DEADLINE_WARNING",
+            relatedProjectId: shotStage.shot.projectId
+          })
+        )
+      );
     }
   }
 
-  if (isPendingReviewStatus(updated.status) && !isPendingReviewStatus(previousStatus)) {
+  if (isPendingReviewStatus(hydrated.status) && !isPendingReviewStatus(previousStatus)) {
     await notifyManagers({
       message: `${req.user.name} sent ${stageName} for review on ${shotName} in ${projectName}.`,
       type: "APPROVAL_NEEDED",
@@ -548,25 +698,33 @@ const updateShotStage = asyncHandler(async (req, res) => {
     });
   }
 
-  if (manager && updated.assignedUserId && isApprovedStatus(updated.status) && !isApprovedStatus(previousStatus)) {
-    await createNotification({
-      userId: updated.assignedUserId,
-      message: `${stageName} ${updated.status === "FINAL" ? "final approved" : "lead approved"} for ${shotName} in ${projectName}.`,
-      type: "APPROVED",
-      relatedProjectId: shotStage.shot.projectId
-    });
+  if (manager && currentAssignedEmployeeIds.length && isApprovedStatus(hydrated.status) && !isApprovedStatus(previousStatus)) {
+    await Promise.all(
+      currentAssignedEmployeeIds.map((employeeId) =>
+        createNotification({
+          userId: employeeId,
+          message: `${stageName} ${hydrated.status === "FINAL" ? "final approved" : "lead approved"} for ${shotName} in ${projectName}.`,
+          type: "APPROVED",
+          relatedProjectId: shotStage.shot.projectId
+        })
+      )
+    );
   }
 
-  if (manager && updated.assignedUserId && isRetakeStatus(updated.status) && previousStatus !== updated.status) {
-    await createNotification({
-      userId: updated.assignedUserId,
-      message: `${stageName} needs a retake on ${shotName} in ${projectName}.${updated.feedback ? ` Feedback: ${updated.feedback}` : ""}`,
-      type: "REJECTED",
-      relatedProjectId: shotStage.shot.projectId
-    });
+  if (manager && currentAssignedEmployeeIds.length && isRetakeStatus(hydrated.status) && previousStatus !== hydrated.status) {
+    await Promise.all(
+      currentAssignedEmployeeIds.map((employeeId) =>
+        createNotification({
+          userId: employeeId,
+          message: `${stageName} needs a retake on ${shotName} in ${projectName}.${hydrated.feedback ? ` Feedback: ${hydrated.feedback}` : ""}`,
+          type: "REJECTED",
+          relatedProjectId: shotStage.shot.projectId
+        })
+      )
+    );
   }
 
-  return res.json(updated);
+  return res.json(hydrated);
 });
 
 const bulkAssignShotStages = asyncHandler(async (req, res) => {
@@ -595,7 +753,12 @@ const bulkAssignShotStages = asyncHandler(async (req, res) => {
     },
     select: {
       id: true,
-      shotId: true
+      shotId: true,
+      shot: {
+        select: {
+          projectId: true
+        }
+      }
     }
   });
 
@@ -613,6 +776,26 @@ const bulkAssignShotStages = asyncHandler(async (req, res) => {
       assignedUserId: userId ? Number(userId) : null
     }
   });
+
+  await prisma.taskAssignment.deleteMany({
+    where: {
+      shotStageId: {
+        in: stages.map((stage) => stage.id)
+      }
+    }
+  });
+
+  if (userId) {
+    await prisma.taskAssignment.createMany({
+      data: stages.map((stage) => ({
+        projectId: stage.shot.projectId,
+        shotStageId: stage.id,
+        employeeId: Number(userId),
+        roleType: "LEAD",
+        assignedById: req.user.id
+      }))
+    });
+  }
 
   if (userId) {
     const stageRows = await prisma.shotStage.findMany({
@@ -740,6 +923,28 @@ const bulkUpdateShotStages = asyncHandler(async (req, res) => {
     data: payload
   });
 
+  if (Object.prototype.hasOwnProperty.call(payload, "assignedUserId")) {
+    await prisma.taskAssignment.deleteMany({
+      where: {
+        shotStageId: {
+          in: stages.map((stage) => stage.id)
+        }
+      }
+    });
+
+    if (payload.assignedUserId) {
+      await prisma.taskAssignment.createMany({
+        data: stages.map((stage) => ({
+          projectId: stage.shot.projectId,
+          shotStageId: stage.id,
+          employeeId: payload.assignedUserId,
+          roleType: "LEAD",
+          assignedById: req.user.id
+        }))
+      });
+    }
+  }
+
   const uniqueShotIds = Array.from(new Set(stages.map((stage) => stage.shotId)));
   const uniqueProjectIds = Array.from(new Set(stages.map((stage) => stage.shot.projectId)));
 
@@ -829,6 +1034,26 @@ const rangeAssignShotStages = asyncHandler(async (req, res) => {
       assignedUserId: userId ? Number(userId) : null
     }
   });
+
+  await prisma.taskAssignment.deleteMany({
+    where: {
+      shotStageId: {
+        in: stages.map((stage) => stage.id)
+      }
+    }
+  });
+
+  if (userId) {
+    await prisma.taskAssignment.createMany({
+      data: stages.map((stage) => ({
+        projectId,
+        shotStageId: stage.id,
+        employeeId: Number(userId),
+        roleType: "LEAD",
+        assignedById: req.user.id
+      }))
+    });
+  }
 
   if (userId) {
     const project = await prisma.project.findUnique({

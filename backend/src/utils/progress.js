@@ -1,7 +1,24 @@
 const prisma = require("./prisma");
 const { isCompleteStatus, isLateStatus } = require("./pipelineStatus");
+const { getTrackingDefinitionSnapshot, ensureProjectShotStageCoverage } = require("./trackingSetup");
+const { normalizeStageCode } = require("./stageDefinitions");
 
 async function recalculateProjectProgress(projectId) {
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: {
+      id: true,
+      activeStageCodes: true,
+      lightingMode: true,
+      renderingMode: true
+    }
+  });
+
+  if (!project) return 0;
+
+  const snapshot = await getTrackingDefinitionSnapshot({ prisma, project });
+  await ensureProjectShotStageCoverage({ prisma, projectId, snapshot });
+
   const now = new Date();
   const [projectStages, audioTasks, shotStages, assetStages] = await Promise.all([
     prisma.projectStage.findMany({
@@ -41,12 +58,14 @@ async function recalculateProjectProgress(projectId) {
     })
   ]);
 
-  const projectStagesWithoutAudio = audioTasks.length
-    ? projectStages.filter((stage) => {
-        const code = String(stage.stageDefinition?.code || stage.stageName || "").toUpperCase();
-        return code !== "AUDIO";
-      })
-    : projectStages;
+  const projectStagesWithoutAudio = projectStages.filter((stage) => {
+    const code = normalizeStageCode(stage.stageDefinition?.code || stage.stageName || "");
+    if (audioTasks.length && code === "AUDIO") return false;
+    if (snapshot.projectCodes.size) {
+      return snapshot.projectCodes.has(code);
+    }
+    return true;
+  });
 
   const allStages = [
     ...projectStagesWithoutAudio,

@@ -58,6 +58,60 @@ async function getTrackingDefinitionSnapshot({ prisma, project }) {
   return resolveTrackingCodesByMode({ project, stageDefinitions });
 }
 
+async function ensureProjectShotStageCoverage({ prisma, projectId, snapshot }) {
+  const shotDefinitionIds = Array.from(snapshot.shotCodes)
+    .map((code) => snapshot.stageDefinitionsByCode.get(code)?.id)
+    .filter(Boolean);
+
+  if (!shotDefinitionIds.length) return 0;
+
+  const shots = await prisma.shot.findMany({
+    where: { projectId },
+    select: { id: true }
+  });
+
+  if (!shots.length) return 0;
+
+  const existing = await prisma.shotStage.findMany({
+    where: {
+      shotId: {
+        in: shots.map((shot) => shot.id)
+      },
+      stageDefinitionId: {
+        in: shotDefinitionIds
+      }
+    },
+    select: {
+      shotId: true,
+      stageDefinitionId: true
+    }
+  });
+
+  const existingKeys = new Set(existing.map((row) => `${row.shotId}:${row.stageDefinitionId}`));
+  const missingRows = [];
+
+  for (const shot of shots) {
+    for (const stageDefinitionId of shotDefinitionIds) {
+      const key = `${shot.id}:${stageDefinitionId}`;
+      if (existingKeys.has(key)) continue;
+      missingRows.push({
+        shotId: shot.id,
+        stageDefinitionId,
+        status: "YTS"
+      });
+    }
+  }
+
+  if (!missingRows.length) return 0;
+
+  await prisma.shotStage.createMany({
+    data: missingRows,
+    skipDuplicates: true
+  });
+
+  return missingRows.length;
+}
+
 function computeStatusFromChildren(statuses = []) {
   const normalized = statuses.map((status) => normalizePipelineStatus(status));
   if (!normalized.length) return "YTS";
@@ -75,5 +129,6 @@ function computeStatusFromChildren(statuses = []) {
 module.exports = {
   TRACKING_GROUPS,
   getTrackingDefinitionSnapshot,
-  computeStatusFromChildren
+  computeStatusFromChildren,
+  ensureProjectShotStageCoverage
 };

@@ -5,6 +5,7 @@ const { recalculateProjectProgress } = require("../utils/progress");
 const { logActivity } = require("../utils/activities");
 const { ensureDefaultStageTemplates, resolveLegacyStageNameFromTemplateName } = require("../utils/stageTemplates");
 const { isMissingTrackingSchemaError } = require("../utils/prismaCompat");
+const { TASK_ASSIGNMENT_INCLUDE } = require("../utils/taskAssignments");
 const {
   ensureDefaultStageDefinitions,
   TRACKING_GROUPS,
@@ -374,7 +375,8 @@ const listProjects = asyncHandler(async (req, res) => {
                       select: { id: true, name: true, color: true }
                     }
                   }
-                }
+                },
+                ...TASK_ASSIGNMENT_INCLUDE
               },
               orderBy: {
                 createdAt: "asc"
@@ -398,7 +400,8 @@ const listProjects = asyncHandler(async (req, res) => {
                       select: { id: true, name: true, color: true }
                     }
                   }
-                }
+                },
+                ...TASK_ASSIGNMENT_INCLUDE
               },
               orderBy: {
                 createdAt: "asc"
@@ -1028,11 +1031,11 @@ const getProjectById = asyncHandler(async (req, res) => {
     );
 
     const shotStageAssigned = (project.shots || []).some((shot) =>
-      (shot.stages || []).some((stage) => stage.assignedUserId === req.user.id)
+      (shot.stages || []).some((stage) => stage.assignedUserId === req.user.id || stage.taskAssignments?.some((assignment) => assignment.employeeId === req.user.id))
     );
 
     const assetStageAssigned = (project.assets || []).some((asset) =>
-      (asset.stages || []).some((stage) => stage.assignedUserId === req.user.id)
+      (asset.stages || []).some((stage) => stage.assignedUserId === req.user.id || stage.taskAssignments?.some((assignment) => assignment.employeeId === req.user.id))
     );
 
     if (!projectStageAssigned && !shotStageAssigned && !assetStageAssigned) {
@@ -1259,7 +1262,7 @@ const getMyProjects = asyncHandler(async (req, res) => {
             some: {
               stages: {
                 some: {
-                  assignedUserId: req.user.id
+                  OR: [{ assignedUserId: req.user.id }, { taskAssignments: { some: { employeeId: req.user.id } } }]
                 }
               }
             }
@@ -1270,7 +1273,7 @@ const getMyProjects = asyncHandler(async (req, res) => {
             some: {
               stages: {
                 some: {
-                  assignedUserId: req.user.id
+                  OR: [{ assignedUserId: req.user.id }, { taskAssignments: { some: { employeeId: req.user.id } } }]
                 }
               }
             }
@@ -1324,17 +1327,18 @@ const getMyProjects = asyncHandler(async (req, res) => {
         where: {
           stages: {
             some: {
-              assignedUserId: req.user.id
+              OR: [{ assignedUserId: req.user.id }, { taskAssignments: { some: { employeeId: req.user.id } } }]
             }
           }
         },
         include: {
           stages: {
             where: {
-              assignedUserId: req.user.id
+              OR: [{ assignedUserId: req.user.id }, { taskAssignments: { some: { employeeId: req.user.id } } }]
             },
             include: {
-              stageDefinition: true
+              stageDefinition: true,
+              taskAssignments: true
             }
           }
         },
@@ -1344,17 +1348,18 @@ const getMyProjects = asyncHandler(async (req, res) => {
         where: {
           stages: {
             some: {
-              assignedUserId: req.user.id
+              OR: [{ assignedUserId: req.user.id }, { taskAssignments: { some: { employeeId: req.user.id } } }]
             }
           }
         },
         include: {
           stages: {
             where: {
-              assignedUserId: req.user.id
+              OR: [{ assignedUserId: req.user.id }, { taskAssignments: { some: { employeeId: req.user.id } } }]
             },
             include: {
-              stageDefinition: true
+              stageDefinition: true,
+              taskAssignments: true
             }
           }
         },
@@ -1436,7 +1441,7 @@ const getMyTasks = asyncHandler(async (req, res) => {
       }),
       prisma.shotStage.findMany({
         where: {
-          assignedUserId: userId,
+          OR: [{ assignedUserId: userId }, { taskAssignments: { some: { employeeId: userId } } }],
           ...(statusFilter ? { status: statusFilter } : {}),
           shot: {
             ...(projectIdFilter ? { projectId: projectIdFilter } : {})
@@ -1458,6 +1463,18 @@ const getMyTasks = asyncHandler(async (req, res) => {
             select: {
               code: true,
               name: true
+            }
+          },
+          taskAssignments: {
+            where: { employeeId: userId },
+            select: {
+              assignedAt: true,
+              roleType: true,
+              employee: {
+                select: {
+                  employmentType: true
+                }
+              }
             }
           },
           _count: {
@@ -1470,7 +1487,7 @@ const getMyTasks = asyncHandler(async (req, res) => {
       }),
       prisma.assetStage.findMany({
         where: {
-          assignedUserId: userId,
+          OR: [{ assignedUserId: userId }, { taskAssignments: { some: { employeeId: userId } } }],
           ...(statusFilter ? { status: statusFilter } : {}),
           asset: {
             ...(projectIdFilter ? { projectId: projectIdFilter } : {})
@@ -1492,6 +1509,18 @@ const getMyTasks = asyncHandler(async (req, res) => {
             select: {
               code: true,
               name: true
+            }
+          },
+          taskAssignments: {
+            where: { employeeId: userId },
+            select: {
+              assignedAt: true,
+              roleType: true,
+              employee: {
+                select: {
+                  employmentType: true
+                }
+              }
             }
           },
           _count: {
@@ -1591,12 +1620,12 @@ const getMyTasks = asyncHandler(async (req, res) => {
         deadline: stage.deadline,
         notes: stage.notes,
         feedback: stage.feedback,
-        assignedAt: stage.updatedAt,
+        assignedAt: stage.taskAssignments?.[0]?.assignedAt || stage.updatedAt,
         submittedAt: stage.submittedAt,
         approvedAt: stage.approvedAt,
         commentCount: stage._count?.comments || 0,
         isOverdue: isLateStatus(stage.status, stage.deadline),
-        assignmentType: req.user.employmentType || "INHOUSE"
+        assignmentType: stage.taskAssignments?.[0]?.employee?.employmentType || req.user.employmentType || "INHOUSE"
       };
     }),
     ...assetStages.map((stage) => ({
@@ -1620,12 +1649,12 @@ const getMyTasks = asyncHandler(async (req, res) => {
       deadline: stage.deadline,
       notes: stage.notes,
       feedback: stage.feedback,
-      assignedAt: stage.updatedAt,
+      assignedAt: stage.taskAssignments?.[0]?.assignedAt || stage.updatedAt,
       submittedAt: stage.submittedAt,
       approvedAt: stage.approvedAt,
       commentCount: stage._count?.comments || 0,
       isOverdue: isLateStatus(stage.status, stage.deadline),
-      assignmentType: req.user.employmentType || "INHOUSE"
+      assignmentType: stage.taskAssignments?.[0]?.employee?.employmentType || req.user.employmentType || "INHOUSE"
     }))
   ].sort((a, b) => {
     const aTime = a.deadline ? new Date(a.deadline).getTime() : Number.MAX_SAFE_INTEGER;
