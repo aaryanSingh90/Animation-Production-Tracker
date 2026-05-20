@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   ArrowDown,
@@ -65,6 +65,8 @@ const SHOT_STATUS_THEME = {
   FINAL: "border-emerald-700/30 bg-emerald-700 text-white",
   LATE: "border-rose-500/30 bg-rose-500 text-white"
 };
+const DEFAULT_FRAME_RANGE = "101-124";
+const HEADER_COLLAPSE_SCROLL_Y = 96;
 
 function parseFrameRange(value) {
   const match = String(value || "")
@@ -129,10 +131,16 @@ function currentDateTimeInput() {
   return formatDateTimeInput(new Date());
 }
 
+function resolveCreateFrameRange(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return parseFrameRange(DEFAULT_FRAME_RANGE);
+  return parseFrameRange(normalized);
+}
+
 function buildQuickCreateForm() {
   return {
     name: "",
-    frameRange: "101-124",
+    frameRange: DEFAULT_FRAME_RANGE,
     artistId: "",
     status: "YTS",
     startedAt: currentDateTimeInput()
@@ -179,7 +187,7 @@ function SectionCard({ eyebrow, title, description, action, children, className 
 function buildCreateForm(defaultDepartment = "") {
   return {
     name: "",
-    frameRange: "101-124",
+    frameRange: DEFAULT_FRAME_RANGE,
     assignments: [],
     status: "YTS",
     startedAt: currentDateTimeInput(),
@@ -192,7 +200,8 @@ function buildCreateForm(defaultDepartment = "") {
 
 function validateCreateForm(values) {
   const errors = {};
-  if (!parseFrameRange(values.frameRange)) errors.frameRange = "Enter a valid frame range like 101-148.";
+  if (!String(values.name || "").trim()) errors.name = "Shot label is required.";
+  if (!resolveCreateFrameRange(values.frameRange)) errors.frameRange = "Enter a valid frame range like 101-148.";
   if (!normalizeAssignmentList(values.assignments).length) errors.assignments = "Assign at least one artist.";
   if (!String(values.status || "").trim()) errors.status = "Status is required.";
   if (!String(values.startedAt || "").trim()) errors.startedAt = "Start date is required.";
@@ -937,10 +946,37 @@ export default function ShotPipelineWorkspace({
   const [groupBySequence, setGroupBySequence] = useState(true);
   const [error, setError] = useState("");
   const [nowTick, setNowTick] = useState(Date.now());
+  const [isHeaderCompact, setIsHeaderCompact] = useState(false);
+  const headerRef = useRef(null);
+  const rowRefs = useRef(new Map());
+  const scrollFrameRef = useRef(null);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => setNowTick(Date.now()), 30 * 60 * 1000);
     return () => window.clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
+    const updateCompactMode = () => {
+      const nextCompact = window.scrollY > HEADER_COLLAPSE_SCROLL_Y;
+      setIsHeaderCompact((prev) => (prev === nextCompact ? prev : nextCompact));
+      scrollFrameRef.current = null;
+    };
+
+    const handleScroll = () => {
+      if (scrollFrameRef.current !== null) return;
+      scrollFrameRef.current = window.requestAnimationFrame(updateCompactMode);
+    };
+
+    updateCompactMode();
+    window.addEventListener("scroll", handleScroll, { passive: true });
+
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      if (scrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollFrameRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -1035,27 +1071,37 @@ export default function ShotPipelineWorkspace({
   }, [createModalOpen, defaultCreateDepartment]);
 
   const createSecondsPreview = useMemo(() => {
-    const parsed = parseFrameRange(createForm.frameRange);
+    const parsed = resolveCreateFrameRange(createForm.frameRange);
     return parsed ? `${resolveSeconds(parsed.frameStart, parsed.frameEnd)} sec` : "--";
   }, [createForm.frameRange]);
 
   const createCanSubmit = useMemo(
     () =>
-      Boolean(parseFrameRange(createForm.frameRange)) &&
+      Boolean(String(createForm.name || "").trim()) &&
+      Boolean(resolveCreateFrameRange(createForm.frameRange)) &&
       Boolean(normalizeAssignmentList(createForm.assignments).length) &&
       Boolean(String(createForm.status || "").trim()) &&
       Boolean(String(createForm.startedAt || "").trim()),
-    [createForm.assignments, createForm.frameRange, createForm.startedAt, createForm.status]
+    [createForm.assignments, createForm.frameRange, createForm.name, createForm.startedAt, createForm.status]
   );
 
   const quickCreateSecondsPreview = useMemo(() => {
-    const parsed = parseFrameRange(quickCreateForm.frameRange);
+    const parsed = resolveCreateFrameRange(quickCreateForm.frameRange);
     return parsed ? `${resolveSeconds(parsed.frameStart, parsed.frameEnd)}s` : "--";
   }, [quickCreateForm.frameRange]);
 
   const quickCreateCanSubmit = useMemo(() => {
-    return Boolean(parseFrameRange(quickCreateForm.frameRange)) && Boolean(quickCreateForm.artistId) && Boolean(quickCreateForm.status);
-  }, [quickCreateForm.artistId, quickCreateForm.frameRange, quickCreateForm.status]);
+    return (
+      Boolean(String(quickCreateForm.name || "").trim()) &&
+      Boolean(resolveCreateFrameRange(quickCreateForm.frameRange)) &&
+      Boolean(quickCreateForm.artistId) &&
+      Boolean(quickCreateForm.status) &&
+      Boolean(String(quickCreateForm.startedAt || "").trim())
+    );
+  }, [quickCreateForm.artistId, quickCreateForm.frameRange, quickCreateForm.name, quickCreateForm.startedAt, quickCreateForm.status]);
+
+  const hasExpandedRows = useMemo(() => Object.values(expandedRows).some(Boolean), [expandedRows]);
+  const headerCompact = isHeaderCompact || hasExpandedRows;
 
   function openCreateModal() {
     setCreateErrors({});
@@ -1142,11 +1188,16 @@ export default function ShotPipelineWorkspace({
   }
 
   async function submitShotCreate(values, successMessage) {
-    const range = parseFrameRange(values.frameRange);
+    const range = resolveCreateFrameRange(values.frameRange);
+    if (!range) {
+      throw new Error("Invalid frame range");
+    }
+    const normalizedName = String(values.name || "").trim();
     const { data } = await api.post(`/projects/${projectId}/shots`, {
       frameStart: range.frameStart,
       frameEnd: range.frameEnd,
-      name: values.name || undefined,
+      label: normalizedName || undefined,
+      name: normalizedName || undefined,
       status: values.status
     });
 
@@ -1216,7 +1267,7 @@ export default function ShotPipelineWorkspace({
     };
     const nextErrors = validateCreateForm(quickDraft);
     if (Object.keys(nextErrors).length) {
-      setQuickCreateError(nextErrors.frameRange || nextErrors.assignments || nextErrors.status || "Complete the quick create fields");
+      setQuickCreateError(nextErrors.name || nextErrors.assignments || nextErrors.frameRange || nextErrors.status || nextErrors.startedAt || "Complete the quick create fields");
       showToast("error", "Complete the quick create fields");
       return;
     }
@@ -1227,8 +1278,7 @@ export default function ShotPipelineWorkspace({
       setQuickCreateError("");
       setQuickCreateForm((prev) => ({
         ...buildQuickCreateForm(),
-        artistId: prev.artistId,
-        status: "YTS",
+        status: prev.status || "YTS",
         startedAt: currentDateTimeInput()
       }));
     } catch (err) {
@@ -1389,13 +1439,31 @@ export default function ShotPipelineWorkspace({
     setOutputEditor((prev) => ({ ...prev, open: false }));
   }
 
+  function focusExpandedRow(stageId) {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const rowNode = rowRefs.current.get(stageId);
+        if (!rowNode) return;
+        const stickyOffset = (headerRef.current?.offsetHeight || 0) + 96;
+        const targetTop = rowNode.getBoundingClientRect().top + window.scrollY - stickyOffset;
+        window.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
+      });
+    });
+  }
+
   function toggleExpanded(stageId) {
-    setExpandedRows((prev) => ({ ...prev, [stageId]: !prev[stageId] }));
+    let willOpen = false;
+    setExpandedRows((prev) => {
+      willOpen = !prev[stageId];
+      return { ...prev, [stageId]: willOpen };
+    });
+    if (willOpen) focusExpandedRow(stageId);
   }
 
   function toggleComments(stageId) {
     setExpandedRows((prev) => ({ ...prev, [stageId]: true }));
     setCommentOpenByStageId((prev) => ({ ...prev, [stageId]: !prev[stageId] }));
+    focusExpandedRow(stageId);
   }
 
   function toggleSequence(sequence) {
@@ -1430,61 +1498,83 @@ export default function ShotPipelineWorkspace({
 
   return (
     <div className="-mt-3 space-y-3 md:-mt-4">
-      <section className="sticky top-3 z-20 overflow-hidden rounded-[24px] border border-slate-900/90 bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.12),_transparent_30%),linear-gradient(180deg,_rgba(15,23,42,0.98),_rgba(2,6,23,0.98))] text-white shadow-2xl shadow-slate-950/20 backdrop-blur">
-        <div className="space-y-3 px-4 py-3">
+      <section
+        ref={headerRef}
+        className={`sticky top-3 z-20 overflow-hidden rounded-[24px] border border-slate-900/90 bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.12),_transparent_30%),linear-gradient(180deg,_rgba(15,23,42,0.98),_rgba(2,6,23,0.98))] text-white backdrop-blur transition-[transform,padding,box-shadow] duration-300 ${
+          headerCompact ? "shadow-xl shadow-slate-950/15" : "shadow-2xl shadow-slate-950/20"
+        }`}
+      >
+        <div className={`px-4 transition-all duration-300 ${headerCompact ? "space-y-2 py-2.5" : "space-y-3 py-3"}`}>
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="min-w-0">
               <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400">{displayStageLabel} Production Workspace</p>
               <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-                <h2 className="truncate text-xl font-semibold tracking-tight text-white">{overview?.project?.name || "Project"}</h2>
-                <span className="text-xs text-slate-400">{groupBySequence ? `${groupedRows.length} sequences` : "Flat shot view"}</span>
+                <h2 className={`truncate font-semibold tracking-tight text-white transition-all duration-300 ${headerCompact ? "text-base" : "text-xl"}`}>
+                  {overview?.project?.name || "Project"}
+                </h2>
+                <span className="text-xs text-slate-400">
+                  {groupBySequence ? `${groupedRows.length} sequences` : "Flat shot view"}
+                </span>
               </div>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                <ToolbarStat label="Shots" value={headerStats.total} />
-                <ToolbarStat label="IP" value={headerStats.inProgress} tone="text-sky-200" />
-                <ToolbarStat label="Final" value={headerStats.final} tone="text-emerald-200" />
-                <ToolbarStat label="Late" value={headerStats.overdue} tone="text-rose-200" />
-                <ToolbarStat label="Crew" value={headerStats.assignedArtists} tone="text-cyan-200" />
-                <ToolbarStat label="Time" value={formatDurationMinutes(headerStats.visibleDuration)} tone="text-amber-200" />
-              </div>
+              {!headerCompact ? (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <ToolbarStat label="Shots" value={headerStats.total} />
+                  <ToolbarStat label="IP" value={headerStats.inProgress} tone="text-sky-200" />
+                  <ToolbarStat label="Final" value={headerStats.final} tone="text-emerald-200" />
+                  <ToolbarStat label="Late" value={headerStats.overdue} tone="text-rose-200" />
+                  <ToolbarStat label="Crew" value={headerStats.assignedArtists} tone="text-cyan-200" />
+                  <ToolbarStat label="Time" value={formatDurationMinutes(headerStats.visibleDuration)} tone="text-amber-200" />
+                </div>
+              ) : (
+                <div className="mt-1 flex flex-wrap gap-1.5 text-[11px] text-slate-300">
+                  <span className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1">{headerStats.total} shots</span>
+                  <span className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1">{headerStats.inProgress} IP</span>
+                  <span className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1">{headerStats.final} final</span>
+                  <span className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1">{headerStats.overdue} late</span>
+                </div>
+              )}
             </div>
 
             <div className="flex flex-wrap items-center gap-2 xl:justify-end">
-              <select
-                value={filters.sortBy}
-                onChange={(event) => setFilters((prev) => ({ ...prev, sortBy: event.target.value, page: 1 }))}
-                className="rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white focus:border-sky-400 focus:outline-none"
-              >
-                <option value="shotNumber" className="text-slate-900">Sort: Shot</option>
-                <option value="artist" className="text-slate-900">Sort: Artist</option>
-                <option value="status" className="text-slate-900">Sort: Status</option>
-                <option value="deadline" className="text-slate-900">Sort: Deadline</option>
-                <option value="duration" className="text-slate-900">Sort: Duration</option>
-                <option value="latest" className="text-slate-900">Sort: Latest</option>
-              </select>
-              <button
-                type="button"
-                onClick={() => setFilters((prev) => ({ ...prev, sortDir: prev.sortDir === "asc" ? "desc" : "asc", page: 1 }))}
-                className="rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-[11px] font-semibold tracking-[0.16em] text-slate-200 transition hover:bg-white/10"
-              >
-                {String(filters.sortDir).toUpperCase()}
-              </button>
-              <div className="inline-flex rounded-xl border border-white/10 bg-white/[0.06] p-1">
-                <button
-                  type="button"
-                  onClick={() => setGroupBySequence(true)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${groupBySequence ? "bg-white text-slate-950" : "text-slate-200 hover:bg-white/10"}`}
-                >
-                  Sequence
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setGroupBySequence(false)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${!groupBySequence ? "bg-white text-slate-950" : "text-slate-200 hover:bg-white/10"}`}
-                >
-                  Flat
-                </button>
-              </div>
+              {!headerCompact ? (
+                <>
+                  <select
+                    value={filters.sortBy}
+                    onChange={(event) => setFilters((prev) => ({ ...prev, sortBy: event.target.value, page: 1 }))}
+                    className="rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-white focus:border-sky-400 focus:outline-none"
+                  >
+                    <option value="shotNumber" className="text-slate-900">Sort: Shot</option>
+                    <option value="artist" className="text-slate-900">Sort: Artist</option>
+                    <option value="status" className="text-slate-900">Sort: Status</option>
+                    <option value="deadline" className="text-slate-900">Sort: Deadline</option>
+                    <option value="duration" className="text-slate-900">Sort: Duration</option>
+                    <option value="latest" className="text-slate-900">Sort: Latest</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setFilters((prev) => ({ ...prev, sortDir: prev.sortDir === "asc" ? "desc" : "asc", page: 1 }))}
+                    className="rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-[11px] font-semibold tracking-[0.16em] text-slate-200 transition hover:bg-white/10"
+                  >
+                    {String(filters.sortDir).toUpperCase()}
+                  </button>
+                  <div className="inline-flex rounded-xl border border-white/10 bg-white/[0.06] p-1">
+                    <button
+                      type="button"
+                      onClick={() => setGroupBySequence(true)}
+                      className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${groupBySequence ? "bg-white text-slate-950" : "text-slate-200 hover:bg-white/10"}`}
+                    >
+                      Sequence
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGroupBySequence(false)}
+                      className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${!groupBySequence ? "bg-white text-slate-950" : "text-slate-200 hover:bg-white/10"}`}
+                    >
+                      Flat
+                    </button>
+                  </div>
+                </>
+              ) : null}
               <button
                 type="button"
                 onClick={openCreateModal}
@@ -1495,7 +1585,7 @@ export default function ShotPipelineWorkspace({
             </div>
           </div>
 
-          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[minmax(0,1.45fr)_170px_220px_150px_auto]">
+          <div className={`grid gap-2 ${headerCompact ? "md:grid-cols-[minmax(0,1.4fr)_170px_220px_auto]" : "md:grid-cols-2 xl:grid-cols-[minmax(0,1.45fr)_170px_220px_150px_auto]"}`}>
             <label className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
               <input
@@ -1527,29 +1617,35 @@ export default function ShotPipelineWorkspace({
                 </option>
               ))}
             </select>
-            <label className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-slate-200">
-              <input
-                type="checkbox"
-                checked={filters.overdueOnly}
-                onChange={(event) => setFilters((prev) => ({ ...prev, overdueOnly: event.target.checked, page: 1 }))}
-                className="rounded border-white/20 bg-slate-900"
-              />
-              Delayed only
-            </label>
-            <button
-              type="button"
-              onClick={() => setSelectedIds(allVisibleSelected ? [] : rowIds)}
-              className="rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm font-semibold text-slate-100 transition hover:bg-white/10"
-            >
-              {allVisibleSelected ? "Clear Selection" : `Select ${rowIds.length}`}
-            </button>
+            {!headerCompact ? (
+              <>
+                <label className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-slate-200">
+                  <input
+                    type="checkbox"
+                    checked={filters.overdueOnly}
+                    onChange={(event) => setFilters((prev) => ({ ...prev, overdueOnly: event.target.checked, page: 1 }))}
+                    className="rounded border-white/20 bg-slate-900"
+                  />
+                  Delayed only
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setSelectedIds(allVisibleSelected ? [] : rowIds)}
+                  className="rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-sm font-semibold text-slate-100 transition hover:bg-white/10"
+                >
+                  {allVisibleSelected ? "Clear Selection" : `Select ${rowIds.length}`}
+                </button>
+              </>
+            ) : null}
           </div>
 
-          <div className="flex flex-wrap gap-1.5 text-[11px] text-slate-300">
-            <span className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1">24 fps auto-seconds</span>
-            <span className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1">{headerStats.completion}% completion</span>
-            <span className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1">{pagination.total} visible rows</span>
-          </div>
+          {!headerCompact ? (
+            <div className="flex flex-wrap gap-1.5 text-[11px] text-slate-300">
+              <span className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1">24 fps auto-seconds</span>
+              <span className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1">{headerStats.completion}% completion</span>
+              <span className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1">{pagination.total} visible rows</span>
+            </div>
+          ) : null}
         </div>
       </section>
 
@@ -1596,10 +1692,13 @@ export default function ShotPipelineWorkspace({
           </div>
         </div>
 
-        <form onSubmit={createQuickShot} className="mt-3 grid gap-2 xl:grid-cols-[minmax(0,1.15fr)_150px_260px_170px_auto]">
+        <form onSubmit={createQuickShot} className="mt-3 grid gap-2 xl:grid-cols-[minmax(0,1fr)_140px_240px_160px_190px_auto]">
           <input
             value={quickCreateForm.name}
-            onChange={(event) => setQuickCreateForm((prev) => ({ ...prev, name: event.target.value }))}
+            onChange={(event) => {
+              setQuickCreateForm((prev) => ({ ...prev, name: event.target.value }));
+              setQuickCreateError("");
+            }}
             placeholder="Shot label or sequence tag"
             className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
           />
@@ -1629,13 +1728,25 @@ export default function ShotPipelineWorkspace({
           </select>
           <select
             value={quickCreateForm.status}
-            onChange={(event) => setQuickCreateForm((prev) => ({ ...prev, status: event.target.value }))}
+            onChange={(event) => {
+              setQuickCreateForm((prev) => ({ ...prev, status: event.target.value }));
+              setQuickCreateError("");
+            }}
             className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
           >
             {STAGE_STATUSES.map((status) => (
               <option key={status} value={status}>{getStatusOptionLabel(status)}</option>
             ))}
           </select>
+          <input
+            type="datetime-local"
+            value={quickCreateForm.startedAt}
+            onChange={(event) => {
+              setQuickCreateForm((prev) => ({ ...prev, startedAt: event.target.value }));
+              setQuickCreateError("");
+            }}
+            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+          />
           <button
             type="submit"
             disabled={!quickCreateCanSubmit || busy}
@@ -1738,7 +1849,14 @@ export default function ShotPipelineWorkspace({
                       const leadDepartment = assignmentSummary.leadUser ? getDepartmentLabel(assignmentSummary.leadUser) : "No department";
 
                       return (
-                        <article key={row.id} className="overflow-hidden rounded-[18px] border border-slate-200/80 bg-white shadow-sm shadow-slate-200/20 transition hover:border-slate-300 hover:bg-slate-50/70">
+                        <article
+                          key={row.id}
+                          ref={(node) => {
+                            if (node) rowRefs.current.set(row.stageId, node);
+                            else rowRefs.current.delete(row.stageId);
+                          }}
+                          className="overflow-hidden rounded-[18px] border border-slate-200/80 bg-white shadow-sm shadow-slate-200/20 transition hover:border-slate-300 hover:bg-slate-50/70"
+                        >
                           <div className="grid gap-3 px-3 py-3 md:grid-cols-[28px_minmax(0,1.3fr)_minmax(0,1fr)] xl:grid-cols-[28px_minmax(0,1.65fr)_minmax(0,1.15fr)_minmax(0,0.95fr)_auto] xl:items-center">
                             <div className="pt-1">
                               <input
@@ -2187,10 +2305,14 @@ export default function ShotPipelineWorkspace({
                         <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Shot Label</span>
                         <input
                           value={createForm.name}
-                          onChange={(event) => setCreateForm((prev) => ({ ...prev, name: event.target.value }))}
+                          onChange={(event) => {
+                            setCreateForm((prev) => ({ ...prev, name: event.target.value }));
+                            setCreateErrors((prev) => ({ ...prev, name: "" }));
+                          }}
                           placeholder="INTRO or SEQ_A_SH010"
                           className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
                         />
+                        <InlineError>{createErrors.name}</InlineError>
                       </label>
                       <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_160px]">
                         <label className="space-y-1.5">
