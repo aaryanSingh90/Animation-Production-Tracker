@@ -1,4 +1,5 @@
 import { format, formatDistanceToNow } from "date-fns";
+import { getStatusLabel, normalizeStatus } from "./constants";
 
 export function formatDate(value) {
   if (!value) return "-";
@@ -17,6 +18,13 @@ export function formatRelative(value) {
 
 export function labelize(value) {
   if (!value) return "";
+  const normalizedStatus = normalizeStatus(value, "");
+  if (normalizedStatus && normalizedStatus !== value) {
+    return getStatusLabel(normalizedStatus);
+  }
+  if (["YTS", "IP", "TEST", "DONE", "APPROVED", "RTK", "FINAL", "LATE"].includes(value)) {
+    return getStatusLabel(value);
+  }
   if (value === "COMPOSITING") return "Composite";
   if (value === "RENDER" || value === "RENDERING") return "Rendering";
   return value.replaceAll("_", " ");

@@ -29,6 +29,12 @@ router.put(
   validate({ params: stringIdParamSchema, body: updateAssetSchema }),
   assetsController.updateAsset
 );
+router.patch(
+  "/assets/:id",
+  requireRoles("BOSS", "PRODUCTION_MANAGER", "COORDINATOR"),
+  validate({ params: stringIdParamSchema, body: updateAssetSchema }),
+  assetsController.updateAsset
+);
 router.delete(
   "/assets/:id",
   requireRoles("BOSS", "PRODUCTION_MANAGER", "COORDINATOR"),

@@ -3,12 +3,20 @@ import { Link, useParams } from "react-router-dom";
 import { AlertCircle, ChevronDown, ChevronRight } from "lucide-react";
 import api from "../lib/api";
 import Loader from "../components/Loader";
+import ModellingWorkspace from "../components/ModellingWorkspace";
 import EmptyState from "../components/EmptyState";
 import Modal from "../components/Modal";
 import StatusBadge from "../components/StatusBadge";
 import StageCommentThread from "../components/StageCommentThread";
 import { formatDate, formatDateInput, initials, labelize } from "../utils/format";
-import { STAGE_STATUSES } from "../utils/constants";
+import {
+  STAGE_STATUSES,
+  getStatusOptionLabel,
+  isApprovedStatus,
+  isCompleteStatus,
+  isLateStatus,
+  isPendingReviewStatus
+} from "../utils/constants";
 import { stageCodeFromSlug, stageLabelFromSlug, stageWorkspaceVariantFromSlug } from "../utils/stageRouting";
 import { isDepartmentMatch, stageDepartmentFromCode } from "../utils/stageDepartmentMap";
 import { useToastStore } from "../store/toastStore";
@@ -59,9 +67,7 @@ const ASSET_LANE_OPTIONS = {
 };
 
 function isOverdue(deadline, status) {
-  if (!deadline) return false;
-  if (status === "APPROVED") return false;
-  return new Date(deadline) < new Date();
+  return isLateStatus(status, deadline);
 }
 
 function deriveShotCode(shot) {
@@ -177,7 +183,7 @@ function EditingOutputEditor({ shot, disabled, onSave }) {
         <option value="">Audio status</option>
         {STAGE_STATUSES.map((status) => (
           <option key={status} value={status}>
-            {labelize(status)}
+            {getStatusOptionLabel(status)}
           </option>
         ))}
       </select>
@@ -319,7 +325,7 @@ export default function ProjectStageWorkspacePage() {
 
       const bucket = buckets.get(id);
       bucket.total += 1;
-      if (item.stageStatus !== "APPROVED") bucket.active += 1;
+      if (!isApprovedStatus(item.stageStatus)) bucket.active += 1;
       if (isOverdue(item.deadline, item.stageStatus)) bucket.overdue += 1;
     }
 
@@ -334,9 +340,9 @@ export default function ProjectStageWorkspacePage() {
   const animaticsSummary = useMemo(() => {
     if (!isAnimaticsWorkspace) return null;
 
-    const approved = items.filter((item) => item.stageStatus === "APPROVED").length;
-    const inProgress = items.filter((item) => item.stageStatus === "IN_PROGRESS").length;
-    const waiting = items.filter((item) => item.stageStatus === "SUBMITTED").length;
+    const approved = items.filter((item) => isCompleteStatus(item.stageStatus)).length;
+    const inProgress = items.filter((item) => item.stageStatus === "IP").length;
+    const waiting = items.filter((item) => isPendingReviewStatus(item.stageStatus)).length;
     const totalSeconds = items.reduce((total, item) => total + Number(item.shot?.seconds || 0), 0);
 
     return {
@@ -351,9 +357,9 @@ export default function ProjectStageWorkspacePage() {
   const editingSummary = useMemo(() => {
     if (!isEditingWorkspace) return null;
 
-    const audioReady = editorialShots.filter((shot) => shot.audioStatus === "APPROVED").length;
+    const audioReady = editorialShots.filter((shot) => isApprovedStatus(shot.audioStatus)).length;
     const outputsLogged = editorialShots.filter((shot) => Boolean(shot.finalOutput)).length;
-    const overdue = editorialShots.filter((shot) => shot.status !== "APPROVED" && shot.stages?.some((stage) => isOverdue(stage.deadline, stage.status))).length;
+    const overdue = editorialShots.filter((shot) => !isApprovedStatus(shot.status) && shot.stages?.some((stage) => isOverdue(stage.deadline, stage.status))).length;
 
     return {
       totalShots: editorialShots.length,
@@ -758,6 +764,20 @@ export default function ProjectStageWorkspacePage() {
 
   if (loading && !overview) return <Loader label="Loading stage workspace..." />;
 
+  if (stageCode === "MODELLING") {
+    return (
+      <ModellingWorkspace
+        projectId={projectId}
+        overview={overview}
+        stageSummary={stageSummary}
+        eligibleUsers={eligibleUsers}
+        requiredDepartment={requiredDepartment}
+        workspaceVariant={workspaceVariant}
+        showToast={showToast}
+      />
+    );
+  }
+
   return (
     <div className="space-y-4">
       <section className="rounded-2xl border border-slate-200 bg-white p-4">
@@ -792,7 +812,7 @@ export default function ProjectStageWorkspacePage() {
             <option value="">All statuses</option>
             {STAGE_STATUSES.map((status) => (
               <option key={status} value={status}>
-                {labelize(status)}
+                {getStatusOptionLabel(status)}
               </option>
             ))}
           </select>
@@ -929,7 +949,7 @@ export default function ProjectStageWorkspacePage() {
 
           <div className="mt-4 grid gap-3 md:grid-cols-5">
             <MetricTile label="Cut Shots" value={animaticsSummary.totalShots} />
-            <MetricTile label="Approved" value={animaticsSummary.approved} tone="text-emerald-700" />
+            <MetricTile label="Completed" value={animaticsSummary.approved} tone="text-emerald-700" />
             <MetricTile label="In Progress" value={animaticsSummary.inProgress} tone="text-sky-700" />
             <MetricTile label="Waiting Review" value={animaticsSummary.waiting} tone="text-amber-700" />
             <MetricTile label="Total Seconds" value={`${animaticsSummary.totalSeconds}s`} tone="text-violet-700" />
@@ -1009,7 +1029,7 @@ export default function ProjectStageWorkspacePage() {
                   <option value="">Audio status</option>
                   {STAGE_STATUSES.map((status) => (
                     <option key={status} value={status}>
-                      {labelize(status)}
+                      {getStatusOptionLabel(status)}
                     </option>
                   ))}
                 </select>
@@ -1155,7 +1175,7 @@ export default function ProjectStageWorkspacePage() {
                       <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
                         <span className="rounded-md bg-white px-2 py-0.5">Overall shot status: {labelize(shot.status)}</span>
                         <span className="rounded-md bg-white px-2 py-0.5">
-                          Active tasks: {shot.stages?.filter((stage) => stage.status !== "APPROVED").length || 0}
+                          Active tasks: {shot.stages?.filter((stage) => !isApprovedStatus(stage.status)).length || 0}
                         </span>
                       </div>
                     </div>
@@ -1303,7 +1323,7 @@ export default function ProjectStageWorkspacePage() {
                                 >
                                   {STAGE_STATUSES.map((status) => (
                                     <option key={status} value={status}>
-                                      {labelize(status)}
+                                      {getStatusOptionLabel(status)}
                                     </option>
                                   ))}
                                 </select>
@@ -1328,7 +1348,7 @@ export default function ProjectStageWorkspacePage() {
                             <summary className="cursor-pointer text-xs font-semibold text-slate-700">Show details</summary>
                             <div className="mt-2 space-y-2">
                               <div className="grid gap-2 md:grid-cols-3">
-                                <span className="text-xs text-slate-600">Submitted: <strong className="text-slate-800">{formatDate(item.submittedAt)}</strong></span>
+                                <span className="text-xs text-slate-600">Review Sent: <strong className="text-slate-800">{formatDate(item.submittedAt)}</strong></span>
                                 <span className="text-xs text-slate-600">Approved: <strong className="text-slate-800">{formatDate(item.approvedAt)}</strong></span>
                                 <span className="text-xs text-slate-600">Deadline: <strong className="text-slate-800">{formatDate(item.deadline)}</strong></span>
                               </div>
@@ -1361,21 +1381,21 @@ export default function ProjectStageWorkspacePage() {
                                   className="rounded-md bg-emerald-500 px-2 py-1 text-xs font-semibold text-white"
                                   disabled={saving}
                                 >
-                                  Approve
+                                  Lead Approve
                                 </button>
                                 <button
-                                  onClick={() => updateStage(item.stageId, { status: "REJECTED" }, { optimisticPatch: { stageStatus: "REJECTED" } })}
-                                  className="rounded-md bg-red-500 px-2 py-1 text-xs font-semibold text-white"
+                                  onClick={() => updateStage(item.stageId, { status: "FINAL" }, { optimisticPatch: { stageStatus: "FINAL" } })}
+                                  className="rounded-md bg-amber-400 px-2 py-1 text-xs font-semibold text-slate-950"
                                   disabled={saving}
                                 >
-                                  Reject
+                                  Final Approve
                                 </button>
                                 <button
-                                  onClick={() => updateStage(item.stageId, { status: "REVISION_REQUIRED" }, { optimisticPatch: { stageStatus: "REVISION_REQUIRED" } })}
-                                  className="rounded-md bg-amber-500 px-2 py-1 text-xs font-semibold text-white"
+                                  onClick={() => updateStage(item.stageId, { status: "RTK" }, { optimisticPatch: { stageStatus: "RTK" } })}
+                                  className="rounded-md bg-orange-500 px-2 py-1 text-xs font-semibold text-white"
                                   disabled={saving}
                                 >
-                                  Revision
+                                  Lead Retake
                                 </button>
                                 <button
                                   onClick={() =>
@@ -1524,7 +1544,7 @@ export default function ProjectStageWorkspacePage() {
                       >
                         {STAGE_STATUSES.map((status) => (
                           <option key={status} value={status}>
-                            {labelize(status)}
+                            {getStatusOptionLabel(status)}
                           </option>
                         ))}
                       </select>
@@ -1553,7 +1573,7 @@ export default function ProjectStageWorkspacePage() {
                     >
                       {commentCount > 0 ? `Comments (${commentCount})` : "Comments"}
                     </button>
-                    <span className="text-[11px] text-slate-500">Submitted: {formatDate(item.submittedAt)}</span>
+                    <span className="text-[11px] text-slate-500">Review Sent: {formatDate(item.submittedAt)}</span>
                     <span className="text-[11px] text-slate-500">Approved: {formatDate(item.approvedAt)}</span>
                   </div>
                 </div>
@@ -1581,23 +1601,21 @@ export default function ProjectStageWorkspacePage() {
                         className="rounded-md bg-emerald-500 px-2 py-1 text-xs font-semibold text-white"
                         disabled={saving}
                       >
-                        Approve
+                        Lead Approve
                       </button>
                       <button
-                        onClick={() => updateStage(item.stageId, { status: "REJECTED" }, { optimisticPatch: { stageStatus: "REJECTED" } })}
-                        className="rounded-md bg-red-500 px-2 py-1 text-xs font-semibold text-white"
+                        onClick={() => updateStage(item.stageId, { status: "FINAL" }, { optimisticPatch: { stageStatus: "FINAL" } })}
+                        className="rounded-md bg-amber-400 px-2 py-1 text-xs font-semibold text-slate-950"
                         disabled={saving}
                       >
-                        Reject
+                        Final Approve
                       </button>
                       <button
-                        onClick={() =>
-                          updateStage(item.stageId, { status: "REVISION_REQUIRED" }, { optimisticPatch: { stageStatus: "REVISION_REQUIRED" } })
-                        }
-                        className="rounded-md bg-amber-500 px-2 py-1 text-xs font-semibold text-white"
+                        onClick={() => updateStage(item.stageId, { status: "RTK" }, { optimisticPatch: { stageStatus: "RTK" } })}
+                        className="rounded-md bg-orange-500 px-2 py-1 text-xs font-semibold text-white"
                         disabled={saving}
                       >
-                        Revision
+                        Lead Retake
                       </button>
                     </div>
                   </div>

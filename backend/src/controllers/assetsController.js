@@ -4,6 +4,14 @@ const { MANAGER_ROLES } = require("../utils/constants");
 const { getTrackingDefinitionSnapshot, computeStatusFromChildren } = require("../utils/trackingSetup");
 const { recalculateProjectProgress } = require("../utils/progress");
 const { createNotification, notifyManagers } = require("../utils/notifications");
+const {
+  ARTIST_MUTABLE_STATUSES,
+  isApprovedStatus,
+  isCompleteStatus,
+  isPendingReviewStatus,
+  isRetakeStatus,
+  normalizePipelineStatus
+} = require("../utils/pipelineStatus");
 
 function isManager(role) {
   return MANAGER_ROLES.includes(role);
@@ -40,15 +48,19 @@ async function refreshAssetStatus(assetId) {
 const listProjectAssets = asyncHandler(async (req, res) => {
   const projectId = Number(req.params.id);
   const page = Number(req.query.page || 1);
-  const pageSize = Math.min(200, Number(req.query.pageSize || 25));
+  const pageSize = Math.min(1000, Number(req.query.pageSize || 25));
   const status = req.query.status;
   const type = req.query.type;
+  const subCategory = req.query.subCategory;
   const search = req.query.search;
   const artistId = req.query.artistId ? Number(req.query.artistId) : null;
+  const sortBy = String(req.query.sortBy || "order");
+  const sortDir = String(req.query.sortDir || "asc").toLowerCase() === "desc" ? "desc" : "asc";
 
   const where = { projectId };
   if (status) where.status = status;
   if (type) where.type = type;
+  if (subCategory) where.subCategory = subCategory;
   if (search) {
     where.name = {
       contains: String(search),
@@ -62,6 +74,15 @@ const listProjectAssets = asyncHandler(async (req, res) => {
       }
     };
   }
+
+  const orderBy =
+    sortBy === "name"
+      ? [{ name: sortDir }, { order: "asc" }, { createdAt: "asc" }]
+      : sortBy === "status"
+        ? [{ status: sortDir }, { order: "asc" }, { createdAt: "asc" }]
+        : sortBy === "updatedAt"
+          ? [{ updatedAt: sortDir }, { order: "asc" }]
+          : [{ type: "asc" }, { order: sortDir }, { createdAt: "asc" }];
 
   const [total, items] = await Promise.all([
     prisma.asset.count({ where }),
@@ -88,7 +109,7 @@ const listProjectAssets = asyncHandler(async (req, res) => {
           }
         }
       },
-      orderBy: [{ type: "asc" }, { order: "asc" }, { createdAt: "asc" }],
+      orderBy,
       skip: (page - 1) * pageSize,
       take: pageSize
     })
@@ -123,7 +144,7 @@ const createProjectAsset = asyncHandler(async (req, res) => {
       description: req.body.description || null,
       referenceImageUrl: req.body.referenceImageUrl || null,
       order,
-      status: req.body.status || "NOT_STARTED"
+      status: normalizePipelineStatus(req.body.status, "YTS")
     }
   });
 
@@ -134,7 +155,7 @@ const createProjectAsset = asyncHandler(async (req, res) => {
     .map((definition) => ({
       assetId: asset.id,
       stageDefinitionId: definition.id,
-      status: "NOT_STARTED"
+      status: "YTS"
     }));
 
   if (stageRows.length) {
@@ -256,7 +277,7 @@ const updateAssetStage = asyncHandler(async (req, res) => {
   const payload = {};
 
   if (Object.prototype.hasOwnProperty.call(req.body, "status")) {
-    payload.status = req.body.status;
+    payload.status = normalizePipelineStatus(req.body.status);
   }
   if (Object.prototype.hasOwnProperty.call(req.body, "deadline")) {
     payload.deadline = req.body.deadline ? new Date(req.body.deadline) : null;
@@ -275,8 +296,8 @@ const updateAssetStage = asyncHandler(async (req, res) => {
     throw new AppError("Employees can only update status or notes", 403);
   }
 
-  if (!manager && payload.status && !["IN_PROGRESS", "SUBMITTED"].includes(payload.status)) {
-    throw new AppError("Employees can only move asset stages to IN_PROGRESS or SUBMITTED", 403);
+  if (!manager && payload.status && !ARTIST_MUTABLE_STATUSES.has(payload.status)) {
+    throw new AppError("Employees can only move asset stages to IP, TEST, or DONE", 403);
   }
 
   if (Object.prototype.hasOwnProperty.call(req.body, "startDate")) {
@@ -286,24 +307,24 @@ const updateAssetStage = asyncHandler(async (req, res) => {
     payload.endDate = req.body.endDate ? new Date(req.body.endDate) : null;
   }
 
-  if (payload.status === "IN_PROGRESS" && !assetStage.actualStartedAt) {
+  if (payload.status === "IP" && !assetStage.actualStartedAt) {
     payload.actualStartedAt = new Date();
   }
 
-  if (payload.status === "SUBMITTED") {
+  if (isPendingReviewStatus(payload.status)) {
     payload.submittedAt = new Date();
   }
 
-  if (manager && payload.status === "APPROVED") {
+  if (manager && isApprovedStatus(payload.status)) {
     payload.approvedAt = new Date();
     payload.feedback = null;
   }
 
-  if (manager && ["REJECTED", "REVISION_REQUIRED"].includes(payload.status || "")) {
+  if (manager && isRetakeStatus(payload.status || "")) {
     payload.approvedAt = null;
   }
 
-  if (payload.status === "APPROVED" && assetStage.actualStartedAt && !assetStage.actualDoneAt) {
+  if (isCompleteStatus(payload.status) && assetStage.actualStartedAt && !assetStage.actualDoneAt) {
     const doneAt = new Date();
     payload.actualDoneAt = doneAt;
     payload.timeConsumedMin = Math.max(1, Math.round((doneAt.getTime() - new Date(assetStage.actualStartedAt).getTime()) / 60000));
@@ -356,27 +377,27 @@ const updateAssetStage = asyncHandler(async (req, res) => {
     }
   }
 
-  if (updated.status === "SUBMITTED" && previousStatus !== "SUBMITTED") {
+  if (isPendingReviewStatus(updated.status) && !isPendingReviewStatus(previousStatus)) {
     await notifyManagers({
-      message: `${req.user.name} submitted ${stageName} for ${assetName} in ${projectName}.`,
+      message: `${req.user.name} sent ${stageName} for review on ${assetName} in ${projectName}.`,
       type: "APPROVAL_NEEDED",
       relatedProjectId: assetStage.asset.projectId
     });
   }
 
-  if (manager && updated.assignedUserId && updated.status === "APPROVED" && previousStatus !== "APPROVED") {
+  if (manager && updated.assignedUserId && isApprovedStatus(updated.status) && !isApprovedStatus(previousStatus)) {
     await createNotification({
       userId: updated.assignedUserId,
-      message: `${stageName} approved for ${assetName} in ${projectName}.`,
+      message: `${stageName} ${updated.status === "FINAL" ? "final approved" : "lead approved"} for ${assetName} in ${projectName}.`,
       type: "APPROVED",
       relatedProjectId: assetStage.asset.projectId
     });
   }
 
-  if (manager && updated.assignedUserId && ["REJECTED", "REVISION_REQUIRED"].includes(updated.status) && previousStatus !== updated.status) {
+  if (manager && updated.assignedUserId && isRetakeStatus(updated.status) && previousStatus !== updated.status) {
     await createNotification({
       userId: updated.assignedUserId,
-      message: `${stageName} was sent back for revision on ${assetName} in ${projectName}.${updated.feedback ? ` Feedback: ${updated.feedback}` : ""}`,
+      message: `${stageName} needs a retake on ${assetName} in ${projectName}.${updated.feedback ? ` Feedback: ${updated.feedback}` : ""}`,
       type: "REJECTED",
       relatedProjectId: assetStage.asset.projectId
     });

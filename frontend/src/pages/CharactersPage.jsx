@@ -5,7 +5,7 @@ import Loader from "../components/Loader";
 import EmptyState from "../components/EmptyState";
 import StatusBadge from "../components/StatusBadge";
 import Modal from "../components/Modal";
-import { CHARACTER_STAGES, STAGE_STATUSES } from "../utils/constants";
+import { CHARACTER_STAGES, STAGE_STATUSES, getStatusOptionLabel } from "../utils/constants";
 import { formatDate, formatDateInput, labelize } from "../utils/format";
 import { useToastStore } from "../store/toastStore";
 
@@ -22,7 +22,7 @@ export default function CharactersPage() {
   const [newCharacterName, setNewCharacterName] = useState("");
 
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({ status: "NOT_STARTED", deadline: "", assignedUserId: "", notes: "" });
+  const [form, setForm] = useState({ status: "YTS", deadline: "", assignedUserId: "", notes: "" });
 
   async function fetchData() {
     setLoading(true);
@@ -213,7 +213,7 @@ export default function CharactersPage() {
             >
               {STAGE_STATUSES.map((status) => (
                 <option key={status} value={status}>
-                  {labelize(status)}
+                  {getStatusOptionLabel(status)}
                 </option>
               ))}
             </select>

@@ -6,7 +6,7 @@ import Loader from "../components/Loader";
 import EmptyState from "../components/EmptyState";
 import Modal from "../components/Modal";
 import CreateProjectWizardModal from "../components/CreateProjectWizardModal";
-import { STATUS_COLORS } from "../utils/constants";
+import { STATUS_COLORS, isLateStatus, normalizeStatus } from "../utils/constants";
 import { formatDate, formatDateInput, getStageDisplayName, labelize, initials } from "../utils/format";
 import { useToastStore } from "../store/toastStore";
 
@@ -19,13 +19,11 @@ function nearestDeadline(stages) {
 }
 
 function projectHasIssue(project) {
-  return project.stages?.some((stage) => stage.isActive !== false && (stage.status === "ISSUE" || stage.status === "EXTENDED" || stage.isDeadlineMissed));
+  return project.stages?.some((stage) => stage.isActive !== false && (isLateStatus(stage.status, stage.deadline) || stage.isDeadlineMissed));
 }
 
 function projectIsDelayed(project) {
-  return project.stages?.some(
-    (stage) => stage.isActive !== false && stage.deadline && new Date(stage.deadline) < new Date() && stage.status !== "APPROVED"
-  );
+  return project.stages?.some((stage) => stage.isActive !== false && isLateStatus(stage.status, stage.deadline));
 }
 
 function progressTone(value) {
@@ -337,7 +335,7 @@ export default function ProjectsPage() {
                     <>
                       <div className="mb-2 grid gap-1" style={{ gridTemplateColumns: `repeat(${activeStages.length}, minmax(0, 1fr))` }}>
                         {activeStages.map((stage) => {
-                          const status = stage?.status || "NOT_STARTED";
+                          const status = normalizeStatus(stage?.status || "YTS");
                           const tooltip = `${getStageDisplayName(stage)} · ${labelize(status)}${stage?.deadline ? ` · ${formatDate(stage.deadline)}` : ""}`;
                           return (
                             <div

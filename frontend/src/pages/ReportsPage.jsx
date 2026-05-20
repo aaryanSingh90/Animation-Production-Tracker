@@ -18,7 +18,7 @@ import api from "../lib/api";
 import Loader from "../components/Loader";
 import EmptyState from "../components/EmptyState";
 import { formatDate, labelize } from "../utils/format";
-import { STATUS_COLORS } from "../utils/constants";
+import { STATUS_COLORS, getStatusOptionLabel, normalizeStatus } from "../utils/constants";
 
 const PIE_COLORS = ["#10B981", "#EF4444", "#0EA5E9", "#F59E0B", "#334155", "#8B5CF6"];
 
@@ -184,9 +184,9 @@ export default function ReportsPage() {
                       {stage.status ? (
                         <span
                           className="rounded-full px-2.5 py-1 text-xs font-semibold text-white"
-                          style={{ backgroundColor: STATUS_COLORS[stage.status] || "#334155" }}
+                          style={{ backgroundColor: STATUS_COLORS[normalizeStatus(stage.status)] || "#334155" }}
                         >
-                          {labelize(stage.status)}
+                          {getStatusOptionLabel(stage.status)}
                         </span>
                       ) : (
                         "-"

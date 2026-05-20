@@ -46,15 +46,15 @@ enum AssetSubCategory {
   BG
 }
 
-enum StageStatus {
-  NOT_STARTED
-  IN_PROGRESS
-  SUBMITTED
+enum PipelineStatus {
+  YTS
+  IP
+  TEST
+  DONE
   APPROVED
-  REJECTED
-  REVISION_REQUIRED
-  ISSUE
-  EXTENDED
+  RTK
+  FINAL
+  LATE
 }
 
 enum CharacterStageName {
@@ -188,7 +188,7 @@ model ProjectStage {
   customName            String?
   order                 Int                         @default(0)
   departmentName        String?
-  status                StageStatus                 @default(NOT_STARTED)
+  status                PipelineStatus              @default(YTS)
   startDate             DateTime?
   endDate               DateTime?
   actualStartedAt       DateTime?
@@ -201,7 +201,7 @@ model ProjectStage {
   rejectedAt            DateTime?
   notes                 String?
   feedback              String?
-  audioStatus           StageStatus?
+  audioStatus           PipelineStatus?
   finalOutput           String?
   isActive              Boolean                     @default(true)
   isDeadlineMissed      Boolean                     @default(false)
@@ -235,7 +235,7 @@ model CharacterStage {
   id             Int                @id @default(autoincrement())
   characterId    Int
   stageName      CharacterStageName
-  status         StageStatus        @default(NOT_STARTED)
+  status         PipelineStatus     @default(YTS)
   deadline       DateTime?
   assignedUserId Int?
   notes          String?
@@ -406,8 +406,8 @@ model Shot {
   description String?
   duration    Float?
   order       Int
-  status      StageStatus @default(NOT_STARTED)
-  audioStatus StageStatus?
+  status      PipelineStatus @default(YTS)
+  audioStatus PipelineStatus?
   finalOutput String?
   project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
   stages      ShotStage[]
@@ -423,7 +423,7 @@ model ShotStage {
   shotId            String
   stageDefinitionId String
   assignedUserId    Int?
-  status            StageStatus     @default(NOT_STARTED)
+  status            PipelineStatus  @default(YTS)
   startDate         DateTime?
   endDate           DateTime?
   actualStartedAt   DateTime?
@@ -455,7 +455,7 @@ model Asset {
   description       String?
   referenceImageUrl String?
   order             Int         @default(0)
-  status            StageStatus @default(NOT_STARTED)
+  status            PipelineStatus @default(YTS)
   project           Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
   stages            AssetStage[]
   createdAt         DateTime    @default(now())
@@ -469,7 +469,7 @@ model AssetStage {
   assetId           String
   stageDefinitionId String
   assignedUserId    Int?
-  status            StageStatus     @default(NOT_STARTED)
+  status            PipelineStatus  @default(YTS)
   startDate         DateTime?
   endDate           DateTime?
   actualStartedAt   DateTime?

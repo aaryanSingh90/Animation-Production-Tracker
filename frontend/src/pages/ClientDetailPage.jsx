@@ -7,6 +7,7 @@ import EmptyState from "../components/EmptyState";
 import CreateProjectWizardModal from "../components/CreateProjectWizardModal";
 import { useToastStore } from "../store/toastStore";
 import { formatDate, initials, labelize } from "../utils/format";
+import { getStatusMeta, normalizeStatus } from "../utils/constants";
 
 function colorFromName(name = "") {
   const palette = ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#14B8A6", "#EC4899", "#6366F1"];
@@ -31,24 +32,18 @@ function MetricCard({ label, value, icon: Icon }) {
 function StageMiniStrip({ stages = [] }) {
   return (
     <div className="flex flex-wrap gap-1.5">
-      {stages.slice(0, 8).map((stage) => (
-        <span
-          key={stage.id}
-          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-            stage.status === "APPROVED"
-              ? "bg-emerald-100 text-emerald-700"
-              : stage.status === "IN_PROGRESS"
-                ? "bg-amber-100 text-amber-700"
-                : stage.status === "SUBMITTED"
-                  ? "bg-sky-100 text-sky-700"
-                  : stage.status === "REJECTED"
-                    ? "bg-red-100 text-red-700"
-                    : "bg-slate-100 text-slate-600"
-          }`}
-        >
-          {labelize(stage.stageName)}
-        </span>
-      ))}
+      {stages.slice(0, 8).map((stage) => {
+        const meta = getStatusMeta(normalizeStatus(stage.status));
+        return (
+          <span
+            key={stage.id}
+            className="rounded-full border px-2 py-0.5 text-[10px] font-semibold"
+            style={{ backgroundColor: meta.background, color: meta.text, borderColor: meta.border }}
+          >
+            {labelize(stage.stageName)}
+          </span>
+        );
+      })}
       {stages.length > 8 ? <span className="text-[10px] text-slate-500">+{stages.length - 8}</span> : null}
     </div>
   );

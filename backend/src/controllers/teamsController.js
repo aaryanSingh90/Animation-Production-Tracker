@@ -1,5 +1,6 @@
 const prisma = require("../utils/prisma");
 const { AppError, asyncHandler } = require("../utils/http");
+const { isApprovedStatus, isLateStatus, isRetakeStatus, isActiveStatus } = require("../utils/pipelineStatus");
 
 function normalizeDepartmentName(value) {
   return String(value || "")
@@ -93,9 +94,9 @@ async function buildMemberStats(memberIds) {
     if (!bucket) continue;
     bucket.taskIds.add(assignment.projectStageId);
 
-    if (assignment.projectStage.status === "APPROVED") bucket.approved += 1;
-    if (assignment.projectStage.status === "REJECTED") bucket.rejected += 1;
-    if (["NOT_STARTED", "IN_PROGRESS", "SUBMITTED", "ISSUE", "EXTENDED"].includes(assignment.projectStage.status)) {
+    if (isApprovedStatus(assignment.projectStage.status)) bucket.approved += 1;
+    if (isRetakeStatus(assignment.projectStage.status)) bucket.rejected += 1;
+    if (isActiveStatus(assignment.projectStage.status)) {
       bucket.active += 1;
     }
   }
@@ -295,7 +296,7 @@ const getTeamById = asyncHandler(async (req, res) => {
   });
 
   const delayedStages = team.projects.flatMap((projectLink) =>
-    (projectLink.project.stages || []).filter((stage) => stage.deadline && new Date(stage.deadline) < new Date() && stage.status !== "APPROVED")
+    (projectLink.project.stages || []).filter((stage) => isLateStatus(stage.status, stage.deadline))
   );
 
   const avgProgress = team.projects.length

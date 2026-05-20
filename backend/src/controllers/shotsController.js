@@ -5,6 +5,14 @@ const { getTrackingDefinitionSnapshot, computeStatusFromChildren } = require("..
 const { recalculateProjectProgress } = require("../utils/progress");
 const { normalizeStageCode } = require("../utils/stageDefinitions");
 const { createNotification, notifyManagers } = require("../utils/notifications");
+const {
+  ARTIST_MUTABLE_STATUSES,
+  isApprovedStatus,
+  isCompleteStatus,
+  isPendingReviewStatus,
+  isRetakeStatus,
+  normalizePipelineStatus
+} = require("../utils/pipelineStatus");
 
 function isManager(role) {
   return MANAGER_ROLES.includes(role);
@@ -153,7 +161,7 @@ const createProjectShot = asyncHandler(async (req, res) => {
       name: req.body.name || label,
       description: req.body.description || null,
       duration: req.body.duration ? Number(req.body.duration) : seconds,
-      status: req.body.status || "NOT_STARTED"
+      status: normalizePipelineStatus(req.body.status, "YTS")
     }
   });
 
@@ -164,7 +172,7 @@ const createProjectShot = asyncHandler(async (req, res) => {
     .map((definition) => ({
       shotId: shot.id,
       stageDefinitionId: definition.id,
-      status: "NOT_STARTED"
+      status: "YTS"
     }));
 
   if (stageRows.length) {
@@ -259,11 +267,11 @@ const bulkCreateProjectShots = asyncHandler(async (req, res) => {
           seconds,
           name: label,
           duration: seconds,
-          status: "NOT_STARTED",
+          status: "YTS",
           stages: {
             create: stageDefinitionIds.map((stageDefinitionId) => ({
               stageDefinitionId,
-              status: "NOT_STARTED"
+              status: "YTS"
             }))
           }
         },
@@ -433,7 +441,7 @@ const updateShotStage = asyncHandler(async (req, res) => {
   const payload = {};
 
   if (Object.prototype.hasOwnProperty.call(req.body, "status")) {
-    payload.status = req.body.status;
+    payload.status = normalizePipelineStatus(req.body.status);
   }
   if (Object.prototype.hasOwnProperty.call(req.body, "deadline")) {
     payload.deadline = req.body.deadline ? new Date(req.body.deadline) : null;
@@ -458,28 +466,28 @@ const updateShotStage = asyncHandler(async (req, res) => {
     throw new AppError("Employees can only update status or notes", 403);
   }
 
-  if (!manager && payload.status && !["IN_PROGRESS", "SUBMITTED"].includes(payload.status)) {
-    throw new AppError("Employees can only move shot stages to IN_PROGRESS or SUBMITTED", 403);
+  if (!manager && payload.status && !ARTIST_MUTABLE_STATUSES.has(payload.status)) {
+    throw new AppError("Employees can only move shot stages to IP, TEST, or DONE", 403);
   }
 
-  if (payload.status === "IN_PROGRESS" && !shotStage.actualStartedAt) {
+  if (payload.status === "IP" && !shotStage.actualStartedAt) {
     payload.actualStartedAt = new Date();
   }
 
-  if (payload.status === "SUBMITTED") {
+  if (isPendingReviewStatus(payload.status)) {
     payload.submittedAt = new Date();
   }
 
-  if (manager && payload.status === "APPROVED") {
+  if (manager && isApprovedStatus(payload.status)) {
     payload.approvedAt = new Date();
     payload.feedback = null;
   }
 
-  if (manager && ["REJECTED", "REVISION_REQUIRED"].includes(payload.status || "")) {
+  if (manager && isRetakeStatus(payload.status || "")) {
     payload.approvedAt = null;
   }
 
-  if (payload.status === "APPROVED" && shotStage.actualStartedAt && !shotStage.actualDoneAt) {
+  if (isCompleteStatus(payload.status) && shotStage.actualStartedAt && !shotStage.actualDoneAt) {
     const doneAt = new Date();
     payload.actualDoneAt = doneAt;
     payload.timeConsumedMin = Math.max(1, Math.round((doneAt.getTime() - new Date(shotStage.actualStartedAt).getTime()) / 60000));
@@ -532,27 +540,27 @@ const updateShotStage = asyncHandler(async (req, res) => {
     }
   }
 
-  if (updated.status === "SUBMITTED" && previousStatus !== "SUBMITTED") {
+  if (isPendingReviewStatus(updated.status) && !isPendingReviewStatus(previousStatus)) {
     await notifyManagers({
-      message: `${req.user.name} submitted ${stageName} for ${shotName} in ${projectName}.`,
+      message: `${req.user.name} sent ${stageName} for review on ${shotName} in ${projectName}.`,
       type: "APPROVAL_NEEDED",
       relatedProjectId: shotStage.shot.projectId
     });
   }
 
-  if (manager && updated.assignedUserId && updated.status === "APPROVED" && previousStatus !== "APPROVED") {
+  if (manager && updated.assignedUserId && isApprovedStatus(updated.status) && !isApprovedStatus(previousStatus)) {
     await createNotification({
       userId: updated.assignedUserId,
-      message: `${stageName} approved for ${shotName} in ${projectName}.`,
+      message: `${stageName} ${updated.status === "FINAL" ? "final approved" : "lead approved"} for ${shotName} in ${projectName}.`,
       type: "APPROVED",
       relatedProjectId: shotStage.shot.projectId
     });
   }
 
-  if (manager && updated.assignedUserId && ["REJECTED", "REVISION_REQUIRED"].includes(updated.status) && previousStatus !== updated.status) {
+  if (manager && updated.assignedUserId && isRetakeStatus(updated.status) && previousStatus !== updated.status) {
     await createNotification({
       userId: updated.assignedUserId,
-      message: `${stageName} was sent back for revision on ${shotName} in ${projectName}.${updated.feedback ? ` Feedback: ${updated.feedback}` : ""}`,
+      message: `${stageName} needs a retake on ${shotName} in ${projectName}.${updated.feedback ? ` Feedback: ${updated.feedback}` : ""}`,
       type: "REJECTED",
       relatedProjectId: shotStage.shot.projectId
     });
@@ -696,7 +704,7 @@ const bulkUpdateShotStages = asyncHandler(async (req, res) => {
   const payload = {};
 
   if (Object.prototype.hasOwnProperty.call(req.body, "status")) {
-    payload.status = req.body.status;
+    payload.status = normalizePipelineStatus(req.body.status);
   }
   if (Object.prototype.hasOwnProperty.call(req.body, "deadline")) {
     payload.deadline = req.body.deadline ? new Date(req.body.deadline) : null;
@@ -712,14 +720,14 @@ const bulkUpdateShotStages = asyncHandler(async (req, res) => {
     throw new AppError("At least one update field is required", 400);
   }
 
-  if (payload.status === "SUBMITTED") {
+  if (isPendingReviewStatus(payload.status)) {
     payload.submittedAt = new Date();
   }
-  if (payload.status === "APPROVED") {
+  if (isApprovedStatus(payload.status)) {
     payload.approvedAt = new Date();
     payload.feedback = null;
   }
-  if (["REJECTED", "REVISION_REQUIRED"].includes(payload.status || "")) {
+  if (isRetakeStatus(payload.status || "")) {
     payload.approvedAt = null;
   }
 

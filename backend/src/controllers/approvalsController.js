@@ -2,6 +2,9 @@ const prisma = require("../utils/prisma");
 const { asyncHandler } = require("../utils/http");
 const { displayStageName } = require("../utils/stageTemplates");
 const { isMissingTrackingSchemaError } = require("../utils/prismaCompat");
+const { PIPELINE_STATUSES, isPendingReviewStatus } = require("../utils/pipelineStatus");
+
+const APPROVAL_QUEUE_STATUSES = PIPELINE_STATUSES.filter((status) => isPendingReviewStatus(status));
 
 function toNormalized(value) {
   return String(value || "").trim().toLowerCase();
@@ -44,7 +47,7 @@ const getApprovalQueue = asyncHandler(async (req, res) => {
     [projectStages, shotStages, assetStages] = await Promise.all([
       prisma.projectStage.findMany({
         where: {
-          status: "SUBMITTED",
+          status: { in: APPROVAL_QUEUE_STATUSES },
           isActive: true
         },
         include: {
@@ -83,7 +86,7 @@ const getApprovalQueue = asyncHandler(async (req, res) => {
       }),
       prisma.shotStage.findMany({
         where: {
-          status: "SUBMITTED"
+          status: { in: APPROVAL_QUEUE_STATUSES }
         },
         include: {
           stageDefinition: true,
@@ -117,7 +120,7 @@ const getApprovalQueue = asyncHandler(async (req, res) => {
       }),
       prisma.assetStage.findMany({
         where: {
-          status: "SUBMITTED"
+          status: { in: APPROVAL_QUEUE_STATUSES }
         },
         include: {
           stageDefinition: true,
@@ -157,7 +160,7 @@ const getApprovalQueue = asyncHandler(async (req, res) => {
     try {
       projectStages = await prisma.projectStage.findMany({
         where: {
-          status: "SUBMITTED",
+          status: { in: APPROVAL_QUEUE_STATUSES },
           isActive: true
         },
         include: {
@@ -200,7 +203,7 @@ const getApprovalQueue = asyncHandler(async (req, res) => {
 
       projectStages = await prisma.projectStage.findMany({
         where: {
-          status: "SUBMITTED"
+          status: { in: APPROVAL_QUEUE_STATUSES }
         },
         select: {
           id: true,

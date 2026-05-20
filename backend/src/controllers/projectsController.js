@@ -12,6 +12,13 @@ const {
   getLegacyStageNameFromCode,
   getStageCodeFromLegacyStageName
 } = require("../utils/stageDefinitions");
+const {
+  isApprovedStatus,
+  isLateStatus,
+  isPendingReviewStatus,
+  isRetakeStatus,
+  normalizePipelineStatus
+} = require("../utils/pipelineStatus");
 
 function isManager(role) {
   return MANAGER_ROLES.includes(role);
@@ -149,7 +156,7 @@ async function buildStageRecordsFromInput(stageInputs = []) {
       customName: input.customName || null,
       departmentName: defaultStageMeta?.departmentName || (stageTemplate ? `${stageTemplate.name} Department` : null),
       order: Number.isInteger(input.order) ? input.order : index + 1,
-      status: input.status || "NOT_STARTED",
+      status: normalizePipelineStatus(input.status, "YTS"),
       deadline: input.deadline ? new Date(input.deadline) : null,
       assignedUserId: input.assignedUserId ? Number(input.assignedUserId) : null,
       notes: input.notes || null,
@@ -223,7 +230,7 @@ async function initializeDynamicTracking({
       customName: null,
       order: index + 1,
       departmentName: departmentLookup.get(legacyStageName) || `${definition?.name || "General"} Department`,
-      status: "NOT_STARTED",
+      status: "YTS",
       isActive: true
     };
   });
@@ -253,7 +260,7 @@ async function initializeDynamicTracking({
           name: label,
           duration: seconds,
           order: shotNumber,
-          status: "NOT_STARTED"
+          status: "YTS"
         }
       });
       createdShots.push(shot);
@@ -269,7 +276,7 @@ async function initializeDynamicTracking({
         shotStageRows.push({
           shotId: shot.id,
           stageDefinitionId: definition.id,
-          status: "NOT_STARTED"
+          status: "YTS"
         });
       }
     }
@@ -533,10 +540,10 @@ const listProjects = asyncHandler(async (req, res) => {
     filtered = filtered.filter((project) => project.progressPercent === 100);
   } else if (filterStatus === "delayed") {
     filtered = filtered.filter((project) =>
-      project.stages.some((stage) => stage.isDeadlineMissed || (stage.deadline && new Date(stage.deadline) < new Date() && stage.status !== "APPROVED"))
+      project.stages.some((stage) => stage.isDeadlineMissed || isLateStatus(stage.status, stage.deadline))
     );
   } else if (filterStatus === "issues") {
-    filtered = filtered.filter((project) => project.stages.some((stage) => stage.status === "ISSUE"));
+    filtered = filtered.filter((project) => project.stages.some((stage) => isLateStatus(stage.status, stage.deadline)));
   } else if (filterStatus === "on-track") {
     filtered = filtered.filter((project) => !project.stages.some((stage) => stage.isDeadlineMissed));
   }
@@ -1558,7 +1565,7 @@ const getMyTasks = asyncHandler(async (req, res) => {
       submittedAt: stage.submittedAt,
       approvedAt: stage.approvedAt,
       commentCount: stage._count?.comments || 0,
-      isOverdue: Boolean(stage.deadline && new Date(stage.deadline) < new Date() && stage.status !== "APPROVED"),
+      isOverdue: isLateStatus(stage.status, stage.deadline),
       assignmentType: stage.assignments?.[0]?.user?.employmentType || req.user.employmentType || "INHOUSE"
     })),
     ...shotStages.map((stage) => {
@@ -1588,7 +1595,7 @@ const getMyTasks = asyncHandler(async (req, res) => {
         submittedAt: stage.submittedAt,
         approvedAt: stage.approvedAt,
         commentCount: stage._count?.comments || 0,
-        isOverdue: Boolean(stage.deadline && new Date(stage.deadline) < new Date() && stage.status !== "APPROVED"),
+        isOverdue: isLateStatus(stage.status, stage.deadline),
         assignmentType: req.user.employmentType || "INHOUSE"
       };
     }),
@@ -1617,7 +1624,7 @@ const getMyTasks = asyncHandler(async (req, res) => {
       submittedAt: stage.submittedAt,
       approvedAt: stage.approvedAt,
       commentCount: stage._count?.comments || 0,
-      isOverdue: Boolean(stage.deadline && new Date(stage.deadline) < new Date() && stage.status !== "APPROVED"),
+      isOverdue: isLateStatus(stage.status, stage.deadline),
       assignmentType: req.user.employmentType || "INHOUSE"
     }))
   ].sort((a, b) => {
@@ -1630,11 +1637,11 @@ const getMyTasks = asyncHandler(async (req, res) => {
   const now = new Date();
   const summary = {
     total: tasks.length,
-    overdue: tasks.filter((task) => task.deadline && new Date(task.deadline) < now && task.status !== "APPROVED").length,
-    inProgress: tasks.filter((task) => task.status === "IN_PROGRESS").length,
-    submitted: tasks.filter((task) => task.status === "SUBMITTED").length,
-    approved: tasks.filter((task) => task.status === "APPROVED").length,
-    rejected: tasks.filter((task) => task.status === "REJECTED" || task.status === "REVISION_REQUIRED").length
+    overdue: tasks.filter((task) => isLateStatus(task.status, task.deadline)).length,
+    inProgress: tasks.filter((task) => task.status === "IP").length,
+    submitted: tasks.filter((task) => isPendingReviewStatus(task.status)).length,
+    approved: tasks.filter((task) => isApprovedStatus(task.status)).length,
+    rejected: tasks.filter((task) => isRetakeStatus(task.status)).length
   };
 
   return res.json({ tasks, summary });

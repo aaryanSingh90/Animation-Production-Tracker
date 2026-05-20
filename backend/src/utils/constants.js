@@ -1,5 +1,6 @@
 const MANAGER_ROLES = ["BOSS", "PRODUCTION_MANAGER", "COORDINATOR"];
 const { getDepartmentForStage } = require("../constants/stageDepartmentMap");
+const { ACTIVE_STAGE_STATUSES } = require("./pipelineStatus");
 
 const STAGE_DEFAULTS = [
   {
@@ -99,8 +100,6 @@ function humanizeStageName(stageName) {
 }
 
 const CHARACTER_STAGES = ["REFERENCE", "MODELLING", "BLENDSHAPES", "TEXTURING", "RIGGING"];
-
-const ACTIVE_STAGE_STATUSES = ["NOT_STARTED", "IN_PROGRESS", "SUBMITTED", "REJECTED", "REVISION_REQUIRED", "ISSUE", "EXTENDED"];
 
 module.exports = {
   MANAGER_ROLES,

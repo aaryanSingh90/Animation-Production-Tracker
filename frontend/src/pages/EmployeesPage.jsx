@@ -6,6 +6,7 @@ import EmptyState from "../components/EmptyState";
 import Modal from "../components/Modal";
 import StatusBadge from "../components/StatusBadge";
 import { formatDate, getDepartmentLabel, getStageDisplayName, initials, labelize } from "../utils/format";
+import { isApprovedStatus } from "../utils/constants";
 import { isDepartmentMatch, stageDepartmentFromCode } from "../utils/stageDepartmentMap";
 import { useToastStore } from "../store/toastStore";
 
@@ -645,7 +646,7 @@ export default function EmployeesPage() {
                 <p className="text-xs text-slate-500">{selectedUser.stats?.activeStages || 0} active tasks</p>
                 <div className="space-y-2">
                   {combinedAssignments
-                    .filter((stage) => stage.status !== "APPROVED")
+                    .filter((stage) => !isApprovedStatus(stage.status))
                     .slice(0, 6)
                     .map((stage) => (
                       <div key={stage.id} className="rounded-lg bg-slate-50 p-2">
@@ -657,7 +658,7 @@ export default function EmployeesPage() {
                         </p>
                       </div>
                     ))}
-                  {!combinedAssignments.filter((stage) => stage.status !== "APPROVED").length && (
+                  {!combinedAssignments.filter((stage) => !isApprovedStatus(stage.status)).length && (
                     <p className="text-xs text-slate-500">No active stages.</p>
                   )}
                 </div>

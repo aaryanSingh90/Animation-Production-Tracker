@@ -3,6 +3,13 @@ const { asyncHandler, AppError } = require("../utils/http");
 const { getTrackingDefinitionSnapshot } = require("../utils/trackingSetup");
 const { getLegacyStageNameFromCode, normalizeStageCode } = require("../utils/stageDefinitions");
 const { MANAGER_ROLES } = require("../utils/constants");
+const {
+  COMPLETED_STATUSES,
+  isApprovedStatus,
+  isCompleteStatus,
+  isLateStatus,
+  isPendingReviewStatus
+} = require("../utils/pipelineStatus");
 
 function applyPagination(value, fallback, max = 200) {
   return Math.min(max, Math.max(1, Number(value || fallback)));
@@ -153,11 +160,9 @@ const getProjectOverview = asyncHandler(async (req, res) => {
   const shotStages = project.shots.flatMap((shot) => shot.stages || []);
   const assetStages = project.assets.flatMap((asset) => asset.stages || []);
 
-  const delayedTasks = [...projectStages, ...shotStages, ...assetStages].filter(
-    (stage) => stage.deadline && new Date(stage.deadline) < now && stage.status !== "APPROVED"
-  );
+  const delayedTasks = [...projectStages, ...shotStages, ...assetStages].filter((stage) => isLateStatus(stage.status, stage.deadline));
 
-  const pendingApprovals = [...projectStages, ...shotStages, ...assetStages].filter((stage) => stage.status === "SUBMITTED");
+  const pendingApprovals = [...projectStages, ...shotStages, ...assetStages].filter((stage) => isPendingReviewStatus(stage.status));
 
   const stageSummaryMap = new Map();
 
@@ -178,10 +183,10 @@ const getProjectOverview = asyncHandler(async (req, res) => {
     }
 
     const bucket = stageSummaryMap.get(code);
-    if (stage.status === "APPROVED") bucket.approved += 1;
-    if (stage.status === "SUBMITTED") bucket.submitted += 1;
-    if (stage.status === "IN_PROGRESS") bucket.inProgress += 1;
-    if (stage.deadline && new Date(stage.deadline) < now && stage.status !== "APPROVED") bucket.delayed += 1;
+    if (isCompleteStatus(stage.status)) bucket.approved += 1;
+    if (isPendingReviewStatus(stage.status)) bucket.submitted += 1;
+    if (stage.status === "IP") bucket.inProgress += 1;
+    if (isLateStatus(stage.status, stage.deadline)) bucket.delayed += 1;
   }
 
   for (const stage of shotStages) {
@@ -196,17 +201,17 @@ const getProjectOverview = asyncHandler(async (req, res) => {
         submitted: 0,
         inProgress: 0,
         delayed: 0,
-        status: "NOT_STARTED"
+        status: "YTS"
       });
     }
 
     const bucket = stageSummaryMap.get(code);
     bucket.trackingMode = "SHOT";
     bucket.total += 1;
-    if (stage.status === "APPROVED") bucket.approved += 1;
-    if (stage.status === "SUBMITTED") bucket.submitted += 1;
-    if (stage.status === "IN_PROGRESS") bucket.inProgress += 1;
-    if (stage.deadline && new Date(stage.deadline) < now && stage.status !== "APPROVED") bucket.delayed += 1;
+    if (isCompleteStatus(stage.status)) bucket.approved += 1;
+    if (isPendingReviewStatus(stage.status)) bucket.submitted += 1;
+    if (stage.status === "IP") bucket.inProgress += 1;
+    if (isLateStatus(stage.status, stage.deadline)) bucket.delayed += 1;
   }
 
   for (const stage of assetStages) {
@@ -221,29 +226,29 @@ const getProjectOverview = asyncHandler(async (req, res) => {
         submitted: 0,
         inProgress: 0,
         delayed: 0,
-        status: "NOT_STARTED"
+        status: "YTS"
       });
     }
 
     const bucket = stageSummaryMap.get(code);
     bucket.trackingMode = "ASSET";
     bucket.total += 1;
-    if (stage.status === "APPROVED") bucket.approved += 1;
-    if (stage.status === "SUBMITTED") bucket.submitted += 1;
-    if (stage.status === "IN_PROGRESS") bucket.inProgress += 1;
-    if (stage.deadline && new Date(stage.deadline) < now && stage.status !== "APPROVED") bucket.delayed += 1;
+    if (isCompleteStatus(stage.status)) bucket.approved += 1;
+    if (isPendingReviewStatus(stage.status)) bucket.submitted += 1;
+    if (stage.status === "IP") bucket.inProgress += 1;
+    if (isLateStatus(stage.status, stage.deadline)) bucket.delayed += 1;
   }
 
   const projectStageProgress = projectStages.length
-    ? Math.round((projectStages.filter((stage) => stage.status === "APPROVED").length / projectStages.length) * 100)
+    ? Math.round((projectStages.filter((stage) => isCompleteStatus(stage.status)).length / projectStages.length) * 100)
     : 0;
 
   const shotStageProgress = shotStages.length
-    ? Math.round((shotStages.filter((stage) => stage.status === "APPROVED").length / shotStages.length) * 100)
+    ? Math.round((shotStages.filter((stage) => isCompleteStatus(stage.status)).length / shotStages.length) * 100)
     : 0;
 
   const assetStageProgress = assetStages.length
-    ? Math.round((assetStages.filter((stage) => stage.status === "APPROVED").length / assetStages.length) * 100)
+    ? Math.round((assetStages.filter((stage) => isCompleteStatus(stage.status)).length / assetStages.length) * 100)
     : 0;
 
   for (const code of snapshot.activeCodes) {
@@ -266,19 +271,19 @@ const getProjectOverview = asyncHandler(async (req, res) => {
       submitted: 0,
       inProgress: 0,
       delayed: 0,
-      status: "NOT_STARTED"
+      status: "YTS"
     });
   }
 
   const stageSummaries = Array.from(stageSummaryMap.values()).map((item) => ({
     ...item,
-    completionPercent: item.total ? Math.round((item.approved / item.total) * 100) : item.status === "APPROVED" ? 100 : 0
+    completionPercent: item.total ? Math.round((item.approved / item.total) * 100) : isCompleteStatus(item.status) ? 100 : 0
   }));
 
   const completed =
-    projectStages.filter((stage) => stage.status === "APPROVED").length +
-    shotStages.filter((stage) => stage.status === "APPROVED").length +
-    assetStages.filter((stage) => stage.status === "APPROVED").length;
+    projectStages.filter((stage) => isCompleteStatus(stage.status)).length +
+    shotStages.filter((stage) => isCompleteStatus(stage.status)).length +
+    assetStages.filter((stage) => isCompleteStatus(stage.status)).length;
 
   const total = projectStages.length + shotStages.length + assetStages.length;
   const overallProgress = total ? Math.round((completed / total) * 100) : 0;
@@ -354,7 +359,7 @@ const getStageShotsWorkspace = asyncHandler(async (req, res) => {
   if (overdue) {
     where.deadline = { lt: new Date() };
     if (!status) {
-      where.status = { not: "APPROVED" };
+      where.status = { notIn: Array.from(COMPLETED_STATUSES) };
     }
   }
   if (sequence) {
@@ -519,6 +524,8 @@ const getStageAssetsWorkspace = asyncHandler(async (req, res) => {
             name: true,
             type: true,
             subCategory: true,
+            description: true,
+            order: true,
             referenceImageUrl: true,
             status: true
           }
@@ -540,7 +547,7 @@ const getStageAssetsWorkspace = asyncHandler(async (req, res) => {
           }
         }
       },
-      orderBy: [{ asset: { name: "asc" } }, { createdAt: "asc" }],
+      orderBy: [{ asset: { order: "asc" } }, { asset: { name: "asc" } }, { createdAt: "asc" }],
       skip: (page - 1) * pageSize,
       take: pageSize
     })

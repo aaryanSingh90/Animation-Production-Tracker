@@ -1,20 +1,25 @@
 import clsx from "clsx";
 import { memo } from "react";
-import { STATUS_COLORS } from "../utils/constants";
-import { labelize } from "../utils/format";
+import { getStatusMeta, getStatusOptionLabel, normalizeStatus } from "../utils/constants";
 
 function StatusBadge({ status }) {
-  const color = STATUS_COLORS[status] || "#64748B";
+  const normalized = normalizeStatus(status);
+  const meta = getStatusMeta(normalized);
 
   return (
     <span
       className={clsx(
-        "inline-flex rounded-full px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-white",
+        "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold tracking-[0.08em] transition-transform duration-150 hover:-translate-y-px",
         "shadow-sm"
       )}
-      style={{ backgroundColor: color }}
+      style={{
+        backgroundColor: meta.background,
+        color: meta.text,
+        borderColor: meta.border
+      }}
+      title={getStatusOptionLabel(normalized)}
     >
-      {labelize(status)}
+      {getStatusOptionLabel(normalized)}
     </span>
   );
 }

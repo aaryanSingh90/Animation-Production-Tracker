@@ -4,6 +4,7 @@ import { AlertTriangle, Building2, FolderKanban, Users, CheckCheck, ArrowRight }
 import api from "../lib/api";
 import Loader from "../components/Loader";
 import EmptyState from "../components/EmptyState";
+import { isLateStatus } from "../utils/constants";
 
 function StatCard({ label, value, icon: Icon, tone = "slate" }) {
   const toneClass = {
@@ -93,9 +94,7 @@ export default function ManagerDashboardPage() {
     const activeProjects = projects.filter((project) => Number(project.progressPercent || 0) < 100).length;
     const activeEmployees = users.filter((user) => user.isActive && (user.role === "EMPLOYEE" || user.role === "COORDINATOR")).length;
     const delayedStages = projects.reduce((count, project) => {
-      const delayed = (project.stages || []).filter(
-        (stage) => stage.deadline && new Date(stage.deadline) < new Date() && stage.status !== "APPROVED"
-      ).length;
+      const delayed = (project.stages || []).filter((stage) => isLateStatus(stage.status, stage.deadline)).length;
       return count + delayed;
     }, 0);
 

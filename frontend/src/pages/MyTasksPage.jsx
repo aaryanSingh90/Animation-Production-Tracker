@@ -8,6 +8,7 @@ import IssueModal from "../components/IssueModal";
 import StageCommentThread from "../components/StageCommentThread";
 import { formatDate } from "../utils/format";
 import { stageDepartmentFromCode } from "../utils/stageDepartmentMap";
+import { isApprovedStatus, isLateStatus, isPendingReviewStatus, isRetakeStatus, normalizeStatus } from "../utils/constants";
 import { useToastStore } from "../store/toastStore";
 import { useAuthStore } from "../store/authStore";
 import { useNotificationStore } from "../store/notificationStore";
@@ -96,9 +97,9 @@ export default function MyTasksPage() {
       return new Date(task.deadline).toISOString().slice(0, 10) === todayKey;
     }).length;
 
-    const pendingReviews = tasks.filter((task) => task.status === "SUBMITTED").length;
-    const completed = tasks.filter((task) => task.status === "APPROVED").length;
-    const overdue = tasks.filter((task) => task.deadline && new Date(task.deadline) < now && task.status !== "APPROVED").length;
+    const pendingReviews = tasks.filter((task) => isPendingReviewStatus(task.status)).length;
+    const completed = tasks.filter((task) => isApprovedStatus(task.status)).length;
+    const overdue = tasks.filter((task) => isLateStatus(task.status, task.deadline)).length;
 
     return {
       todaysTasks,
@@ -110,7 +111,7 @@ export default function MyTasksPage() {
 
   const startWork = async (task) => {
     try {
-      await api.put(endpointForTask(task), { status: "IN_PROGRESS" });
+      await api.put(endpointForTask(task), { status: "IP" });
       showToast("success", "Task moved to in progress");
       await fetchData();
     } catch (error) {
@@ -119,15 +120,15 @@ export default function MyTasksPage() {
   };
 
   const submitTask = async (task) => {
-    if (!window.confirm("Submit this task for approval?")) return;
+    if (!window.confirm("Send this task as a test shot for review?")) return;
 
     try {
       if (task.trackingType === "PROJECT") {
         await api.post(`/stages/${task.id}/submit`);
       } else {
-        await api.put(endpointForTask(task), { status: "SUBMITTED" });
+        await api.put(endpointForTask(task), { status: "TEST" });
       }
-      showToast("success", "Submitted for approval");
+      showToast("success", "Test shot sent for review");
       await fetchData();
     } catch (error) {
       showToast("error", error.userMessage || error.response?.data?.message || "Unable to submit");
@@ -209,9 +210,10 @@ export default function MyTasksPage() {
               {tasks.map((task) => {
                 const key = `${task.resource}:${task.id}`;
                 const isHighlighted = stageIdHighlight && String(task.id) === String(stageIdHighlight);
-                const isOverdue = Boolean(task.deadline && new Date(task.deadline) < new Date() && task.status !== "APPROVED");
-                const canStart = ["NOT_STARTED", "REJECTED", "REVISION_REQUIRED"].includes(task.status);
-                const canSubmit = ["IN_PROGRESS", "REJECTED", "REVISION_REQUIRED"].includes(task.status);
+                const normalizedStatus = normalizeStatus(task.status);
+                const isOverdue = isLateStatus(normalizedStatus, task.deadline);
+                const canStart = ["YTS", "RTK", "LATE"].includes(normalizedStatus);
+                const canSubmit = ["IP", "RTK", "LATE"].includes(normalizedStatus);
                 const taskDepartment = task.departmentName || stageDepartmentFromCode(task.stageCode) || "General";
 
                 return (
@@ -241,7 +243,7 @@ export default function MyTasksPage() {
                     <div className="mt-2 grid gap-2 text-xs text-slate-600 sm:grid-cols-2 lg:grid-cols-4">
                       <span className={isOverdue ? "font-semibold text-rose-600" : ""}>Deadline: {formatDate(task.deadline)}</span>
                       <span>Assigned: {formatDate(task.assignedAt)}</span>
-                      <span>Submitted: {formatDate(task.submittedAt)}</span>
+                      <span>Review Sent: {formatDate(task.submittedAt)}</span>
                       <span>Approved: {formatDate(task.approvedAt)}</span>
                     </div>
 
@@ -258,7 +260,7 @@ export default function MyTasksPage() {
                         disabled={!canSubmit}
                         className="rounded-lg bg-sky-600 px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
                       >
-                        Submit for Review
+                        Send Test Shot
                       </button>
                       {issueSupported(task) ? (
                         <button

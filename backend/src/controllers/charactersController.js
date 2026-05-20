@@ -48,7 +48,7 @@ const createCharacter = asyncHandler(async (req, res) => {
         createMany: {
           data: CHARACTER_STAGES.map((stageName) => ({
             stageName,
-            status: "NOT_STARTED"
+            status: "YTS"
           }))
         }
       }

@@ -2,9 +2,10 @@ const { differenceInCalendarDays, startOfDay } = require("date-fns");
 const prisma = require("./prisma");
 const { createNotificationIfRecentDuplicateAbsent, notifyManagers } = require("./notifications");
 const { displayStageName } = require("./stageTemplates");
+const { COMPLETED_STATUSES, isCompleteStatus } = require("./pipelineStatus");
 
 function isStageApprovable(status) {
-  return status === "APPROVED";
+  return isCompleteStatus(status);
 }
 
 async function processStageDeadline(stage) {
@@ -83,7 +84,7 @@ async function runDeadlineSweep() {
     where: {
       isActive: true,
       deadline: { not: null },
-      status: { not: "APPROVED" }
+      status: { notIn: Array.from(COMPLETED_STATUSES) }
     },
     include: {
       stageTemplate: true,

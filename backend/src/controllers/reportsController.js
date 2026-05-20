@@ -3,6 +3,9 @@ const prisma = require("../utils/prisma");
 const { asyncHandler } = require("../utils/http");
 const { ACTIVE_STAGE_STATUSES } = require("../utils/constants");
 const { displayStageName } = require("../utils/stageTemplates");
+const { COMPLETED_STATUSES, PIPELINE_STATUSES, isLateStatus, isPendingReviewStatus } = require("../utils/pipelineStatus");
+
+const PENDING_APPROVAL_STATUSES = PIPELINE_STATUSES.filter((status) => isPendingReviewStatus(status));
 
 const STATUS_COLORS = {
   "On Track": "#10B981",
@@ -28,9 +31,7 @@ function calculateExpectedProgress(project) {
 
 function projectIsDelayed(project) {
   return project.stages.some(
-    (stage) =>
-      stage.isDeadlineMissed ||
-      (stage.deadline && new Date(stage.deadline) < new Date() && stage.status !== "APPROVED")
+    (stage) => stage.isDeadlineMissed || isLateStatus(stage.status, stage.deadline)
   );
 }
 
@@ -53,9 +54,7 @@ const getOverviewReport = asyncHandler(async (req, res) => {
   const totalProjects = projects.length;
   const delayedProjects = projects.filter(projectIsDelayed);
   const completedProjects = projects.filter((project) => project.progressPercent === 100);
-  const projectsWithIssues = projects.filter((project) =>
-    project.stages.some((stage) => stage.status === "ISSUE" || stage.status === "EXTENDED")
-  );
+  const projectsWithIssues = projects.filter((project) => project.stages.some((stage) => isLateStatus(stage.status, stage.deadline)));
 
   const onTrackProjects = projects.filter((project) => {
     if (projectIsDelayed(project)) return false;
@@ -64,7 +63,7 @@ const getOverviewReport = asyncHandler(async (req, res) => {
   });
 
   const pendingApprovals = await prisma.projectStage.count({
-    where: { status: "SUBMITTED", isActive: true }
+    where: { status: { in: PENDING_APPROVAL_STATUSES }, isActive: true }
   });
 
   const stageApprovals = await prisma.projectStage.findMany({
@@ -175,7 +174,7 @@ const getOverviewReport = asyncHandler(async (req, res) => {
         lte: addDays(startOfDay(new Date()), 7)
       },
       status: {
-        not: "APPROVED"
+        notIn: Array.from(COMPLETED_STATUSES)
       }
     },
     include: {

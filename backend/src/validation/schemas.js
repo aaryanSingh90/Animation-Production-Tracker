@@ -2,14 +2,14 @@ const { z } = require("zod");
 
 const isoDate = z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/));
 const stageStatusEnum = z.enum([
-  "NOT_STARTED",
-  "IN_PROGRESS",
-  "SUBMITTED",
+  "YTS",
+  "IP",
+  "TEST",
+  "DONE",
   "APPROVED",
-  "REJECTED",
-  "REVISION_REQUIRED",
-  "ISSUE",
-  "EXTENDED"
+  "RTK",
+  "FINAL",
+  "LATE"
 ]);
 const trackingModeEnum = z.enum(["PROJECT", "SHOT", "ASSET"]);
 const hybridStageModeEnum = z.enum(["PROJECT", "SHOT"]);
@@ -377,6 +377,7 @@ const stageWorkspaceQuerySchema = z.object({
   artistId: z.coerce.number().int().positive().optional(),
   search: z.string().max(255).optional(),
   type: z.enum(["CHARACTER", "PROP", "BG", "ENVIRONMENT"]).optional(),
+  subCategory: z.enum(["CHARACTER", "CHARACTER_BLENDSHAPES", "PROP", "BG"]).optional(),
   sequence: z.string().max(120).optional(),
   unassigned: z.coerce.boolean().optional(),
   overdue: z.coerce.boolean().optional(),

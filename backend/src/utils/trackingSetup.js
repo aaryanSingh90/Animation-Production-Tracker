@@ -4,6 +4,11 @@ const {
   TRACKING_GROUPS,
   normalizeStageCode
 } = require("./stageDefinitions");
+const {
+  isApprovedStatus,
+  isRetakeStatus,
+  normalizePipelineStatus
+} = require("./pipelineStatus");
 
 function buildActiveCodeSet(project, stageDefinitions) {
   if (Array.isArray(project?.activeStageCodes) && project.activeStageCodes.length) {
@@ -54,14 +59,17 @@ async function getTrackingDefinitionSnapshot({ prisma, project }) {
 }
 
 function computeStatusFromChildren(statuses = []) {
-  if (!statuses.length) return "NOT_STARTED";
-  if (statuses.every((status) => status === "APPROVED")) return "APPROVED";
-  if (statuses.some((status) => status === "REJECTED" || status === "REVISION_REQUIRED")) return "REVISION_REQUIRED";
-  if (statuses.some((status) => status === "ISSUE")) return "ISSUE";
-  if (statuses.some((status) => status === "EXTENDED")) return "EXTENDED";
-  if (statuses.some((status) => status === "SUBMITTED")) return "SUBMITTED";
-  if (statuses.some((status) => status === "IN_PROGRESS")) return "IN_PROGRESS";
-  return "NOT_STARTED";
+  const normalized = statuses.map((status) => normalizePipelineStatus(status));
+  if (!normalized.length) return "YTS";
+  if (normalized.every((status) => status === "FINAL")) return "FINAL";
+  if (normalized.every((status) => isApprovedStatus(status))) return "APPROVED";
+  if (normalized.every((status) => status === "DONE")) return "DONE";
+  if (normalized.some((status) => status === "LATE")) return "LATE";
+  if (normalized.some((status) => isRetakeStatus(status))) return "RTK";
+  if (normalized.some((status) => status === "TEST")) return "TEST";
+  if (normalized.some((status) => status === "DONE")) return "DONE";
+  if (normalized.some((status) => status === "IP")) return "IP";
+  return "YTS";
 }
 
 module.exports = {

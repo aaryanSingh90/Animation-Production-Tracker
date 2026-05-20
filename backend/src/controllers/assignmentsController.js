@@ -2,6 +2,7 @@ const prisma = require("../utils/prisma");
 const { AppError, asyncHandler } = require("../utils/http");
 const { getDepartmentForStage, normalizeStageCode } = require("../constants/stageDepartmentMap");
 const { createNotification } = require("../utils/notifications");
+const { ACTIVE_STAGE_STATUSES } = require("../utils/pipelineStatus");
 
 function stageDisplayName(stage) {
   return stage.customName || stage.stageTemplate?.name || stage.stageName;
@@ -30,7 +31,7 @@ async function getEmployeeLoad(userId) {
         projectStage: {
           isActive: true,
           status: {
-            in: ["NOT_STARTED", "IN_PROGRESS", "SUBMITTED", "REJECTED", "ISSUE", "EXTENDED"]
+            in: ACTIVE_STAGE_STATUSES
           }
         }
       },

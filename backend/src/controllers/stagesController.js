@@ -7,6 +7,14 @@ const { processStageDeadline } = require("../utils/deadlines");
 const { logActivity } = require("../utils/activities");
 const { displayStageName, resolveLegacyStageNameFromTemplateName } = require("../utils/stageTemplates");
 const { getDepartmentForStage, isDepartmentMatch, normalizeStageCode } = require("../constants/stageDepartmentMap");
+const {
+  ARTIST_MUTABLE_STATUSES,
+  isApprovedStatus,
+  isCompleteStatus,
+  isPendingReviewStatus,
+  isRetakeStatus,
+  normalizePipelineStatus
+} = require("../utils/pipelineStatus");
 
 function isManager(role) {
   return MANAGER_ROLES.includes(role);
@@ -185,15 +193,15 @@ const updateStage = asyncHandler(async (req, res) => {
       }
     }
 
-    if (req.body.status && req.body.status !== "IN_PROGRESS") {
-      throw new AppError("Employees can only move stage to IN_PROGRESS", 403);
+    if (req.body.status && !ARTIST_MUTABLE_STATUSES.has(normalizePipelineStatus(req.body.status))) {
+      throw new AppError("Employees can only move stage to IP, TEST, or DONE", 403);
     }
   }
 
   const data = {};
 
   if (Object.prototype.hasOwnProperty.call(req.body, "status")) {
-    data.status = req.body.status;
+    data.status = normalizePipelineStatus(req.body.status);
   }
   if (Object.prototype.hasOwnProperty.call(req.body, "deadline")) {
     data.deadline = req.body.deadline ? new Date(req.body.deadline) : null;
@@ -211,7 +219,7 @@ const updateStage = asyncHandler(async (req, res) => {
     data.endDate = req.body.endDate ? new Date(req.body.endDate) : null;
   }
   if (Object.prototype.hasOwnProperty.call(req.body, "audioStatus")) {
-    data.audioStatus = req.body.audioStatus || null;
+    data.audioStatus = req.body.audioStatus ? normalizePipelineStatus(req.body.audioStatus) : null;
   }
   if (Object.prototype.hasOwnProperty.call(req.body, "finalOutput")) {
     data.finalOutput = req.body.finalOutput || null;
@@ -279,12 +287,13 @@ const updateStage = asyncHandler(async (req, res) => {
     }
   }
 
-  if (data.status === "APPROVED") data.approvedAt = new Date();
-  if (data.status === "REJECTED") data.rejectedAt = new Date();
-  if (data.status === "IN_PROGRESS" && !stage.actualStartedAt) {
+  if (isApprovedStatus(data.status)) data.approvedAt = new Date();
+  if (isRetakeStatus(data.status)) data.rejectedAt = new Date();
+  if (data.status === "IP" && !stage.actualStartedAt) {
     data.actualStartedAt = new Date();
   }
-  if (data.status === "APPROVED" && stage.actualStartedAt && !stage.actualDoneAt) {
+  if (isPendingReviewStatus(data.status)) data.submittedAt = new Date();
+  if (isCompleteStatus(data.status) && stage.actualStartedAt && !stage.actualDoneAt) {
     const doneAt = new Date();
     data.actualDoneAt = doneAt;
     data.timeConsumedMin = Math.max(1, Math.round((doneAt.getTime() - new Date(stage.actualStartedAt).getTime()) / 60000));
@@ -403,7 +412,7 @@ const submitStage = asyncHandler(async (req, res) => {
   const updated = await prisma.projectStage.update({
     where: { id: stage.id },
     data: {
-      status: "SUBMITTED",
+      status: "TEST",
       submittedAt: new Date()
     },
     include: {
@@ -420,7 +429,7 @@ const submitStage = asyncHandler(async (req, res) => {
     if (userId === req.user.id) continue;
     await createNotification({
       userId,
-      message: `${req.user.name} submitted ${stageLabel(updated)} for ${updated.project.name}.`,
+      message: `${req.user.name} sent ${stageLabel(updated)} for review on ${updated.project.name}.`,
       type: "APPROVAL_NEEDED",
       relatedProjectId: updated.projectId,
       relatedStageId: updated.id
@@ -428,7 +437,7 @@ const submitStage = asyncHandler(async (req, res) => {
   }
 
   await notifyManagers({
-    message: `${req.user.name} submitted ${stageLabel(updated)} for ${updated.project.name}.`,
+      message: `${req.user.name} sent ${stageLabel(updated)} for review on ${updated.project.name}.`,
     type: "APPROVAL_NEEDED",
     relatedProjectId: updated.projectId,
     relatedStageId: updated.id
@@ -454,7 +463,7 @@ const approveStage = asyncHandler(async (req, res) => {
   const updated = await prisma.projectStage.update({
     where: { id: stage.id },
     data: {
-      status: "APPROVED",
+      status: req.body.finalApproval || req.body.status === "FINAL" ? "FINAL" : "APPROVED",
       approvedAt: new Date(),
       rejectedAt: null,
       feedback: null,
@@ -473,7 +482,7 @@ const approveStage = asyncHandler(async (req, res) => {
     data: {
       projectStageId: updated.id,
       authorId: req.user.id,
-      body: `Stage approved by ${req.user.name} on ${new Date().toLocaleDateString("en-GB")}.`,
+      body: `Stage ${updated.status === "FINAL" ? "final approved" : "lead approved"} by ${req.user.name} on ${new Date().toLocaleDateString("en-GB")}.`,
       type: "APPROVAL_NOTE",
       isSystemGenerated: true
     }
@@ -484,7 +493,7 @@ const approveStage = asyncHandler(async (req, res) => {
     assignedUserIds.map((userId) =>
       createNotification({
         userId,
-        message: `${stageLabel(updated)} approved for ${updated.project.name}.`,
+        message: `${stageLabel(updated)} ${updated.status === "FINAL" ? "final approved" : "lead approved"} for ${updated.project.name}.`,
         type: "APPROVED",
         relatedProjectId: updated.projectId,
         relatedStageId: updated.id
@@ -499,7 +508,7 @@ const approveStage = asyncHandler(async (req, res) => {
     stageId: updated.id,
     actorId: req.user.id,
     eventType: "STAGE_APPROVED",
-    message: `${req.user.name} approved ${stageLabel(updated)}.`
+      message: `${req.user.name} ${updated.status === "FINAL" ? "final approved" : "lead approved"} ${stageLabel(updated)}.`
   });
 
   return res.json(updated);
@@ -516,7 +525,7 @@ const rejectStage = asyncHandler(async (req, res) => {
   const updated = await prisma.projectStage.update({
     where: { id: stage.id },
     data: {
-      status: "REJECTED",
+      status: "RTK",
       rejectedAt: new Date(),
       feedback,
       approvedAt: null
@@ -545,7 +554,7 @@ const rejectStage = asyncHandler(async (req, res) => {
     assignedUserIds.map((userId) =>
       createNotification({
         userId,
-        message: `${stageLabel(updated)} rejected for ${updated.project.name}. Feedback: ${feedback}`,
+        message: `${stageLabel(updated)} needs retake for ${updated.project.name}. Feedback: ${feedback}`,
         type: "REJECTED",
         relatedProjectId: updated.projectId,
         relatedStageId: updated.id
@@ -561,7 +570,7 @@ const rejectStage = asyncHandler(async (req, res) => {
     stageId: updated.id,
     actorId: req.user.id,
     eventType: "STAGE_REJECTED",
-    message: `${req.user.name} rejected ${stageLabel(updated)}.`
+      message: `${req.user.name} marked ${stageLabel(updated)} for retake.`
   });
 
   return res.json(updated);
@@ -936,9 +945,7 @@ const logIssue = asyncHandler(async (req, res) => {
     }
   });
 
-  const stageUpdate = {
-    status: extendDeadline ? "EXTENDED" : "ISSUE"
-  };
+  const stageUpdate = {};
 
   if (extendDeadline) {
     stageUpdate.deadline = new Date(newDeadline);
@@ -1001,7 +1008,6 @@ const extendDeadline = asyncHandler(async (req, res) => {
     where: { id: stage.id },
     data: {
       deadline: new Date(newDeadline),
-      status: "EXTENDED",
       isDeadlineMissed: false
     },
     include: {

@@ -5,6 +5,12 @@ const { MANAGER_ROLES } = require("../utils/constants");
 const { createNotification } = require("../utils/notifications");
 const { logActivity } = require("../utils/activities");
 const { presentUser } = require("../utils/userPresenter");
+const {
+  isApprovedStatus,
+  isLateStatus,
+  isPendingReviewStatus,
+  isRetakeStatus
+} = require("../utils/pipelineStatus");
 
 function isManager(role) {
   return MANAGER_ROLES.includes(role);
@@ -348,12 +354,10 @@ const getUserById = asyncHandler(async (req, res) => {
     return aDeadline - bDeadline;
   });
 
-  const submittedCount = mergedStages.filter((stage) => stage.submittedAt).length;
-  const approvedCount = mergedStages.filter((stage) => stage.status === "APPROVED").length;
-  const rejectedCount = mergedStages.filter((stage) => stage.status === "REJECTED").length;
-  const delayedCount = mergedStages.filter(
-    (stage) => stage.deadline && new Date(stage.deadline) < new Date() && stage.status !== "APPROVED"
-  ).length;
+  const submittedCount = mergedStages.filter((stage) => isPendingReviewStatus(stage.status) || stage.submittedAt).length;
+  const approvedCount = mergedStages.filter((stage) => isApprovedStatus(stage.status)).length;
+  const rejectedCount = mergedStages.filter((stage) => isRetakeStatus(stage.status)).length;
+  const delayedCount = mergedStages.filter((stage) => isLateStatus(stage.status, stage.deadline)).length;
 
   const approvalRate = submittedCount === 0 ? 0 : Number(((approvedCount / submittedCount) * 100).toFixed(2));
 
@@ -393,13 +397,13 @@ const getUserById = asyncHandler(async (req, res) => {
       delayedCount,
       approvalRate,
       activeStages:
-        mergedStages.filter((stage) => stage.status !== "APPROVED").length +
-        shotStageAssignments.filter((stage) => stage.status !== "APPROVED").length +
-        assetStageAssignments.filter((stage) => stage.status !== "APPROVED").length,
+        mergedStages.filter((stage) => !isApprovedStatus(stage.status)).length +
+        shotStageAssignments.filter((stage) => !isApprovedStatus(stage.status)).length +
+        assetStageAssignments.filter((stage) => !isApprovedStatus(stage.status)).length,
       completedStages:
-        mergedStages.filter((stage) => stage.status === "APPROVED").length +
-        shotStageAssignments.filter((stage) => stage.status === "APPROVED").length +
-        assetStageAssignments.filter((stage) => stage.status === "APPROVED").length,
+        mergedStages.filter((stage) => isApprovedStatus(stage.status)).length +
+        shotStageAssignments.filter((stage) => isApprovedStatus(stage.status)).length +
+        assetStageAssignments.filter((stage) => isApprovedStatus(stage.status)).length,
       productivityScore: Math.max(0, Math.min(100, Math.round(approvalRate - delayedCount * 3 + 10)))
     }
   });

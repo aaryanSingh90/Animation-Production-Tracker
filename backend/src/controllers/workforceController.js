@@ -1,5 +1,6 @@
 const prisma = require("../utils/prisma");
 const { asyncHandler, AppError } = require("../utils/http");
+const { isApprovedStatus, isLateStatus, isRetakeStatus, isActiveStatus } = require("../utils/pipelineStatus");
 
 function normalizeText(value) {
   return String(value || "")
@@ -21,11 +22,11 @@ function buildEmployeeHealth(employee, now = new Date()) {
   }
 
   const stages = Array.from(stageMap.values());
-  const activeStages = stages.filter((stage) => ["NOT_STARTED", "IN_PROGRESS", "SUBMITTED", "REJECTED", "ISSUE", "EXTENDED"].includes(stage.status));
+  const activeStages = stages.filter((stage) => isActiveStatus(stage.status));
 
   const activeTaskCount = activeStages.length;
   const projectIds = new Set(activeStages.map((stage) => stage.project.id));
-  const delayedCount = activeStages.filter((stage) => stage.deadline && new Date(stage.deadline) < now && stage.status !== "APPROVED").length;
+  const delayedCount = activeStages.filter((stage) => isLateStatus(stage.status, stage.deadline)).length;
 
   const capacityPercent = Math.min(100, Math.round((activeTaskCount / 6) * 100));
 
@@ -328,7 +329,7 @@ const getWorkforceHeatmap = asyncHandler(async (req, res) => {
       totalTasks += taskSet.size;
 
       const delayed = member.assignedProjectStages.filter(
-        (stage) => stage.deadline && new Date(stage.deadline) < now && stage.status !== "APPROVED"
+        (stage) => isLateStatus(stage.status, stage.deadline)
       ).length;
       delayedTasks += delayed;
 
@@ -479,9 +480,9 @@ const getEmployeeProfile = asyncHandler(async (req, res) => {
       activeProjects: health.activeProjectCount,
       activeStages: health.activeTaskCount,
       completedStages: [...user.assignedProjectStages, ...user.stageAssignments.map((entry) => entry.projectStage)].filter(
-        (stage) => stage.status === "APPROVED"
+        (stage) => isApprovedStatus(stage.status)
       ).length,
-      rejectedCount: health.activeStages.filter((stage) => stage.status === "REJECTED").length,
+      rejectedCount: health.activeStages.filter((stage) => isRetakeStatus(stage.status)).length,
       delayedCount: health.delayedCount,
       capacityPercent: health.capacityPercent,
       performance: health.performance

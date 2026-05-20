@@ -8,6 +8,7 @@ import Modal from "../components/Modal";
 import ProgressBar from "../components/ProgressBar";
 import { formatDate, formatDateInput, labelize } from "../utils/format";
 import { buildStageWorkspacePath } from "../utils/stageRouting";
+import { isCompleteStatus, isLateStatus, isPendingReviewStatus } from "../utils/constants";
 import { useToastStore } from "../store/toastStore";
 
 const CORE_PIPELINE = [
@@ -288,16 +289,16 @@ function collectStageMetrics(project, overview, node, stageSummaryMap, recordBuc
 
   const total = records.length || fallbackSummary?.total || 0;
   const approved = records.length
-    ? records.filter((record) => record.status === "APPROVED").length
+    ? records.filter((record) => isCompleteStatus(record.status)).length
     : fallbackSummary?.approved || 0;
   const submitted = records.length
-    ? records.filter((record) => record.status === "SUBMITTED").length
+    ? records.filter((record) => isPendingReviewStatus(record.status)).length
     : fallbackSummary?.submitted || 0;
   const inProgress = records.length
-    ? records.filter((record) => record.status === "IN_PROGRESS").length
+    ? records.filter((record) => record.status === "IP").length
     : fallbackSummary?.inProgress || 0;
   const delayedCount = records.length
-    ? records.filter((record) => record.deadline && new Date(record.deadline) < new Date() && record.status !== "APPROVED").length
+    ? records.filter((record) => isLateStatus(record.status, record.deadline)).length
     : fallbackSummary?.delayed || 0;
   const progress = total ? Math.round((approved / total) * 100) : fallbackSummary?.completionPercent || 0;
   const pendingApprovals = submitted;

@@ -1,5 +1,6 @@
 const prisma = require("../utils/prisma");
 const { AppError, asyncHandler } = require("../utils/http");
+const { isApprovedStatus, isLateStatus } = require("../utils/pipelineStatus");
 
 function normalizeOptionalText(value) {
   if (value === undefined) return undefined;
@@ -27,11 +28,9 @@ function normalizeClientPayload(payload) {
 function mapProjectSummary(project) {
   const stages = project.stages || [];
   const totalStages = stages.length;
-  const approvedStages = stages.filter((stage) => stage.status === "APPROVED").length;
-  const hasIssues = stages.some((stage) => stage.status === "ISSUE" || stage.status === "EXTENDED");
-  const isDelayed = stages.some(
-    (stage) => stage.deadline && new Date(stage.deadline) < new Date() && stage.status !== "APPROVED"
-  );
+  const approvedStages = stages.filter((stage) => isApprovedStatus(stage.status)).length;
+  const hasIssues = stages.some((stage) => isLateStatus(stage.status, stage.deadline));
+  const isDelayed = stages.some((stage) => isLateStatus(stage.status, stage.deadline));
 
   return {
     id: project.id,

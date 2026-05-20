@@ -94,14 +94,14 @@ export default function ApprovalsPage() {
     if (!rejecting) return;
     try {
       if (rejecting.resource === "shot") {
-        await api.put(`/shot-stages/${rejecting.id}`, { status: "REJECTED", feedback });
+        await api.put(`/shot-stages/${rejecting.id}`, { status: "RTK", feedback });
       } else if (rejecting.resource === "asset") {
-        await api.put(`/asset-stages/${rejecting.id}`, { status: "REJECTED", feedback });
+        await api.put(`/asset-stages/${rejecting.id}`, { status: "RTK", feedback });
       } else {
         await api.post(`/stages/${rejecting.id}/reject`, { feedback });
       }
       removeRow(rejecting);
-      showToast("success", "Stage rejected");
+      showToast("success", "Stage marked for retake");
       setRejecting(null);
       setFeedback("");
     } catch (error) {

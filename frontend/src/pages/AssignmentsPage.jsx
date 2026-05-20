@@ -4,7 +4,7 @@ import api from "../lib/api";
 import Loader from "../components/Loader";
 import EmptyState from "../components/EmptyState";
 import { formatDate, labelize } from "../utils/format";
-import { STATUS_COLORS } from "../utils/constants";
+import { STATUS_COLORS, getStatusOptionLabel, normalizeStatus } from "../utils/constants";
 import { useToastStore } from "../store/toastStore";
 
 export default function AssignmentsPage() {
@@ -165,8 +165,8 @@ export default function AssignmentsPage() {
                     >
                       <div className="mb-1 flex items-center justify-between gap-3">
                         <p className="text-sm font-semibold text-slate-900">{stage.stageDisplayName}</p>
-                        <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold text-white" style={{ backgroundColor: STATUS_COLORS[stage.status] || "#64748B" }}>
-                          {labelize(stage.status)}
+                        <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold text-white" style={{ backgroundColor: STATUS_COLORS[normalizeStatus(stage.status)] || "#64748B" }}>
+                          {getStatusOptionLabel(stage.status)}
                         </span>
                       </div>
                       <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-600">
