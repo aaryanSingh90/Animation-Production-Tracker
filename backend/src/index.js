@@ -13,7 +13,7 @@ const { verifyToken } = require("./utils/jwt");
 const { initSocket, trackUserSocket, untrackUserSocket } = require("./utils/socket");
 const { errorHandler } = require("./utils/http");
 const { runDeadlineSweep } = require("./utils/deadlines");
-const { requestLogger, errorLogger } = require("./utils/logger");
+const { requestLogger, errorLogger, write } = require("./utils/logger");
 const { ensureUniversalAdmin } = require("./utils/bootstrapAdmin");
 const sanitizeInput = require("./middleware/sanitize");
 
