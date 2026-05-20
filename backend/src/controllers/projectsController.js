@@ -4,6 +4,7 @@ const { STAGE_DEFAULTS, MANAGER_ROLES } = require("../utils/constants");
 const { recalculateProjectProgress } = require("../utils/progress");
 const { logActivity } = require("../utils/activities");
 const { ensureDefaultStageTemplates, resolveLegacyStageNameFromTemplateName } = require("../utils/stageTemplates");
+const { isMissingTrackingSchemaError } = require("../utils/prismaCompat");
 const {
   ensureDefaultStageDefinitions,
   TRACKING_GROUPS,
@@ -282,100 +283,150 @@ const listProjects = asyncHandler(async (req, res) => {
     };
   }
 
-  const projects = await prisma.project.findMany({
-    where,
-    include: {
-      stages: {
-        where: { isActive: true },
-        include: {
-          stageTemplate: true,
-          stageDefinition: true,
-          _count: {
-            select: { comments: true }
-          },
-          assignedUser: {
-            select: { id: true, name: true }
-          },
-          assignments: {
-            include: {
-              user: {
-                select: {
-                  id: true,
-                  name: true,
-                  departmentId: true,
-                  departmentName: true,
-                  department: {
-                    select: { id: true, name: true, color: true }
-                  },
-                  employmentType: true
-                }
-              }
-            }
-          }
-        },
-        orderBy: [{ order: "asc" }, { createdAt: "asc" }]
-      },
-      shots: {
-        include: {
-          stages: {
-            include: {
-              stageDefinition: true,
-              assignedUser: {
-                select: {
-                  id: true,
-                  name: true,
-                  departmentId: true,
-                  departmentName: true,
-                  department: {
-                    select: { id: true, name: true, color: true }
+  let projects;
+
+  try {
+    projects = await prisma.project.findMany({
+      where,
+      include: {
+        stages: {
+          where: { isActive: true },
+          include: {
+            stageTemplate: true,
+            stageDefinition: true,
+            _count: {
+              select: { comments: true }
+            },
+            assignedUser: {
+              select: { id: true, name: true }
+            },
+            assignments: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    departmentId: true,
+                    departmentName: true,
+                    department: {
+                      select: { id: true, name: true, color: true }
+                    },
+                    employmentType: true
                   }
                 }
               }
-            },
-            orderBy: {
-              createdAt: "asc"
             }
-          }
+          },
+          orderBy: [{ order: "asc" }, { createdAt: "asc" }]
         },
-        orderBy: [{ order: "asc" }, { shotNumber: "asc" }]
-      },
-      assets: {
-        include: {
-          stages: {
-            include: {
-              stageDefinition: true,
-              assignedUser: {
-                select: {
-                  id: true,
-                  name: true,
-                  departmentId: true,
-                  departmentName: true,
-                  department: {
-                    select: { id: true, name: true, color: true }
+        shots: {
+          include: {
+            stages: {
+              include: {
+                stageDefinition: true,
+                assignedUser: {
+                  select: {
+                    id: true,
+                    name: true,
+                    departmentId: true,
+                    departmentName: true,
+                    department: {
+                      select: { id: true, name: true, color: true }
+                    }
                   }
                 }
+              },
+              orderBy: {
+                createdAt: "asc"
               }
-            },
-            orderBy: {
-              createdAt: "asc"
             }
+          },
+          orderBy: [{ order: "asc" }, { shotNumber: "asc" }]
+        },
+        assets: {
+          include: {
+            stages: {
+              include: {
+                stageDefinition: true,
+                assignedUser: {
+                  select: {
+                    id: true,
+                    name: true,
+                    departmentId: true,
+                    departmentName: true,
+                    department: {
+                      select: { id: true, name: true, color: true }
+                    }
+                  }
+                }
+              },
+              orderBy: {
+                createdAt: "asc"
+              }
+            }
+          },
+          orderBy: { createdAt: "asc" }
+        },
+        projectCharacters: {
+          include: {
+            character: true
           }
         },
-        orderBy: { createdAt: "asc" }
-      },
-      projectCharacters: {
-        include: {
-          character: true
-        }
-      },
-      _count: {
-        select: {
-          shots: true,
-          assets: true
+        _count: {
+          select: {
+            shots: true,
+            assets: true
+          }
         }
       }
+    });
+  } catch (error) {
+    if (!isMissingTrackingSchemaError(error)) {
+      throw error;
     }
-  });
+
+    const legacyProjects = await prisma.project.findMany({
+      where,
+      include: {
+        stages: {
+          where: { isActive: true },
+          include: {
+            stageTemplate: true,
+            _count: {
+              select: { comments: true }
+            },
+            assignedUser: {
+              select: { id: true, name: true }
+            },
+            assignments: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    departmentId: true,
+                    departmentName: true,
+                    department: {
+                      select: { id: true, name: true, color: true }
+                    },
+                    employmentType: true
+                  }
+                }
+              }
+            }
+          },
+          orderBy: [{ order: "asc" }, { createdAt: "asc" }]
+        },
+        projectCharacters: {
+          include: {
+            character: true
+          }
+        }
+      }
+    });
+
+    projects = legacyProjects.map(withLegacyTrackingDefaults);
+  }
 
   let filtered = projects;
 
@@ -419,6 +470,22 @@ function getNearestDeadline(stages) {
     .map((stage) => new Date(stage.deadline))
     .sort((a, b) => a.getTime() - b.getTime());
   return upcoming[0] || null;
+}
+
+function withLegacyTrackingDefaults(project) {
+  if (!project) return project;
+  const count = project._count || {};
+
+  return {
+    ...project,
+    shots: Array.isArray(project.shots) ? project.shots : [],
+    assets: Array.isArray(project.assets) ? project.assets : [],
+    _count: {
+      ...count,
+      shots: count.shots ?? (Array.isArray(project.shots) ? project.shots.length : 0),
+      assets: count.assets ?? (Array.isArray(project.assets) ? project.assets.length : 0)
+    }
+  };
 }
 
 const createProject = asyncHandler(async (req, res) => {
@@ -556,140 +623,234 @@ const createProject = asyncHandler(async (req, res) => {
 const getProjectById = asyncHandler(async (req, res) => {
   const id = Number(req.params.id);
 
-  const project = await prisma.project.findUnique({
-    where: { id },
-    include: {
-      stages: {
-        where: { isActive: true },
-        include: {
-          stageTemplate: true,
-          stageDefinition: true,
-          _count: {
-            select: { comments: true }
-          },
-          assignedUser: {
-            select: {
-              id: true,
-              name: true,
-              role: true,
-              departmentId: true,
-              departmentName: true,
-              department: {
-                select: { id: true, name: true, color: true }
-              }
-            }
-          },
-          assignments: {
-            include: {
-              user: {
-                select: {
-                  id: true,
-                  name: true,
-                  role: true,
-                  departmentId: true,
-                  departmentName: true,
-                  department: {
-                    select: { id: true, name: true, color: true }
-                  },
-                  employmentType: true
+  let project;
+
+  try {
+    project = await prisma.project.findUnique({
+      where: { id },
+      include: {
+        stages: {
+          where: { isActive: true },
+          include: {
+            stageTemplate: true,
+            stageDefinition: true,
+            _count: {
+              select: { comments: true }
+            },
+            assignedUser: {
+              select: {
+                id: true,
+                name: true,
+                role: true,
+                departmentId: true,
+                departmentName: true,
+                department: {
+                  select: { id: true, name: true, color: true }
                 }
               }
-            }
-          },
-          departmentAssignments: {
-            include: {
-              department: {
-                select: { id: true, name: true, color: true }
-              }
-            }
-          },
-          issueLogs: {
-            include: {
-              loggedBy: {
-                select: { id: true, name: true }
-              }
             },
-            orderBy: { createdAt: "desc" }
-          }
-        },
-        orderBy: [{ order: "asc" }, { createdAt: "asc" }]
-      },
-      shots: {
-        include: {
-          stages: {
-            include: {
-              stageDefinition: true,
-              assignedUser: {
-                select: {
-                  id: true,
-                  name: true,
-                  role: true,
-                  departmentId: true,
-                  departmentName: true,
-                  department: {
-                    select: { id: true, name: true, color: true }
+            assignments: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    role: true,
+                    departmentId: true,
+                    departmentName: true,
+                    department: {
+                      select: { id: true, name: true, color: true }
+                    },
+                    employmentType: true
                   }
                 }
               }
             },
-            orderBy: {
-              createdAt: "asc"
-            }
-          }
-        },
-        orderBy: [{ order: "asc" }, { shotNumber: "asc" }]
-      },
-      assets: {
-        include: {
-          stages: {
-            include: {
-              stageDefinition: true,
-              assignedUser: {
-                select: {
-                  id: true,
-                  name: true,
-                  role: true,
-                  departmentId: true,
-                  departmentName: true,
-                  department: {
-                    select: { id: true, name: true, color: true }
-                  }
+            departmentAssignments: {
+              include: {
+                department: {
+                  select: { id: true, name: true, color: true }
                 }
               }
             },
-            orderBy: {
-              createdAt: "asc"
+            issueLogs: {
+              include: {
+                loggedBy: {
+                  select: { id: true, name: true }
+                }
+              },
+              orderBy: { createdAt: "desc" }
             }
-          }
+          },
+          orderBy: [{ order: "asc" }, { createdAt: "asc" }]
         },
-        orderBy: { createdAt: "asc" }
-      },
-      projectCharacters: {
-        include: {
-          character: {
-            include: {
-              stages: {
-                include: {
-                  assignedUser: {
-                    select: { id: true, name: true }
+        shots: {
+          include: {
+            stages: {
+              include: {
+                stageDefinition: true,
+                assignedUser: {
+                  select: {
+                    id: true,
+                    name: true,
+                    role: true,
+                    departmentId: true,
+                    departmentName: true,
+                    department: {
+                      select: { id: true, name: true, color: true }
+                    }
+                  }
+                }
+              },
+              orderBy: {
+                createdAt: "asc"
+              }
+            }
+          },
+          orderBy: [{ order: "asc" }, { shotNumber: "asc" }]
+        },
+        assets: {
+          include: {
+            stages: {
+              include: {
+                stageDefinition: true,
+                assignedUser: {
+                  select: {
+                    id: true,
+                    name: true,
+                    role: true,
+                    departmentId: true,
+                    departmentName: true,
+                    department: {
+                      select: { id: true, name: true, color: true }
+                    }
+                  }
+                }
+              },
+              orderBy: {
+                createdAt: "asc"
+              }
+            }
+          },
+          orderBy: { createdAt: "asc" }
+        },
+        projectCharacters: {
+          include: {
+            character: {
+              include: {
+                stages: {
+                  include: {
+                    assignedUser: {
+                      select: { id: true, name: true }
+                    }
                   }
                 }
               }
             }
           }
+        },
+        activityLogs: {
+          include: {
+            actor: {
+              select: { id: true, name: true }
+            }
+          },
+          orderBy: { createdAt: "desc" },
+          take: 50
         }
-      },
-      activityLogs: {
-        include: {
-          actor: {
-            select: { id: true, name: true }
+      }
+    });
+  } catch (error) {
+    if (!isMissingTrackingSchemaError(error)) {
+      throw error;
+    }
+
+    const legacyProject = await prisma.project.findUnique({
+      where: { id },
+      include: {
+        stages: {
+          where: { isActive: true },
+          include: {
+            stageTemplate: true,
+            _count: {
+              select: { comments: true }
+            },
+            assignedUser: {
+              select: {
+                id: true,
+                name: true,
+                role: true,
+                departmentId: true,
+                departmentName: true,
+                department: {
+                  select: { id: true, name: true, color: true }
+                }
+              }
+            },
+            assignments: {
+              include: {
+                user: {
+                  select: {
+                    id: true,
+                    name: true,
+                    role: true,
+                    departmentId: true,
+                    departmentName: true,
+                    department: {
+                      select: { id: true, name: true, color: true }
+                    },
+                    employmentType: true
+                  }
+                }
+              }
+            },
+            departmentAssignments: {
+              include: {
+                department: {
+                  select: { id: true, name: true, color: true }
+                }
+              }
+            },
+            issueLogs: {
+              include: {
+                loggedBy: {
+                  select: { id: true, name: true }
+                }
+              },
+              orderBy: { createdAt: "desc" }
+            }
+          },
+          orderBy: [{ order: "asc" }, { createdAt: "asc" }]
+        },
+        projectCharacters: {
+          include: {
+            character: {
+              include: {
+                stages: {
+                  include: {
+                    assignedUser: {
+                      select: { id: true, name: true }
+                    }
+                  }
+                }
+              }
+            }
           }
         },
-        orderBy: { createdAt: "desc" },
-        take: 50
+        activityLogs: {
+          include: {
+            actor: {
+              select: { id: true, name: true }
+            }
+          },
+          orderBy: { createdAt: "desc" },
+          take: 50
+        }
       }
-    }
-  });
+    });
+
+    project = withLegacyTrackingDefaults(legacyProject);
+  }
 
   if (!project) {
     throw new AppError("Project not found", 404);

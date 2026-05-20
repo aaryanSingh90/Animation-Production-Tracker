@@ -1,6 +1,7 @@
 const prisma = require("../utils/prisma");
 const { asyncHandler } = require("../utils/http");
 const { displayStageName } = require("../utils/stageTemplates");
+const { isMissingTrackingSchemaError } = require("../utils/prismaCompat");
 
 function toNormalized(value) {
   return String(value || "").trim().toLowerCase();
@@ -35,15 +36,131 @@ const getApprovalQueue = asyncHandler(async (req, res) => {
   const artistFilter = toNormalized(req.query.artistName);
   const stageFilter = toNormalized(req.query.stageName);
 
-  const [projectStages, shotStages, assetStages] = await Promise.all([
-    prisma.projectStage.findMany({
+  let projectStages = [];
+  let shotStages = [];
+  let assetStages = [];
+
+  try {
+    [projectStages, shotStages, assetStages] = await Promise.all([
+      prisma.projectStage.findMany({
+        where: {
+          status: "SUBMITTED",
+          isActive: true
+        },
+        include: {
+          stageTemplate: true,
+          stageDefinition: true,
+          project: {
+            select: { id: true, name: true, priority: true }
+          },
+          assignedUser: {
+            select: {
+              id: true,
+              name: true,
+              departmentId: true,
+              departmentName: true,
+              department: {
+                select: { id: true, name: true, color: true }
+              }
+            }
+          },
+          assignments: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  departmentId: true,
+                  departmentName: true,
+                  department: {
+                    select: { id: true, name: true, color: true }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }),
+      prisma.shotStage.findMany({
+        where: {
+          status: "SUBMITTED"
+        },
+        include: {
+          stageDefinition: true,
+          assignedUser: {
+            select: {
+              id: true,
+              name: true,
+              departmentId: true,
+              departmentName: true,
+              department: {
+                select: { id: true, name: true, color: true }
+              }
+            }
+          },
+          shot: {
+            select: {
+              id: true,
+              label: true,
+              name: true,
+              shotNumber: true,
+              project: {
+                select: {
+                  id: true,
+                  name: true,
+                  priority: true
+                }
+              }
+            }
+          }
+        }
+      }),
+      prisma.assetStage.findMany({
+        where: {
+          status: "SUBMITTED"
+        },
+        include: {
+          stageDefinition: true,
+          assignedUser: {
+            select: {
+              id: true,
+              name: true,
+              departmentId: true,
+              departmentName: true,
+              department: {
+                select: { id: true, name: true, color: true }
+              }
+            }
+          },
+          asset: {
+            select: {
+              id: true,
+              name: true,
+              type: true,
+              project: {
+                select: {
+                  id: true,
+                  name: true,
+                  priority: true
+                }
+              }
+            }
+          }
+        }
+      })
+    ]);
+  } catch (error) {
+    if (!isMissingTrackingSchemaError(error)) {
+      throw error;
+    }
+
+    projectStages = await prisma.projectStage.findMany({
       where: {
         status: "SUBMITTED",
         isActive: true
       },
       include: {
         stageTemplate: true,
-        stageDefinition: true,
         project: {
           select: { id: true, name: true, priority: true }
         },
@@ -74,75 +191,8 @@ const getApprovalQueue = asyncHandler(async (req, res) => {
           }
         }
       }
-    }),
-    prisma.shotStage.findMany({
-      where: {
-        status: "SUBMITTED"
-      },
-      include: {
-        stageDefinition: true,
-        assignedUser: {
-          select: {
-            id: true,
-            name: true,
-            departmentId: true,
-            departmentName: true,
-            department: {
-              select: { id: true, name: true, color: true }
-            }
-          }
-        },
-        shot: {
-          select: {
-            id: true,
-            label: true,
-            name: true,
-            shotNumber: true,
-            project: {
-              select: {
-                id: true,
-                name: true,
-                priority: true
-              }
-            }
-          }
-        }
-      }
-    }),
-    prisma.assetStage.findMany({
-      where: {
-        status: "SUBMITTED"
-      },
-      include: {
-        stageDefinition: true,
-        assignedUser: {
-          select: {
-            id: true,
-            name: true,
-            departmentId: true,
-            departmentName: true,
-            department: {
-              select: { id: true, name: true, color: true }
-            }
-          }
-        },
-        asset: {
-          select: {
-            id: true,
-            name: true,
-            type: true,
-            project: {
-              select: {
-                id: true,
-                name: true,
-                priority: true
-              }
-            }
-          }
-        }
-      }
-    })
-  ]);
+    });
+  }
 
   const queueRows = [
     ...projectStages.map((stage) => {
