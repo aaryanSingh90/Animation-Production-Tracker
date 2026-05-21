@@ -1,38 +1,28 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  ArrowDown,
-  ArrowUp,
   CheckSquare,
   ChevronDown,
   ChevronUp,
-  CircleAlert,
-  Clock3,
   Copy,
-  Filter,
+  Pencil,
   Plus,
   Search,
   Square,
   Trash2,
-  Volume2
+  Volume2,
+  X
 } from "lucide-react";
 import api from "../lib/api";
 import Loader from "./Loader";
 import Modal from "./Modal";
-import FlexibleAssignmentField from "./FlexibleAssignmentField";
-import useEmployeeAvailabilitySummaries from "../hooks/useEmployeeAvailabilitySummaries";
 import { EmployeeAvailabilityHoverCard } from "./EmployeeAvailabilityHoverCard";
-import {
-  STAGE_STATUSES,
-  getStatusMeta,
-  getStatusOptionLabel,
-  isCompleteStatus,
-  isLateStatus
-} from "../utils/constants";
+import useEmployeeAvailabilitySummaries from "../hooks/useEmployeeAvailabilitySummaries";
+import { getStatusMeta, getStatusOptionLabel, STAGE_STATUSES } from "../utils/constants";
 import {
   formatDate,
   formatDateInput,
-  formatDurationMinutes,
+  formatRelative,
   getDepartmentLabel,
   initials,
   todayDateInput
@@ -42,56 +32,54 @@ import {
   countUsersByDepartment,
   filterUsersByDepartment,
   getLeadAssignment,
-  normalizeAssignmentList
+  normalizeAssignmentList,
+  sortUsersBySmartAvailability
 } from "../utils/assignments";
+import { formatEmployeeAvailabilityLabel } from "../utils/employeeAvailability";
 import { isDepartmentMatch } from "../utils/stageDepartmentMap";
 
-const DEFAULT_FORM = () => ({
-  name: "",
-  assignments: [],
-  status: "YTS",
-  startDate: todayDateInput(),
-  endDate: "",
-  notes: ""
-});
+const DEFAULT_STATUS = "YTS";
 
-function sortAudioRows(rows, sortBy, sortDir) {
-  const direction = sortDir === "asc" ? 1 : -1;
-  return [...rows].sort((a, b) => {
-    const getDateValue = (value) => (value ? new Date(value).getTime() : 0);
-
-    if (sortBy === "name") return String(a.name || "").localeCompare(String(b.name || "")) * direction;
-    if (sortBy === "status") return String(a.status || "").localeCompare(String(b.status || "")) * direction;
-    if (sortBy === "startDate") return (getDateValue(a.startDate) - getDateValue(b.startDate)) * direction;
-    if (sortBy === "endDate") return (getDateValue(a.endDate) - getDateValue(b.endDate)) * direction;
-    if (sortBy === "duration") return ((getAudioDurationMinutes(a) || 0) - (getAudioDurationMinutes(b) || 0)) * direction;
-    if (sortBy === "latest") return (getDateValue(a.createdAt) - getDateValue(b.createdAt)) * direction;
-
-    const orderDelta = Number(a.order || 0) - Number(b.order || 0);
-    if (orderDelta !== 0) return orderDelta;
-    return String(a.name || "").localeCompare(String(b.name || ""));
-  });
+function buildAssignment(user, roleType = "LEAD") {
+  return {
+    employeeId: Number(user.id),
+    roleType,
+    departmentId: user.departmentId || null,
+    employee: user,
+    department: user.department || user.departmentInfo || null
+  };
 }
 
-function getAudioAssignments(item) {
-  return item?.taskAssignments?.length ? item.taskAssignments : normalizeAssignmentList(item);
-}
-
-function getAudioAssignedUsers(item, users) {
-  const usersById = new Map((users || []).map((user) => [user.id, user]));
-  return getAudioAssignments(item)
-    .map((assignment) => assignment.employee || usersById.get(Number(assignment.employeeId)) || null)
+function normalizeWithUsers(source, usersById) {
+  return normalizeAssignmentList(source)
+    .map((assignment) => {
+      const employeeId = Number(assignment.employeeId || assignment.employee?.id || 0);
+      const employee = assignment.employee || usersById.get(employeeId) || null;
+      if (!employeeId || !employee) return null;
+      return {
+        ...assignment,
+        employeeId,
+        employee,
+        departmentId: assignment.departmentId || employee.departmentId || null,
+        department: assignment.department || employee.department || employee.departmentInfo || null,
+        roleType: assignment.roleType === "SUPPORT" ? "SUPPORT" : "LEAD"
+      };
+    })
     .filter(Boolean);
 }
 
-function getAudioDurationMinutes(item, now = Date.now()) {
-  const start = item?.startDate ? new Date(item.startDate) : null;
-  if (!start || Number.isNaN(start.getTime())) return null;
-
-  const endValue = item?.endDate ? new Date(item.endDate) : new Date(now);
-  if (Number.isNaN(endValue.getTime())) return null;
-
-  return Math.max(0, Math.round((endValue.getTime() - start.getTime()) / 60000));
+function createQuickForm({ department = "", defaultAssignment = null } = {}) {
+  return {
+    name: "",
+    status: DEFAULT_STATUS,
+    startDate: todayDateInput(),
+    endDate: "",
+    notes: "",
+    assignments: defaultAssignment ? [defaultAssignment] : [],
+    department,
+    artistSearch: "",
+    candidateId: ""
+  };
 }
 
 function formatCompactDate(value) {
@@ -104,54 +92,96 @@ function formatCompactDate(value) {
   }).format(date);
 }
 
-function getDurationBadgeClasses(minutes) {
-  const value = Number(minutes || 0);
-  if (!value) return "border-slate-200 bg-slate-50 text-slate-500";
-  if (value < 60) return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (value < 480) return "border-sky-200 bg-sky-50 text-sky-700";
-  if (value < 1440) return "border-amber-200 bg-amber-50 text-amber-700";
-  return "border-rose-200 bg-rose-50 text-rose-700";
+function sortAudioRows(rows, sortBy, sortDir) {
+  const direction = sortDir === "asc" ? 1 : -1;
+
+  return [...rows].sort((left, right) => {
+    const getDateValue = (value) => (value ? new Date(value).getTime() : 0);
+
+    if (sortBy === "name") return String(left.name || "").localeCompare(String(right.name || "")) * direction;
+    if (sortBy === "status") return String(left.status || "").localeCompare(String(right.status || "")) * direction;
+    if (sortBy === "startDate") return (getDateValue(left.startDate) - getDateValue(right.startDate)) * direction;
+    if (sortBy === "endDate") return (getDateValue(left.endDate) - getDateValue(right.endDate)) * direction;
+    if (sortBy === "latest") return (getDateValue(left.createdAt) - getDateValue(right.createdAt)) * direction;
+
+    const orderDelta = Number(left.order || 0) - Number(right.order || 0);
+    if (orderDelta !== 0) return orderDelta;
+
+    return String(left.name || "").localeCompare(String(right.name || ""));
+  });
 }
 
-function validateAudioDraft(values) {
-  const next = {
+function getAudioAssignments(item) {
+  return item?.taskAssignments?.length ? item.taskAssignments : normalizeAssignmentList(item);
+}
+
+function getAudioAssignedUsers(item, usersById) {
+  return getAudioAssignments(item)
+    .map((assignment) => assignment.employee || usersById.get(Number(assignment.employeeId || assignment.employee?.id)) || null)
+    .filter(Boolean);
+}
+
+function validateAudioDraft(values, usersById) {
+  const normalizedAssignments = normalizeWithUsers(values.assignments, usersById);
+
+  const normalized = {
     name: String(values.name || "").trim(),
-    assignments: normalizeAssignmentList(values.assignments),
-    status: values.status || "",
+    assignments: normalizedAssignments,
+    status: values.status || DEFAULT_STATUS,
     startDate: values.startDate || todayDateInput(),
     endDate: values.endDate || "",
     notes: values.notes || ""
   };
 
   const errors = {};
-  if (!next.name) errors.name = "Task name is required.";
-  if (!next.assignments.length) errors.assignments = "Assign at least one artist.";
-  if (!next.status) errors.status = "Status is required.";
-  if (!next.startDate) errors.startDate = "Start date is required.";
-  return { normalized: next, errors };
+  if (!normalized.name) errors.name = "Name is required";
+  if (!normalized.assignments.length) errors.assignments = "Artist is required";
+  if (!normalized.status) errors.status = "Status is required";
+  if (!normalized.startDate) errors.startDate = "Start date is required";
+
+  return { normalized, errors };
+}
+
+function resolveDefaultDepartment(activeUsers, recommendedDepartment) {
+  if (recommendedDepartment && countUsersByDepartment(activeUsers, recommendedDepartment) > 0) {
+    return recommendedDepartment;
+  }
+
+  const audioLikeDepartment = buildDepartmentOptions(activeUsers, recommendedDepartment).find((department) =>
+    isDepartmentMatch("Audio Department", department)
+  );
+
+  if (audioLikeDepartment) return audioLikeDepartment;
+
+  return buildDepartmentOptions(activeUsers, recommendedDepartment)[0] || "";
+}
+
+function pickSuggestedUser(activeUsers, summariesByUserId, department, recommendedDepartment) {
+  const scoped = filterUsersByDepartment(activeUsers, department);
+  const candidatePool = scoped.length ? scoped : activeUsers;
+  return sortUsersBySmartAvailability(
+    candidatePool,
+    summariesByUserId,
+    department || recommendedDepartment || ""
+  )[0] || null;
 }
 
 function InlineError({ children }) {
   if (!children) return null;
-  return <p className="mt-1 text-xs font-medium text-rose-600">{children}</p>;
-}
-
-function MetricCard({ label, value, hint, tone = "text-slate-950" }) {
-  return (
-    <div className="rounded-3xl border border-slate-200/80 bg-white/85 px-4 py-3 shadow-sm shadow-slate-200/35 backdrop-blur">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</p>
-      <p className={`mt-1 text-2xl font-semibold tracking-tight ${tone}`}>{value}</p>
-      <p className="mt-1 text-xs text-slate-500">{hint}</p>
-    </div>
-  );
+  return <p className="mt-1 text-[11px] font-semibold text-rose-600">{children}</p>;
 }
 
 function CompactStatusPill({ status }) {
   const meta = getStatusMeta(status);
+
   return (
     <span
-      className="inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-bold tracking-[0.12em] shadow-sm"
-      style={{ backgroundColor: meta.background, color: meta.text, borderColor: meta.border }}
+      className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold tracking-[0.14em]"
+      style={{
+        backgroundColor: meta.background,
+        borderColor: meta.border,
+        color: meta.text
+      }}
       title={getStatusOptionLabel(status)}
     >
       {meta.shortKey}
@@ -159,55 +189,221 @@ function CompactStatusPill({ status }) {
   );
 }
 
-function SummaryArtistChip({ artist }) {
-  const isFreelance = artist.employmentType === "FREELANCE";
-  const summariesByUserId = useEmployeeAvailabilitySummaries([artist]);
+function ArtistChip({ artist, summary, removable = false, onRemove }) {
   return (
-    <EmployeeAvailabilityHoverCard user={artist} summary={summariesByUserId[Number(artist.id)]} roleLabel="Assigned Artist" className="block">
-      <span
-        className={`inline-flex max-w-full items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
-          isFreelance
-            ? "border-sky-200 bg-sky-50 text-sky-700"
-            : "border-emerald-200 bg-emerald-50 text-emerald-700"
-        }`}
-      >
-        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-900 text-[10px] font-bold text-white">
+    <EmployeeAvailabilityHoverCard user={artist} summary={summary} roleLabel="Assigned Artist" className="block">
+      <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700">
+        <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-slate-900 text-[9px] font-bold text-white">
           {initials(artist.name)}
         </span>
         <span className="truncate">{artist.name}</span>
+        {removable ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onRemove?.(artist);
+            }}
+            className="rounded-full p-0.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+            aria-label={`Remove ${artist.name}`}
+          >
+            <X className="h-3 w-3" />
+          </button>
+        ) : null}
       </span>
     </EmployeeAvailabilityHoverCard>
   );
 }
 
-function DetailSection({ title, description, children }) {
+function CompactArtistPicker({
+  users,
+  summariesByUserId,
+  recommendedDepartment,
+  assignments,
+  onChange,
+  disabled = false,
+  allowMultiple = false,
+  compact = false
+}) {
+  const usersById = useMemo(() => new Map((users || []).map((user) => [Number(user.id), user])), [users]);
+  const normalizedAssignments = useMemo(() => normalizeWithUsers(assignments, usersById), [assignments, usersById]);
+  const departmentOptions = useMemo(
+    () => buildDepartmentOptions(users, recommendedDepartment),
+    [users, recommendedDepartment]
+  );
+
+  const suggestedDepartment = useMemo(() => {
+    const assignedDepartment = normalizedAssignments[0]?.employee ? getDepartmentLabel(normalizedAssignments[0].employee) : "";
+    if (assignedDepartment) return assignedDepartment;
+
+    if (recommendedDepartment && countUsersByDepartment(users, recommendedDepartment) > 0) {
+      return recommendedDepartment;
+    }
+
+    return departmentOptions[0] || "";
+  }, [departmentOptions, normalizedAssignments, recommendedDepartment, users]);
+
+  const [department, setDepartment] = useState(suggestedDepartment);
+  const [search, setSearch] = useState("");
+  const [candidateId, setCandidateId] = useState("");
+
+  useEffect(() => {
+    if (!department && suggestedDepartment) {
+      setDepartment(suggestedDepartment);
+    }
+  }, [department, suggestedDepartment]);
+
+  const filteredUsers = useMemo(() => {
+    const scoped = filterUsersByDepartment(users, department);
+    const query = search.trim().toLowerCase();
+
+    const searched = query
+      ? scoped.filter((user) => {
+          const haystack = [user.name, user.email, getDepartmentLabel(user), user.role]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          return haystack.includes(query);
+        })
+      : scoped;
+
+    return sortUsersBySmartAvailability(searched, summariesByUserId, department || recommendedDepartment || "");
+  }, [department, recommendedDepartment, search, summariesByUserId, users]);
+
+  function commit(nextAssignments) {
+    const normalized = normalizeWithUsers(nextAssignments, usersById);
+    const withLead = normalized.map((assignment, index) => ({
+      ...assignment,
+      roleType: index === 0 ? "LEAD" : "SUPPORT"
+    }));
+
+    onChange?.(withLead);
+  }
+
+  function assignCandidate() {
+    const user = usersById.get(Number(candidateId));
+    if (!user) return;
+
+    if (!allowMultiple) {
+      commit([buildAssignment(user, "LEAD")]);
+      setCandidateId("");
+      return;
+    }
+
+    const exists = normalizedAssignments.some((assignment) => Number(assignment.employeeId) === Number(user.id));
+    if (exists) {
+      setCandidateId("");
+      return;
+    }
+
+    commit([...normalizedAssignments, buildAssignment(user, normalizedAssignments.length ? "SUPPORT" : "LEAD")]);
+    setCandidateId("");
+  }
+
+  function removeAssignedArtist(artist) {
+    commit(normalizedAssignments.filter((assignment) => Number(assignment.employeeId) !== Number(artist.id)));
+  }
+
   return (
-    <section className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3">
-      <div className="mb-3">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{title}</p>
-        {description ? <p className="mt-1 text-xs text-slate-500">{description}</p> : null}
+    <div className="space-y-2">
+      <div className={`grid gap-2 ${compact ? "md:grid-cols-[130px_minmax(0,1fr)_minmax(0,1.35fr)_84px]" : "md:grid-cols-[160px_minmax(0,1fr)_minmax(0,1.5fr)_96px]"}`}>
+        <select
+          value={department}
+          onChange={(event) => {
+            setDepartment(event.target.value);
+            setCandidateId("");
+          }}
+          className={`rounded-lg border border-slate-300 bg-white ${compact ? "px-2.5 py-1.5 text-xs" : "px-3 py-2 text-sm"}`}
+          disabled={disabled}
+        >
+          <option value="">All departments</option>
+          {departmentOptions.map((option) => (
+            <option key={option} value={option}>
+              {option}{option === recommendedDepartment ? " • Suggested" : ""}
+            </option>
+          ))}
+        </select>
+
+        <label className="relative block">
+          <Search className={`pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 ${compact ? "h-3.5 w-3.5" : "h-4 w-4"}`} />
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search artist"
+            className={`w-full rounded-lg border border-slate-300 pl-8 pr-2.5 ${compact ? "py-1.5 text-xs" : "py-2 text-sm"}`}
+            disabled={disabled}
+          />
+        </label>
+
+        <select
+          value={candidateId}
+          onChange={(event) => setCandidateId(event.target.value)}
+          className={`rounded-lg border border-slate-300 bg-white ${compact ? "px-2.5 py-1.5 text-xs" : "px-3 py-2 text-sm"}`}
+          disabled={disabled || !filteredUsers.length}
+        >
+          <option value="">Select artist</option>
+          {filteredUsers.map((artist) => {
+            const summary = summariesByUserId[Number(artist.id)];
+            const status = formatEmployeeAvailabilityLabel(summary?.liveStatus || artist.availabilityStatus || "AVAILABLE");
+            const active = summary?.activeTasks ?? 0;
+            const workload = summary?.workloadPercent ?? 0;
+
+            return (
+              <option key={artist.id} value={artist.id}>
+                {artist.name} · {status} · {active} active · {workload}%
+              </option>
+            );
+          })}
+        </select>
+
+        <button
+          type="button"
+          onClick={assignCandidate}
+          disabled={disabled || !candidateId}
+          className={`inline-flex items-center justify-center rounded-lg border border-slate-300 font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 ${compact ? "px-2.5 py-1.5 text-xs" : "px-3 py-2 text-sm"}`}
+        >
+          Assign
+        </button>
       </div>
-      {children}
-    </section>
+
+      <div className="flex min-h-8 flex-wrap items-center gap-1.5">
+        {normalizedAssignments.length ? (
+          normalizedAssignments.map((assignment) => {
+            const artist = assignment.employee;
+            if (!artist) return null;
+            return (
+              <ArtistChip
+                key={assignment.employeeId}
+                artist={artist}
+                summary={summariesByUserId[Number(assignment.employeeId)]}
+                removable={!disabled}
+                onRemove={removeAssignedArtist}
+              />
+            );
+          })
+        ) : (
+          <span className="text-[11px] text-slate-500">No artist selected</span>
+        )}
+      </div>
+    </div>
   );
 }
 
 function AudioTaskRow({
   item,
   users,
+  usersById,
+  summariesByUserId,
   recommendedDepartment,
   selected,
-  disabled,
   expanded,
-  onToggleExpand,
+  disabled,
   onToggleSelect,
+  onToggleExpand,
   onUpdate,
-  onMove,
   onDuplicate,
-  onDelete,
-  canMoveUp,
-  canMoveDown,
-  nowTick
+  onDelete
 }) {
   const [nameDraft, setNameDraft] = useState(item.name || "");
   const [notesDraft, setNotesDraft] = useState(item.notes || "");
@@ -220,16 +416,90 @@ function AudioTaskRow({
     setNotesDraft(item.notes || "");
   }, [item.id, item.notes]);
 
-  const assignedArtists = useMemo(() => getAudioAssignedUsers(item, users), [item, users]);
-  const durationMinutes = useMemo(() => getAudioDurationMinutes(item, nowTick), [item, nowTick]);
-  const durationLabel = durationMinutes ? formatDurationMinutes(durationMinutes) : "Waiting";
-  const notesPreview = String(item.notes || "").trim();
+  const assignedArtists = useMemo(() => getAudioAssignedUsers(item, usersById), [item, usersById]);
+  const leadArtist = assignedArtists[0] || null;
 
   return (
-    <article className="rounded-3xl border border-slate-200 bg-white shadow-sm transition hover:border-slate-300">
-      <div className="space-y-3 px-4 py-4">
-        <div className="flex flex-wrap items-start gap-3">
-          <label className="mt-1 inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+    <article className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition hover:border-slate-300">
+      <div className="hidden items-center gap-2 border-b border-slate-100 px-3 py-2 lg:grid lg:grid-cols-[32px_minmax(220px,1.85fr)_130px_minmax(180px,1.2fr)_120px_120px_180px]">
+        <label className="inline-flex justify-center">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={() => onToggleSelect(item.id)}
+            className="h-4 w-4 rounded border-slate-300"
+          />
+        </label>
+
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-slate-950">{item.name}</p>
+          <p className="mt-0.5 text-[11px] text-slate-500">Updated {formatRelative(item.updatedAt) || "just now"}</p>
+        </div>
+
+        <div>
+          <CompactStatusPill status={item.status} />
+        </div>
+
+        <div className="min-w-0">
+          {leadArtist ? (
+            <div className="flex min-w-0 items-center gap-1.5">
+              <ArtistChip artist={leadArtist} summary={summariesByUserId[Number(leadArtist.id)]} />
+              {assignedArtists.length > 1 ? (
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                  +{assignedArtists.length - 1}
+                </span>
+              ) : null}
+            </div>
+          ) : (
+            <span className="text-xs text-slate-500">Unassigned</span>
+          )}
+        </div>
+
+        <p className="text-xs font-semibold text-slate-700">{formatCompactDate(item.startDate)}</p>
+        <p className="text-xs font-semibold text-slate-700">{formatCompactDate(item.endDate)}</p>
+
+        <div className="flex justify-end gap-1">
+          <button
+            type="button"
+            onClick={() => onToggleExpand(item.id)}
+            className="rounded-lg border border-slate-300 p-1.5 text-slate-600 transition hover:bg-slate-50"
+            title="Edit"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => onDuplicate(item)}
+            disabled={disabled}
+            className="rounded-lg border border-slate-300 p-1.5 text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+            title="Duplicate"
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => onDelete(item)}
+            disabled={disabled}
+            className="rounded-lg border border-rose-200 p-1.5 text-rose-600 transition hover:bg-rose-50 disabled:opacity-50"
+            title="Delete"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => onToggleExpand(item.id)}
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-700 transition hover:bg-slate-50"
+            title={expanded ? "Collapse" : "Expand"}
+          >
+            {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            {expanded ? "Hide" : "More"}
+          </button>
+        </div>
+      </div>
+
+      <div className="space-y-2 px-3 py-2 lg:hidden">
+        <div className="flex items-start gap-2">
+          <label className="pt-1">
             <input
               type="checkbox"
               checked={selected}
@@ -238,289 +508,82 @@ function AudioTaskRow({
             />
           </label>
 
-          <div className="min-w-0 flex-1 space-y-3">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h4 className="truncate text-base font-semibold text-slate-950">{item.name}</h4>
-                  <CompactStatusPill status={item.status} />
-                  {isLateStatus(item.status, item.endDate) ? (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700">
-                      <CircleAlert className="h-3.5 w-3.5" /> Delayed
-                    </span>
-                  ) : null}
-                </div>
-                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                  <span>Audio task</span>
-                  <span>•</span>
-                  <span>Created {formatCompactDate(item.createdAt)}</span>
-                  <span>•</span>
-                  <span>Updated {formatCompactDate(item.updatedAt)}</span>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => onMove(item.id, -1)}
-                  disabled={disabled || !canMoveUp}
-                  className="rounded-xl border border-slate-300 p-2 text-slate-600 transition hover:bg-slate-50 disabled:opacity-40"
-                  title="Move up"
-                >
-                  <ArrowUp className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onMove(item.id, 1)}
-                  disabled={disabled || !canMoveDown}
-                  className="rounded-xl border border-slate-300 p-2 text-slate-600 transition hover:bg-slate-50 disabled:opacity-40"
-                  title="Move down"
-                >
-                  <ArrowDown className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onDuplicate(item)}
-                  disabled={disabled}
-                  className="rounded-xl border border-slate-300 p-2 text-slate-600 transition hover:bg-slate-50 disabled:opacity-40"
-                  title="Duplicate"
-                >
-                  <Copy className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onDelete(item)}
-                  disabled={disabled}
-                  className="rounded-xl border border-rose-200 p-2 text-rose-600 transition hover:bg-rose-50 disabled:opacity-40"
-                  title="Delete"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onToggleExpand(item.id)}
-                  className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-700 transition hover:bg-slate-50"
-                >
-                  {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                  {expanded ? "Collapse" : "Expand"}
-                </button>
-              </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-slate-950">{item.name}</p>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <CompactStatusPill status={item.status} />
+              <span className="text-[11px] font-semibold text-slate-700">{formatCompactDate(item.startDate)} → {formatCompactDate(item.endDate)}</span>
             </div>
-
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.6fr)_150px_150px_150px_150px]">
-              <div className="min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Assigned Artists</p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {assignedArtists.length ? (
-                    <>
-                      {assignedArtists.slice(0, 3).map((artist) => (
-                        <SummaryArtistChip key={artist.id} artist={artist} />
-                      ))}
-                      {assignedArtists.length > 3 ? (
-                        <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600">
-                          +{assignedArtists.length - 3} more
-                        </span>
-                      ) : null}
-                    </>
-                  ) : (
-                    <span className="text-sm text-slate-500">Unassigned</span>
-                  )}
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Start Date</p>
-                <p className="mt-2 text-sm font-semibold text-slate-900">{formatCompactDate(item.startDate)}</p>
-              </div>
-
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">End Date</p>
-                <p className="mt-2 text-sm font-semibold text-slate-900">{formatCompactDate(item.endDate)}</p>
-              </div>
-
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Time Consumption</p>
-                <span className={`mt-2 inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-semibold ${getDurationBadgeClasses(durationMinutes)}`}>
-                  <Clock3 className="h-3.5 w-3.5" />
-                  {durationLabel}
-                </span>
-              </div>
-
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Quick Notes</p>
-                <p className="mt-2 line-clamp-2 text-sm text-slate-600">{notesPreview || "No notes yet"}</p>
-              </div>
+            <div className="mt-1 min-w-0">
+              {leadArtist ? (
+                <ArtistChip artist={leadArtist} summary={summariesByUserId[Number(leadArtist.id)]} />
+              ) : (
+                <span className="text-[11px] text-slate-500">Unassigned</span>
+              )}
             </div>
+          </div>
+
+          <div className="flex gap-1">
+            <button
+              type="button"
+              onClick={() => onDuplicate(item)}
+              disabled={disabled}
+              className="rounded-lg border border-slate-300 p-1.5 text-slate-600"
+              title="Duplicate"
+            >
+              <Copy className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onDelete(item)}
+              disabled={disabled}
+              className="rounded-lg border border-rose-200 p-1.5 text-rose-600"
+              title="Delete"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onToggleExpand(item.id)}
+              className="rounded-lg border border-slate-300 p-1.5 text-slate-600"
+              title={expanded ? "Collapse" : "Expand"}
+            >
+              {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </button>
           </div>
         </div>
       </div>
 
-      {expanded ? (
-        <div className="border-t border-slate-200 bg-slate-50/60 px-4 py-4">
-          <div className="grid gap-3 xl:grid-cols-[1.1fr_1.25fr]">
-            <DetailSection title="Task Setup" description="Required production controls stay compact and editable.">
-              <div className="grid gap-3 md:grid-cols-2">
-                <label className="space-y-1.5">
-                  <span className="text-xs font-semibold text-slate-700">Task Name</span>
-                  <input
-                    value={nameDraft}
-                    onChange={(event) => setNameDraft(event.target.value)}
-                    onBlur={() => {
-                      const trimmed = nameDraft.trim();
-                      if (!trimmed) {
-                        setNameDraft(item.name || "");
-                        return;
-                      }
-                      if (trimmed !== item.name) {
-                        onUpdate(item.id, { name: trimmed }, { name: trimmed });
-                      }
-                    }}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                    disabled={disabled}
-                  />
-                </label>
-                <label className="space-y-1.5">
-                  <span className="text-xs font-semibold text-slate-700">Status</span>
-                  <select
-                    value={item.status}
-                    onChange={(event) => onUpdate(item.id, { status: event.target.value }, { status: event.target.value })}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                    disabled={disabled}
-                  >
-                    {STAGE_STATUSES.map((status) => (
-                      <option key={status} value={status}>
-                        {getStatusOptionLabel(status)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="space-y-1.5">
-                  <span className="text-xs font-semibold text-slate-700">Start Date</span>
-                  <input
-                    type="date"
-                    value={formatDateInput(item.startDate) || todayDateInput()}
-                    onChange={(event) => {
-                      const nextStartDate = event.target.value || todayDateInput();
-                      onUpdate(item.id, { startDate: nextStartDate }, { startDate: nextStartDate });
-                    }}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                    disabled={disabled}
-                  />
-                </label>
-                <label className="space-y-1.5">
-                  <span className="text-xs font-semibold text-slate-700">End Date</span>
-                  <input
-                    type="date"
-                    value={formatDateInput(item.endDate)}
-                    onChange={(event) => onUpdate(item.id, { endDate: event.target.value || null }, { endDate: event.target.value || null })}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                    disabled={disabled}
-                  />
-                </label>
-              </div>
-            </DetailSection>
-
-            <DetailSection title="Assignment" description="Recommended department first, with manual override always available.">
-              <FlexibleAssignmentField
-                users={users}
-                recommendedDepartment={recommendedDepartment}
-                assignments={getAudioAssignments(item)}
-                onChange={(assignments) => {
-                  const lead = getLeadAssignment(assignments);
-                  onUpdate(
-                    item.id,
-                    { assignments, assignedUserId: lead?.employeeId || null },
-                    {
-                      taskAssignments: assignments.map((assignment) => ({
-                        ...assignment,
-                        employee: users.find((user) => user.id === assignment.employeeId) || assignment.employee || null
-                      })),
-                      assignedUser: lead?.employee || users.find((user) => user.id === lead?.employeeId) || null
-                    }
-                  );
-                }}
-                disabled={disabled}
-              />
-            </DetailSection>
-          </div>
-
-          <div className="mt-3 grid gap-3 xl:grid-cols-[1.4fr_0.9fr]">
-            <DetailSection title="Notes" description="Optional context that can be filled now or later.">
-              <textarea
-                value={notesDraft}
-                onChange={(event) => setNotesDraft(event.target.value)}
+      <div className={`overflow-hidden transition-all duration-300 ${expanded ? "max-h-[1100px] opacity-100" : "max-h-0 opacity-0"}`}>
+        <div className="space-y-3 border-t border-slate-200 bg-slate-50/80 px-3 py-3">
+          <div className="grid gap-2 lg:grid-cols-[minmax(0,1.5fr)_160px_160px_160px]">
+            <label className="space-y-1">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Name</span>
+              <input
+                value={nameDraft}
+                onChange={(event) => setNameDraft(event.target.value)}
                 onBlur={() => {
-                  if ((item.notes || "") !== notesDraft) {
-                    onUpdate(item.id, { notes: notesDraft || null }, { notes: notesDraft || null });
+                  const trimmed = String(nameDraft || "").trim();
+                  if (!trimmed) {
+                    setNameDraft(item.name || "");
+                    return;
+                  }
+                  if (trimmed !== item.name) {
+                    onUpdate(item.id, { name: trimmed }, { name: trimmed });
                   }
                 }}
-                rows={4}
-                placeholder="Voice notes, approval context, review reminders, or handoff instructions"
-                className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+                className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm"
                 disabled={disabled}
               />
-            </DetailSection>
-
-            <DetailSection title="Workflow Snapshot" description="Compact audit visibility without leaving the row.">
-              <div className="space-y-2 text-sm text-slate-600">
-                <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2">
-                  <span className="text-slate-500">Created</span>
-                  <span className="font-semibold text-slate-900">{formatDate(item.createdAt)}</span>
-                </div>
-                <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2">
-                  <span className="text-slate-500">Last Updated</span>
-                  <span className="font-semibold text-slate-900">{formatDate(item.updatedAt)}</span>
-                </div>
-                <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2">
-                  <span className="text-slate-500">Lead Artist</span>
-                  <span className="font-semibold text-slate-900">{assignedArtists[0]?.name || "Unassigned"}</span>
-                </div>
-                <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2">
-                  <span className="text-slate-500">Time</span>
-                  <span className="font-semibold text-slate-900">{durationLabel}</span>
-                </div>
-              </div>
-            </DetailSection>
-          </div>
-        </div>
-      ) : null}
-    </article>
-  );
-}
-
-function AudioTaskModal({
-  open,
-  onClose,
-  title,
-  values,
-  errors,
-  users,
-  recommendedDepartment,
-  busy,
-  onChange,
-  onSubmit
-}) {
-  return (
-    <Modal open={open} onClose={onClose} title={title} size="max-w-3xl">
-      <div className="space-y-5">
-        <DetailSection title="Section 1" description="Name, status, and the production basics required to open a task.">
-          <div className="grid gap-3 md:grid-cols-2">
-            <label className="space-y-1.5">
-              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Task Name</span>
-              <input
-                value={values.name}
-                onChange={(event) => onChange("name", event.target.value)}
-                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
-                placeholder="Episode 1 dubbing handoff"
-              />
-              <InlineError>{errors.name}</InlineError>
             </label>
-            <label className="space-y-1.5">
-              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Status</span>
+
+            <label className="space-y-1">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Status</span>
               <select
-                value={values.status}
-                onChange={(event) => onChange("status", event.target.value)}
-                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                value={item.status}
+                onChange={(event) => onUpdate(item.id, { status: event.target.value }, { status: event.target.value })}
+                className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm"
+                disabled={disabled}
               >
                 {STAGE_STATUSES.map((status) => (
                   <option key={status} value={status}>
@@ -528,142 +591,177 @@ function AudioTaskModal({
                   </option>
                 ))}
               </select>
-              <InlineError>{errors.status}</InlineError>
             </label>
-          </div>
-        </DetailSection>
 
-        <DetailSection title="Section 2" description="Recommended department comes first, but managers can override any time.">
-          <FlexibleAssignmentField
-            users={users}
-            recommendedDepartment={recommendedDepartment}
-            assignments={values.assignments}
-            onChange={(assignments) => onChange("assignments", assignments)}
-            disabled={busy}
-          />
-          <InlineError>{errors.assignments}</InlineError>
-        </DetailSection>
-
-        <DetailSection title="Section 3" description="Start date defaults to today so the task is immediately trackable.">
-          <div className="grid gap-3 md:grid-cols-2">
-            <label className="space-y-1.5">
-              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Start Date</span>
+            <label className="space-y-1">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Start</span>
               <input
                 type="date"
-                value={values.startDate}
-                onChange={(event) => onChange("startDate", event.target.value || todayDateInput())}
-                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                value={formatDateInput(item.startDate) || todayDateInput()}
+                onChange={(event) => {
+                  const nextStartDate = event.target.value || todayDateInput();
+                  onUpdate(item.id, { startDate: nextStartDate }, { startDate: nextStartDate });
+                }}
+                className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm"
+                disabled={disabled}
               />
-              <InlineError>{errors.startDate}</InlineError>
             </label>
-            <label className="space-y-1.5">
-              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">End Date</span>
+
+            <label className="space-y-1">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">End</span>
               <input
                 type="date"
-                value={values.endDate}
-                onChange={(event) => onChange("endDate", event.target.value)}
-                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                value={formatDateInput(item.endDate)}
+                onChange={(event) => onUpdate(item.id, { endDate: event.target.value || null }, { endDate: event.target.value || null })}
+                className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm"
+                disabled={disabled}
               />
             </label>
           </div>
-        </DetailSection>
 
-        <DetailSection title="Section 4" description="Notes are optional and can be added later without blocking production.">
-          <textarea
-            value={values.notes}
-            onChange={(event) => onChange("notes", event.target.value)}
-            rows={4}
-            className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
-            placeholder="Dubbing notes, approval reminders, freelancer handoff context, or review comments"
-          />
-        </DetailSection>
+          <section className="rounded-lg border border-slate-200 bg-white p-2.5">
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Assignment</p>
+            <CompactArtistPicker
+              users={users}
+              summariesByUserId={summariesByUserId}
+              recommendedDepartment={recommendedDepartment}
+              assignments={getAudioAssignments(item)}
+              onChange={(assignments) => {
+                const lead = getLeadAssignment(assignments);
+                onUpdate(
+                  item.id,
+                  { assignments, assignedUserId: lead?.employeeId || null },
+                  {
+                    taskAssignments: assignments,
+                    assignedUser: lead?.employee || usersById.get(Number(lead?.employeeId || 0)) || null
+                  }
+                );
+              }}
+              disabled={disabled}
+              allowMultiple={false}
+              compact
+            />
+          </section>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <div className="flex items-start gap-2">
-            <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-            <div>
-              <p className="font-semibold">Required before create</p>
-              <p className="text-xs text-amber-800">Name, artist assignment, status, and start date. End date and notes stay optional.</p>
+          <section className="rounded-lg border border-slate-200 bg-white p-2.5">
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Notes</p>
+            <textarea
+              value={notesDraft}
+              onChange={(event) => setNotesDraft(event.target.value)}
+              onBlur={() => {
+                if ((item.notes || "") !== notesDraft) {
+                  onUpdate(item.id, { notes: notesDraft || null }, { notes: notesDraft || null });
+                }
+              }}
+              rows={3}
+              placeholder="Optional production notes, handoff comments, retake context"
+              className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm"
+              disabled={disabled}
+            />
+          </section>
+
+          <section className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Approvals</p>
+              <p className="mt-1 text-xs font-semibold text-slate-800">Use status to track approval stage</p>
             </div>
-          </div>
-          <div className="flex gap-2">
-            <button type="button" onClick={onClose} className="rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
-              Cancel
-            </button>
-            <button type="button" onClick={onSubmit} disabled={busy} className="rounded-xl bg-slate-950 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
-              Create Audio Task
-            </button>
-          </div>
+            <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Comments</p>
+              <p className="mt-1 text-xs font-semibold text-slate-800">Capture in notes for now</p>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Attachments</p>
+              <p className="mt-1 text-xs font-semibold text-slate-800">Managed in project files</p>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">History</p>
+              <p className="mt-1 text-xs font-semibold text-slate-800">Created {formatDate(item.createdAt)}</p>
+            </div>
+          </section>
+
+          <section className="grid gap-2 md:grid-cols-3">
+            <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Timeline</p>
+              <p className="mt-1 text-xs text-slate-700">Start {formatDate(item.startDate)} · End {formatDate(item.endDate)}</p>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Retakes</p>
+              <p className="mt-1 text-xs text-slate-700">Use status `RTK` for retake cycles</p>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Output</p>
+              <p className="mt-1 text-xs text-slate-700">Final delivery metadata can be tracked here</p>
+            </div>
+          </section>
         </div>
       </div>
-    </Modal>
+    </article>
   );
 }
 
-export default function AudioWorkspace({ projectId, overview, stageSummary, users = [], recommendedDepartment, showToast }) {
+export default function AudioWorkspace({ projectId, overview, users = [], recommendedDepartment, showToast }) {
   const activeUsers = useMemo(() => users.filter((user) => user?.isActive !== false), [users]);
-  const departmentOptions = useMemo(
-    () => buildDepartmentOptions(activeUsers, recommendedDepartment),
-    [activeUsers, recommendedDepartment]
-  );
+  const usersById = useMemo(() => new Map(activeUsers.map((user) => [Number(user.id), user])), [activeUsers]);
+  const summariesByUserId = useEmployeeAvailabilitySummaries(activeUsers);
 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [items, setItems] = useState([]);
   const [error, setError] = useState("");
+
   const [filters, setFilters] = useState({
     search: "",
     status: "",
-    department: "",
-    artistId: "",
     sortBy: "latest",
     sortDir: "desc"
   });
-  const [filtersOpen, setFiltersOpen] = useState(false);
+
   const [selectedIds, setSelectedIds] = useState([]);
   const [expandedIds, setExpandedIds] = useState([]);
-  const [bulkDraft, setBulkDraft] = useState({ assignments: [], status: "" });
-  const [createOpen, setCreateOpen] = useState(false);
-  const [createForm, setCreateForm] = useState(DEFAULT_FORM);
-  const [createErrors, setCreateErrors] = useState({});
+  const [bulkStatus, setBulkStatus] = useState("");
+  const [bulkAssignments, setBulkAssignments] = useState([]);
+
+  const [quickForm, setQuickForm] = useState(() => createQuickForm());
+  const [quickErrors, setQuickErrors] = useState({});
+
   const [deleteTarget, setDeleteTarget] = useState(null);
-  const [tick, setTick] = useState(Date.now());
+
+  const defaultDepartment = useMemo(
+    () => resolveDefaultDepartment(activeUsers, recommendedDepartment),
+    [activeUsers, recommendedDepartment]
+  );
+
+  const suggestedQuickUser = useMemo(
+    () => pickSuggestedUser(activeUsers, summariesByUserId, quickForm.department || defaultDepartment, recommendedDepartment),
+    [activeUsers, defaultDepartment, quickForm.department, recommendedDepartment, summariesByUserId]
+  );
+
+  useEffect(() => {
+    if (!quickForm.department && defaultDepartment) {
+      setQuickForm((prev) => ({ ...prev, department: defaultDepartment }));
+    }
+  }, [defaultDepartment, quickForm.department]);
+
+  useEffect(() => {
+    if (!quickForm.assignments.length && suggestedQuickUser) {
+      setQuickForm((prev) => {
+        if (prev.assignments.length) return prev;
+        return {
+          ...prev,
+          assignments: [buildAssignment(suggestedQuickUser)]
+        };
+      });
+    }
+  }, [quickForm.assignments.length, suggestedQuickUser]);
 
   useEffect(() => {
     loadAudioTasks();
   }, [projectId]);
 
-  useEffect(() => {
-    const interval = window.setInterval(() => setTick(Date.now()), 30 * 60 * 1000);
-    return () => window.clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    setFilters((current) => {
-      if (current.department) return current;
-      if (recommendedDepartment && countUsersByDepartment(activeUsers, recommendedDepartment) > 0) {
-        return { ...current, department: recommendedDepartment };
-      }
-      return current;
-    });
-  }, [activeUsers, recommendedDepartment]);
-
-  const filteredArtists = useMemo(
-    () => filterUsersByDepartment(activeUsers, filters.department),
-    [activeUsers, filters.department]
-  );
-
-  useEffect(() => {
-    if (!filters.artistId) return;
-    const stillVisible = filteredArtists.some((artist) => Number(artist.id) === Number(filters.artistId));
-    if (!stillVisible) {
-      setFilters((current) => ({ ...current, artistId: "" }));
-    }
-  }, [filteredArtists, filters.artistId]);
-
   async function loadAudioTasks(withLoader = true) {
     if (withLoader) setLoading(true);
     setError("");
+
     try {
       const { data } = await api.get(`/projects/${projectId}/audio`, {
         params: {
@@ -683,9 +781,10 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
   }
 
   const visibleItems = useMemo(() => {
+    const searchNeedle = String(filters.search || "").trim().toLowerCase();
+
     const filtered = items.filter((item) => {
-      const searchNeedle = String(filters.search || "").trim().toLowerCase();
-      const assignedUsers = getAudioAssignedUsers(item, activeUsers);
+      const assignedUsers = getAudioAssignedUsers(item, usersById);
       const matchesSearch =
         !searchNeedle ||
         [
@@ -700,69 +799,38 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
           .some((value) => String(value).toLowerCase().includes(searchNeedle));
 
       const matchesStatus = !filters.status || item.status === filters.status;
-      const matchesDepartment =
-        !filters.department ||
-        !assignedUsers.length ||
-        assignedUsers.some((user) => isDepartmentMatch(filters.department, getDepartmentLabel(user)));
-      const matchesArtist =
-        !filters.artistId ||
-        getAudioAssignments(item).some((assignment) => Number(assignment.employeeId || assignment.employee?.id) === Number(filters.artistId)) ||
-        item.assignedUser?.id === Number(filters.artistId);
 
-      return matchesSearch && matchesStatus && matchesDepartment && matchesArtist;
+      return matchesSearch && matchesStatus;
     });
 
     return sortAudioRows(filtered, filters.sortBy, filters.sortDir);
-  }, [activeUsers, filters, items]);
-
-  const assignedEmployees = useMemo(() => {
-    const unique = new Map();
-    for (const item of items) {
-      for (const employee of getAudioAssignedUsers(item, activeUsers)) {
-        if (!unique.has(employee.id)) unique.set(employee.id, employee);
-      }
-    }
-    return Array.from(unique.values());
-  }, [activeUsers, items]);
-
-  const metrics = useMemo(() => {
-    const completed = items.filter((item) => isCompleteStatus(item.status)).length;
-    return {
-      total: items.length,
-      completed,
-      assignedArtists: assignedEmployees.length,
-      availableArtists: filteredArtists.length,
-      late: items.filter((item) => isLateStatus(item.status, item.endDate)).length,
-      completionPercent: items.length ? Math.round((completed / items.length) * 100) : stageSummary?.completionPercent || 0
-    };
-  }, [assignedEmployees.length, filteredArtists.length, items, stageSummary?.completionPercent]);
+  }, [filters, items, usersById]);
 
   const allVisibleSelected = Boolean(visibleItems.length) && visibleItems.every((item) => selectedIds.includes(item.id));
 
   function setAudioList(updater) {
-    setItems((prev) => (typeof updater === "function" ? updater(prev) : updater));
+    setItems((current) => (typeof updater === "function" ? updater(current) : updater));
   }
 
-  function resetCreateForm() {
-    setCreateForm(DEFAULT_FORM());
-    setCreateErrors({});
+  function resetQuickForm() {
+    const suggested = pickSuggestedUser(activeUsers, summariesByUserId, quickForm.department || defaultDepartment, recommendedDepartment);
+    setQuickForm(createQuickForm({
+      department: quickForm.department || defaultDepartment,
+      defaultAssignment: suggested ? buildAssignment(suggested) : null
+    }));
+    setQuickErrors({});
   }
 
-  function openCreateModal() {
-    resetCreateForm();
-    setCreateOpen(true);
-  }
-
-  function updateCreateField(key, value) {
-    setCreateForm((prev) => ({ ...prev, [key]: value }));
-    setCreateErrors((prev) => ({ ...prev, [key]: "", assignments: key === "assignments" ? "" : prev.assignments }));
+  function updateQuickForm(key, value) {
+    setQuickForm((prev) => ({ ...prev, [key]: value }));
+    setQuickErrors((prev) => ({ ...prev, [key]: "", assignments: key === "assignments" ? "" : prev.assignments }));
   }
 
   async function createAudioTask(values) {
-    const { normalized, errors } = validateAudioDraft(values);
+    const { normalized, errors } = validateAudioDraft(values, usersById);
     if (Object.keys(errors).length) {
-      setCreateErrors(errors);
-      showToast?.("error", "Complete the required audio task fields");
+      setQuickErrors(errors);
+      showToast?.("error", "Complete required fields: name, artist, status, start date");
       return null;
     }
 
@@ -783,14 +851,16 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
     return data;
   }
 
-  async function handleCreateFromModal() {
+  async function handleQuickCreate(event) {
+    event.preventDefault();
+    if (busy) return;
+
     setBusy(true);
     try {
-      const created = await createAudioTask(createForm);
+      const created = await createAudioTask(quickForm);
       if (created) {
         showToast?.("success", "Audio task created");
-        setCreateOpen(false);
-        resetCreateForm();
+        resetQuickForm();
       }
     } catch (err) {
       showToast?.("error", err.userMessage || err.response?.data?.message || "Unable to create audio task");
@@ -802,45 +872,13 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
   async function updateAudioTask(id, payload, optimisticPatch = {}) {
     const previous = items;
     setAudioList((current) => current.map((item) => (item.id === id ? { ...item, ...optimisticPatch } : item)));
+
     try {
       const { data } = await api.patch(`/audio/${id}`, payload);
       setAudioList((current) => current.map((item) => (item.id === id ? data : item)));
     } catch (err) {
       setItems(previous);
       showToast?.("error", err.userMessage || err.response?.data?.message || "Unable to update audio task");
-    }
-  }
-
-  async function moveAudioTask(id, delta) {
-    const currentIndex = visibleItems.findIndex((item) => item.id === id);
-    const target = visibleItems[currentIndex + delta];
-    const current = visibleItems[currentIndex];
-    if (!current || !target) return;
-
-    const previous = items;
-    const currentOrder = Number(current.order || 0);
-    const targetOrder = Number(target.order || 0);
-
-    setAudioList((list) =>
-      list.map((item) => {
-        if (item.id === current.id) return { ...item, order: targetOrder };
-        if (item.id === target.id) return { ...item, order: currentOrder };
-        return item;
-      })
-    );
-
-    setBusy(true);
-    try {
-      await Promise.all([
-        api.patch(`/audio/${current.id}`, { order: targetOrder }),
-        api.patch(`/audio/${target.id}`, { order: currentOrder })
-      ]);
-      showToast?.("success", "Audio order updated");
-    } catch (err) {
-      setItems(previous);
-      showToast?.("error", err.userMessage || err.response?.data?.message || "Unable to reorder audio tasks");
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -855,6 +893,7 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
         endDate: formatDateInput(item.endDate),
         notes: item.notes || ""
       });
+
       if (created) showToast?.("success", "Audio task duplicated");
     } catch (err) {
       showToast?.("error", err.userMessage || err.response?.data?.message || "Unable to duplicate audio task");
@@ -863,15 +902,13 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
     }
   }
 
-  function requestDelete(item) {
-    setDeleteTarget(item);
-  }
-
   async function confirmDelete() {
     if (!deleteTarget) return;
     const previous = items;
+
     setAudioList((list) => list.filter((item) => item.id !== deleteTarget.id));
     setBusy(true);
+
     try {
       await api.delete(`/audio/${deleteTarget.id}`);
       setSelectedIds((prev) => prev.filter((id) => id !== deleteTarget.id));
@@ -885,13 +922,12 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
     }
   }
 
-  async function bulkAssign() {
-    const nextAssignments = bulkDraft.assignments || [];
-    if (!selectedIds.length || !nextAssignments.length) return;
+  async function bulkApplyArtist() {
+    if (!selectedIds.length || !bulkAssignments.length) return;
 
-    const lead = getLeadAssignment(nextAssignments);
+    const lead = getLeadAssignment(bulkAssignments);
     const userId = lead?.employeeId || null;
-    const assignedUser = lead?.employee || activeUsers.find((user) => user.id === userId) || null;
+    const assignedUser = lead?.employee || usersById.get(Number(userId)) || null;
     const previous = items;
 
     setAudioList((list) =>
@@ -900,10 +936,7 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
           ? {
               ...item,
               assignedUser,
-              taskAssignments: nextAssignments.map((assignment) => ({
-                ...assignment,
-                employee: activeUsers.find((user) => user.id === assignment.employeeId) || assignment.employee || null
-              }))
+              taskAssignments: bulkAssignments
             }
           : item
       )
@@ -911,31 +944,33 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
 
     setBusy(true);
     try {
-      await Promise.all(selectedIds.map((id) => api.patch(`/audio/${id}`, { assignedUserId: userId, assignments: nextAssignments })));
+      await Promise.all(selectedIds.map((id) => api.patch(`/audio/${id}`, { assignedUserId: userId, assignments: bulkAssignments })));
       setSelectedIds([]);
-      setBulkDraft((prev) => ({ ...prev, assignments: [] }));
-      showToast?.("success", "Bulk artist assignment applied");
+      setBulkAssignments([]);
+      showToast?.("success", "Artist reassigned for selected rows");
     } catch (err) {
       setItems(previous);
-      showToast?.("error", err.userMessage || err.response?.data?.message || "Unable to bulk assign audio tasks");
+      showToast?.("error", err.userMessage || err.response?.data?.message || "Unable to bulk assign artists");
     } finally {
       setBusy(false);
     }
   }
 
-  async function bulkStatusUpdate() {
-    if (!selectedIds.length || !bulkDraft.status) return;
+  async function bulkApplyStatus() {
+    if (!selectedIds.length || !bulkStatus) return;
+
     const previous = items;
-    setAudioList((list) => list.map((item) => (selectedIds.includes(item.id) ? { ...item, status: bulkDraft.status } : item)));
+    setAudioList((list) => list.map((item) => (selectedIds.includes(item.id) ? { ...item, status: bulkStatus } : item)));
     setBusy(true);
+
     try {
-      await Promise.all(selectedIds.map((id) => api.patch(`/audio/${id}`, { status: bulkDraft.status })));
+      await Promise.all(selectedIds.map((id) => api.patch(`/audio/${id}`, { status: bulkStatus })));
       setSelectedIds([]);
-      setBulkDraft((prev) => ({ ...prev, status: "" }));
-      showToast?.("success", "Bulk status update applied");
+      setBulkStatus("");
+      showToast?.("success", "Status updated for selected rows");
     } catch (err) {
       setItems(previous);
-      showToast?.("error", err.userMessage || err.response?.data?.message || "Unable to bulk update audio statuses");
+      showToast?.("error", err.userMessage || err.response?.data?.message || "Unable to bulk update statuses");
     } finally {
       setBusy(false);
     }
@@ -943,10 +978,12 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
 
   async function bulkDelete() {
     if (!selectedIds.length) return;
+
     const previous = items;
     const selectedSet = new Set(selectedIds);
     setAudioList((list) => list.filter((item) => !selectedSet.has(item.id)));
     setBusy(true);
+
     try {
       await Promise.all(selectedIds.map((id) => api.delete(`/audio/${id}`)));
       setSelectedIds([]);
@@ -980,93 +1017,128 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
   }
 
   return (
-    <div className="space-y-4">
-      <section className="rounded-[32px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(6,182,212,0.12),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.94))] px-4 py-4 shadow-sm shadow-slate-200/45 sm:px-5 sm:py-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="max-w-3xl">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Audio Workspace</p>
-            <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950 sm:text-2xl">{overview?.project?.name || "Project"} · Audio</h2>
-            <p className="mt-1 max-w-2xl text-sm text-slate-500">
-              Compact production tracking for voiceover, dubbing, approvals, and handoff tasks.
-              {recommendedDepartment ? ` Recommended department: ${recommendedDepartment}. Managers can override any time.` : ""}
-            </p>
+    <div className="space-y-3">
+      <section className="rounded-[26px] border border-slate-200/80 bg-white/95 p-4 shadow-sm shadow-slate-200/40">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Audio Production Tracker</p>
+            <h2 className="mt-1 text-xl font-semibold tracking-tight text-slate-950">{overview?.project?.name || "Project"} · Audio</h2>
+            <p className="mt-1 text-sm text-slate-600">Quick entry at the top, compact rows in the middle, details drawer at the bottom.</p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Link
-              to={`/projects/${projectId}`}
-              className="rounded-2xl border border-slate-300 bg-white/80 px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-            >
-              Back To Overview
-            </Link>
-            <button
-              type="button"
-              onClick={openCreateModal}
-              className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
-            >
-              <Plus className="h-4 w-4" /> Add Audio Task
-            </button>
-          </div>
+          <Link
+            to={`/projects/${projectId}`}
+            className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+          >
+            Back To Overview
+          </Link>
         </div>
 
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-          <MetricCard label="Completion" value={`${metrics.completionPercent}%`} hint={`${metrics.completed} of ${metrics.total} tasks complete`} />
-          <MetricCard label="Assigned Artists" value={metrics.assignedArtists} hint="Artists actively attached to audio work" />
-          <MetricCard label="Audio Tasks" value={metrics.total} hint="Voice, dubbing, and approval rows" />
-          <MetricCard
-            label="Available Staff"
-            value={metrics.availableArtists}
-            hint={filters.department ? `${filters.department} ready for assignment` : "All active departments available"}
-          />
-          <MetricCard label="Late" value={metrics.late} hint="Tasks past end date without completion" tone="text-rose-700" />
-        </div>
+        <form onSubmit={handleQuickCreate} className="mt-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-2.5">
+          <div className="grid gap-2 xl:grid-cols-[minmax(220px,1.45fr)_minmax(280px,2fr)_145px_140px_140px_130px]">
+            <label className="space-y-1">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Audio Name</span>
+              <input
+                value={quickForm.name}
+                onChange={(event) => updateQuickForm("name", event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    handleQuickCreate(event);
+                  }
+                }}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                placeholder="Episode 03 dubbing sync"
+                disabled={busy}
+              />
+              <InlineError>{quickErrors.name}</InlineError>
+            </label>
 
-        {assignedEmployees.length > 0 ? (
-          <div className="mt-4 flex flex-wrap gap-2">
-            {assignedEmployees.slice(0, 10).map((artist) => (
-              <SummaryArtistChip key={artist.id} artist={artist} />
-            ))}
-            {assignedEmployees.length > 10 ? (
-              <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
-                +{assignedEmployees.length - 10} more assigned
-              </span>
-            ) : null}
+            <label className="space-y-1">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Assign Artist</span>
+              <CompactArtistPicker
+                users={activeUsers}
+                summariesByUserId={summariesByUserId}
+                recommendedDepartment={quickForm.department || recommendedDepartment}
+                assignments={quickForm.assignments}
+                onChange={(assignments) => updateQuickForm("assignments", assignments)}
+                disabled={busy}
+                allowMultiple={false}
+                compact
+              />
+              <InlineError>{quickErrors.assignments}</InlineError>
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Status</span>
+              <select
+                value={quickForm.status}
+                onChange={(event) => updateQuickForm("status", event.target.value)}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                disabled={busy}
+              >
+                {STAGE_STATUSES.map((status) => (
+                  <option key={status} value={status}>
+                    {getStatusOptionLabel(status)}
+                  </option>
+                ))}
+              </select>
+              <InlineError>{quickErrors.status}</InlineError>
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Start Date</span>
+              <input
+                type="date"
+                value={quickForm.startDate}
+                onChange={(event) => updateQuickForm("startDate", event.target.value || todayDateInput())}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                disabled={busy}
+              />
+              <InlineError>{quickErrors.startDate}</InlineError>
+            </label>
+
+            <label className="space-y-1">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">End Date</span>
+              <input
+                type="date"
+                value={quickForm.endDate}
+                onChange={(event) => updateQuickForm("endDate", event.target.value)}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                disabled={busy}
+              />
+            </label>
+
+            <div className="flex items-end justify-end">
+              <button
+                type="submit"
+                disabled={busy}
+                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+              >
+                <Plus className="h-4 w-4" />
+                Create
+              </button>
+            </div>
           </div>
-        ) : null}
+        </form>
       </section>
 
-      <section className="rounded-[30px] border border-slate-200/80 bg-white/90 shadow-sm shadow-slate-200/35 backdrop-blur">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-4 sm:px-5">
-          <div>
-            <div className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600">
-              Audio Tasks
-            </div>
-            <h3 className="mt-2 text-lg font-semibold tracking-tight text-slate-950">Production Audio Tracker</h3>
-            <p className="mt-1 text-sm text-slate-500">Compact task rows, expandable details, and responsive staffing controls with no horizontal scrolling.</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setFiltersOpen((prev) => !prev)}
-            className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 md:hidden"
-          >
-            <Filter className="h-4 w-4" /> {filtersOpen ? "Hide Filters" : "Show Filters"}
-          </button>
-        </div>
-
-        <div className="space-y-3 border-b border-slate-200 px-4 py-4 sm:px-5">
-          <div className={`${filtersOpen ? "grid" : "hidden"} gap-2 md:grid xl:grid-cols-[minmax(0,1.5fr)_180px_220px_220px_minmax(180px,220px)]`}>
-            <label className="relative">
+      <section className="rounded-[24px] border border-slate-200/80 bg-white/95 shadow-sm shadow-slate-200/35">
+        <div className="space-y-2 border-b border-slate-200 px-3 py-3 sm:px-4">
+          <div className="grid gap-2 md:grid-cols-[minmax(0,1.7fr)_220px_220px_auto]">
+            <label className="relative block">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 value={filters.search}
                 onChange={(event) => setFilters((prev) => ({ ...prev, search: event.target.value }))}
-                placeholder="Search tasks, notes, artists, departments"
-                className="w-full rounded-2xl border border-slate-300 pl-9 pr-3 py-2.5 text-sm"
+                placeholder="Search audio rows, notes, artists"
+                className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm"
               />
             </label>
+
             <select
               value={filters.status}
               onChange={(event) => setFilters((prev) => ({ ...prev, status: event.target.value }))}
-              className="rounded-2xl border border-slate-300 px-3 py-2.5 text-sm"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
             >
               <option value="">All statuses</option>
               {STAGE_STATUSES.map((status) => (
@@ -1075,104 +1147,63 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
                 </option>
               ))}
             </select>
+
             <select
-              value={filters.department}
-              onChange={(event) => setFilters((prev) => ({ ...prev, department: event.target.value, artistId: "" }))}
-              className="rounded-2xl border border-slate-300 px-3 py-2.5 text-sm"
+              value={filters.sortBy}
+              onChange={(event) => setFilters((prev) => ({ ...prev, sortBy: event.target.value }))}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
             >
-              <option value="">All departments</option>
-              {departmentOptions.map((department) => (
-                <option key={department} value={department}>
-                  {department}{department === recommendedDepartment ? " · Recommended" : ""}
-                </option>
-              ))}
+              <option value="latest">Sort: Latest</option>
+              <option value="startDate">Sort: Start Date</option>
+              <option value="endDate">Sort: End Date</option>
+              <option value="name">Sort: Name</option>
+              <option value="status">Sort: Status</option>
             </select>
-            <select
-              value={filters.artistId}
-              onChange={(event) => setFilters((prev) => ({ ...prev, artistId: event.target.value }))}
-              className="rounded-2xl border border-slate-300 px-3 py-2.5 text-sm"
+
+            <button
+              type="button"
+              onClick={() => setFilters((prev) => ({ ...prev, sortDir: prev.sortDir === "asc" ? "desc" : "asc" }))}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-700"
             >
-              <option value="">All artists</option>
-              {filteredArtists.map((artist) => (
-                <option key={artist.id} value={artist.id}>
-                  {artist.name} · {getDepartmentLabel(artist)}
-                </option>
-              ))}
-            </select>
-            <div className="flex gap-2">
-              <select
-                value={filters.sortBy}
-                onChange={(event) => setFilters((prev) => ({ ...prev, sortBy: event.target.value }))}
-                className="w-full rounded-2xl border border-slate-300 px-3 py-2.5 text-sm"
-              >
-                <option value="latest">Sort: Latest</option>
-                <option value="endDate">Sort: End Date</option>
-                <option value="startDate">Sort: Start Date</option>
-                <option value="duration">Sort: Duration</option>
-                <option value="name">Sort: Name</option>
-                <option value="status">Sort: Status</option>
-              </select>
-              <button
-                type="button"
-                onClick={() => setFilters((prev) => ({ ...prev, sortDir: prev.sortDir === "asc" ? "desc" : "asc" }))}
-                className="rounded-2xl border border-slate-300 px-3 py-2.5 text-xs font-semibold uppercase tracking-[0.16em] text-slate-700"
-              >
-                {String(filters.sortDir || "desc").toUpperCase()}
-              </button>
-            </div>
+              {String(filters.sortDir).toUpperCase()}
+            </button>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-3xl border border-slate-200 bg-slate-50/80 px-3 py-2.5 text-xs text-slate-600">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-semibold text-slate-900">{filteredArtists.length}</span>
-              <span>assignable employees in</span>
-              <span className="rounded-full border border-slate-200 bg-white px-2 py-1 font-semibold text-slate-700">
-                {filters.department || "All departments"}
-              </span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {!filteredArtists.length ? (
-                <button
-                  type="button"
-                  onClick={() => setFilters((prev) => ({ ...prev, department: "", artistId: "" }))}
-                  className="font-semibold text-slate-700 underline-offset-2 hover:underline"
-                >
-                  Select Another Department
-                </button>
-              ) : null}
-              <button
-                type="button"
-                onClick={toggleSelectVisible}
-                className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                {allVisibleSelected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
-                {allVisibleSelected ? "Clear" : "Select"} visible ({visibleItems.length})
-              </button>
-            </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs">
+            <span className="text-slate-600">
+              {visibleItems.length} visible row{visibleItems.length === 1 ? "" : "s"}
+            </span>
+            <button
+              type="button"
+              onClick={toggleSelectVisible}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              {allVisibleSelected ? <CheckSquare className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
+              {allVisibleSelected ? "Clear" : "Select"} visible
+            </button>
           </div>
 
           {selectedIds.length > 0 ? (
-            <div className="rounded-3xl border border-slate-200 bg-slate-50/80 px-3 py-3">
-              <div className="mb-2 flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                <span>{selectedIds.length} selected</span>
-                <span className="rounded-full bg-white px-2 py-1 text-[11px] tracking-normal text-slate-700">Bulk actions</span>
-              </div>
-              <div className="grid gap-2 xl:grid-cols-[minmax(0,1.4fr)_200px_auto_auto_auto]">
-                <FlexibleAssignmentField
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-2.5">
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{selectedIds.length} selected</div>
+              <div className="grid gap-2 xl:grid-cols-[minmax(0,1.55fr)_220px_auto_auto_auto]">
+                <CompactArtistPicker
                   users={activeUsers}
+                  summariesByUserId={summariesByUserId}
                   recommendedDepartment={recommendedDepartment}
-                  assignments={bulkDraft.assignments}
-                  onChange={(assignments) => setBulkDraft((prev) => ({ ...prev, assignments }))}
-                  allowMultiple={false}
+                  assignments={bulkAssignments}
+                  onChange={setBulkAssignments}
                   disabled={busy}
+                  allowMultiple={false}
+                  compact
                 />
                 <select
-                  value={bulkDraft.status}
-                  onChange={(event) => setBulkDraft((prev) => ({ ...prev, status: event.target.value }))}
-                  className="rounded-2xl border border-slate-300 px-3 py-2.5 text-sm"
+                  value={bulkStatus}
+                  onChange={(event) => setBulkStatus(event.target.value)}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
                   disabled={busy}
                 >
-                  <option value="">Choose status</option>
+                  <option value="">Status</option>
                   {STAGE_STATUSES.map((status) => (
                     <option key={status} value={status}>
                       {getStatusOptionLabel(status)}
@@ -1181,90 +1212,76 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
                 </select>
                 <button
                   type="button"
-                  onClick={bulkAssign}
-                  disabled={busy || !bulkDraft.assignments.length}
-                  className="rounded-full border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
+                  onClick={bulkApplyArtist}
+                  disabled={busy || !bulkAssignments.length}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
                 >
-                  Assign Artists
+                  Reassign
                 </button>
                 <button
                   type="button"
-                  onClick={bulkStatusUpdate}
-                  disabled={busy || !bulkDraft.status}
-                  className="rounded-full border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
+                  onClick={bulkApplyStatus}
+                  disabled={busy || !bulkStatus}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
                 >
-                  Change Status
+                  Update Status
                 </button>
                 <button
                   type="button"
                   onClick={bulkDelete}
                   disabled={busy}
-                  className="rounded-full bg-rose-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  className="rounded-lg bg-rose-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                 >
-                  Delete Selected
+                  Delete
                 </button>
               </div>
             </div>
           ) : null}
         </div>
 
-        {error ? <div className="px-4 py-3 text-sm text-rose-700 sm:px-5">{error}</div> : null}
+        {error ? <div className="px-4 py-3 text-sm font-medium text-rose-700">{error}</div> : null}
 
         {!visibleItems.length ? (
-          <div className="px-4 py-9 text-center sm:px-5">
-            <div className="mx-auto mb-3 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
-              <Volume2 className="h-5 w-5" />
+          <div className="px-4 py-8 text-center">
+            <div className="mx-auto mb-3 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 text-slate-500">
+              <Volume2 className="h-4 w-4" />
             </div>
-            <h4 className="text-lg font-semibold tracking-tight text-slate-950">No Audio Tasks Yet</h4>
-            <p className="mt-1 text-sm text-slate-500">
-              Create the first audio production row for this project and start tracking assignments, approvals, and handoff work.
-            </p>
-            <button
-              type="button"
-              onClick={openCreateModal}
-              className="mt-4 inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
-            >
-              <Plus className="h-4 w-4" /> Create First Audio Task
-            </button>
+            <h4 className="text-lg font-semibold text-slate-950">No Audio Tasks</h4>
+            <p className="mt-1 text-sm text-slate-500">Use the quick entry row above to create your first production audio row.</p>
           </div>
         ) : (
-          <div className="space-y-3 px-4 py-4 sm:px-5">
-            {visibleItems.map((item, index) => (
+          <div className="space-y-2 px-3 py-3 sm:px-4">
+            <div className="hidden items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 lg:grid lg:grid-cols-[32px_minmax(220px,1.85fr)_130px_minmax(180px,1.2fr)_120px_120px_180px]">
+              <span>Select</span>
+              <span>Name</span>
+              <span>Status</span>
+              <span>Artist</span>
+              <span>Start</span>
+              <span>End</span>
+              <span className="text-right">Actions</span>
+            </div>
+
+            {visibleItems.map((item) => (
               <AudioTaskRow
                 key={item.id}
                 item={item}
                 users={activeUsers}
+                usersById={usersById}
+                summariesByUserId={summariesByUserId}
                 recommendedDepartment={recommendedDepartment}
                 selected={selectedIds.includes(item.id)}
-                disabled={busy}
                 expanded={expandedIds.includes(item.id)}
-                onToggleExpand={toggleExpand}
+                disabled={busy}
                 onToggleSelect={toggleSelect}
+                onToggleExpand={toggleExpand}
                 onUpdate={updateAudioTask}
-                onMove={moveAudioTask}
                 onDuplicate={duplicateAudioTask}
-                onDelete={requestDelete}
-                canMoveUp={index > 0}
-                canMoveDown={index < visibleItems.length - 1}
-                nowTick={tick}
+                onDelete={setDeleteTarget}
               />
             ))}
           </div>
         )}
       </section>
-
-      <AudioTaskModal
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        title="Create Audio Task"
-        values={createForm}
-        errors={createErrors}
-        users={activeUsers}
-        recommendedDepartment={recommendedDepartment}
-        busy={busy}
-        onChange={updateCreateField}
-        onSubmit={handleCreateFromModal}
-      />
 
       <Modal
         open={Boolean(deleteTarget)}
@@ -1273,14 +1290,21 @@ export default function AudioWorkspace({ projectId, overview, stageSummary, user
         size="max-w-lg"
       >
         <div className="space-y-4">
-          <p className="text-sm text-slate-600">
-            This removes the audio task from the project workspace. This action cannot be undone automatically.
-          </p>
+          <p className="text-sm text-slate-600">This removes the audio row from the production tracker and cannot be undone automatically.</p>
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={() => setDeleteTarget(null)} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700">
+            <button
+              type="button"
+              onClick={() => setDeleteTarget(null)}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700"
+            >
               Cancel
             </button>
-            <button type="button" onClick={confirmDelete} disabled={busy} className="rounded-xl bg-rose-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
+            <button
+              type="button"
+              onClick={confirmDelete}
+              disabled={busy}
+              className="rounded-lg bg-rose-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            >
               Delete
             </button>
           </div>

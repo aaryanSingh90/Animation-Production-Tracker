@@ -43,6 +43,7 @@ import {
 import { formatEmployeeAvailabilityLabel, getEmployeeAvailabilityMeta, getOverloadWarning } from "../utils/employeeAvailability";
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
+const QUICK_CREATE_SUCCESS_TIMEOUT_MS = 1200;
 
 const SECTION_CONFIG = {
   CHARACTER: {
@@ -121,6 +122,75 @@ function createInitialForm(sectionKey) {
     description: "",
     referenceImageUrl: ""
   };
+}
+
+function useDebouncedValue(value, delayMs = 180) {
+  const [debounced, setDebounced] = useState(value);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(timeoutId);
+  }, [delayMs, value]);
+
+  return debounced;
+}
+
+function getNamePlaceholder(sectionSingular) {
+  const normalized = String(sectionSingular || "asset").toLowerCase();
+  if (normalized === "character") return "Enter character name";
+  if (normalized === "blendshape") return "Enter blendshape name";
+  if (normalized === "bg asset") return "Enter background asset name";
+  return `Enter ${normalized} name`;
+}
+
+function toStageAssignments(assignments = []) {
+  return normalizeAssignmentList(assignments).map((assignment) => ({
+    employeeId: Number(assignment.employeeId),
+    roleType: assignment.roleType === "SUPPORT" ? "SUPPORT" : "LEAD",
+    ...(assignment.departmentId ? { departmentId: String(assignment.departmentId) } : {})
+  }));
+}
+
+function buildStageUpdatePayload({
+  status,
+  assignments = [],
+  startedAt,
+  endedAt,
+  notes = "",
+  assignedUserId = null
+}) {
+  const safeStart = String(startedAt || "").trim() || todayDateInput();
+  const safeEnd = String(endedAt || "").trim();
+  const safeStatus = STAGE_STATUSES.includes(status) ? status : "YTS";
+  const safeAssignments = toStageAssignments(assignments);
+  const lead = getLeadAssignment(safeAssignments);
+
+  return {
+    status: safeStatus,
+    assignedUserId: Number(assignedUserId || lead?.employeeId || 0) || null,
+    assignments: safeAssignments,
+    startedAt: safeStart,
+    startDate: safeStart,
+    endedAt: safeEnd || null,
+    endDate: safeEnd || null,
+    notes: typeof notes === "string" ? notes : ""
+  };
+}
+
+function validateStageCreatePayload({ assetName, projectId, stageId, payload }) {
+  const errors = {};
+  if (!String(assetName || "").trim()) errors.assetName = "Asset name is required";
+  if (!Number.isFinite(Number(projectId)) || Number(projectId) <= 0) errors.projectId = "Project id is required";
+  if (!String(stageId || "").trim()) errors.stageId = "Stage id is required";
+  if (!payload?.status || !STAGE_STATUSES.includes(payload.status)) errors.status = "Valid status is required";
+  if (!payload?.startedAt) errors.startDate = "Start date is required";
+  if (!Number(payload?.assignedUserId)) errors.artistId = "Artist id is required";
+  if (!Array.isArray(payload?.assignments) || !payload.assignments.length) errors.assignments = "Assignment is required";
+  return errors;
+}
+
+function logStagePayload(context, payload) {
+  console.log(`[asset-stage-payload:${context}]`, payload);
 }
 
 function validateEditorForm(values) {
@@ -669,6 +739,8 @@ function QuickCreateRow({ section, users, recommendedDepartment, disabled, onCre
     startedAt: todayDateInput(),
     endedAt: ""
   }));
+  const [errors, setErrors] = useState({});
+  const [createState, setCreateState] = useState("idle");
 
   useEffect(() => {
     setDraft({
@@ -679,7 +751,15 @@ function QuickCreateRow({ section, users, recommendedDepartment, disabled, onCre
       startedAt: todayDateInput(),
       endedAt: ""
     });
+    setErrors({});
+    setCreateState("idle");
   }, [section.key, users, recommendedDepartment]);
+
+  useEffect(() => {
+    if (createState !== "success") return undefined;
+    const timeoutId = window.setTimeout(() => setCreateState("idle"), QUICK_CREATE_SUCCESS_TIMEOUT_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [createState]);
 
   const artists = useMemo(() => {
     const scoped = filterUsersByDepartment(users, draft.department);
@@ -692,121 +772,207 @@ function QuickCreateRow({ section, users, recommendedDepartment, disabled, onCre
     Boolean(String(draft.startedAt || "").trim()) &&
     Boolean(String(draft.employeeId || "").trim());
 
+  function validateDraft(values) {
+    const nextErrors = {};
+    if (!String(values.name || "").trim()) nextErrors.name = `${section.singular} name is required`;
+    if (!String(values.employeeId || "").trim()) nextErrors.employeeId = "Assigned artist is required";
+    if (!String(values.status || "").trim()) nextErrors.status = "Status is required";
+    if (!String(values.startedAt || "").trim()) nextErrors.startedAt = "Start date is required";
+    return nextErrors;
+  }
+
+  function getFieldClass(hasError) {
+    return `h-11 w-full rounded-xl bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition ${
+      hasError
+        ? "border border-rose-300 focus:border-rose-500"
+        : "border border-slate-300 focus:border-slate-500"
+    }`;
+  }
+
   async function handleCreate() {
-    if (!canCreate || disabled) return;
+    if (disabled || createState === "loading") return;
+    const nextErrors = validateDraft(draft);
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length) return;
 
-    await onCreate({
-      name: String(draft.name || "").trim(),
-      status: draft.status || "YTS",
-      assignments: buildLeadAssignment(users, draft.employeeId),
-      startedAt: draft.startedAt || todayDateInput(),
-      endedAt: draft.endedAt || ""
-    });
+    setCreateState("loading");
+    try {
+      await onCreate({
+        name: String(draft.name || "").trim(),
+        status: draft.status || "YTS",
+        assignments: buildLeadAssignment(users, draft.employeeId),
+        startedAt: draft.startedAt || todayDateInput(),
+        endedAt: draft.endedAt || ""
+      });
 
-    setDraft((prev) => ({
-      name: "",
-      department: prev.department,
-      employeeId: "",
-      status: "YTS",
-      startedAt: todayDateInput(),
-      endedAt: ""
-    }));
+      setDraft((prev) => ({
+        name: "",
+        department: prev.department,
+        employeeId: "",
+        status: "YTS",
+        startedAt: todayDateInput(),
+        endedAt: ""
+      }));
+      setErrors({});
+      setCreateState("success");
+    } catch (_error) {
+      setCreateState("idle");
+      setErrors((prev) => ({
+        ...prev,
+        form: `Unable to create ${section.singular.toLowerCase()}. Please check required fields.`
+      }));
+    }
   }
 
   return (
-    <section className="rounded-[30px] border border-slate-200/80 bg-white/90 p-4 shadow-sm shadow-slate-200/35 backdrop-blur">
+    <section className="rounded-[24px] border border-slate-200/80 bg-white/95 p-3.5 shadow-sm shadow-slate-200/30 backdrop-blur">
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">{section.title} production table</p>
-          <h3 className="mt-1 text-base font-semibold tracking-tight text-slate-950">Quick add {section.singular.toLowerCase()} row</h3>
+          <h3 className="mt-1 text-base font-semibold tracking-tight text-slate-950">Quick add {section.singular.toLowerCase()}</h3>
         </div>
-        <span className="text-xs text-slate-500">Create rows fast without opening the full modal.</span>
+        <span className="text-xs text-slate-500">Fast row entry optimized for production managers.</span>
       </div>
 
-      <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1.45fr)_180px_220px_180px_160px_160px_auto]">
-        <input
-          value={draft.name}
-          onChange={(event) => setDraft((prev) => ({ ...prev, name: event.target.value }))}
-          placeholder={`${section.singular} name`}
-          className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition placeholder:text-slate-400 focus:border-slate-400"
-          disabled={disabled}
-        />
-        <select
-          value={draft.department}
-          onChange={(event) => setDraft((prev) => ({ ...prev, department: event.target.value, employeeId: "" }))}
-          className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400"
-          disabled={disabled}
-        >
-          <option value="">All departments</option>
-          {departmentOptions.map((department) => (
-            <option key={department} value={department}>
-              {department}{department === recommendedDepartment ? " · Recommended" : ""}
-            </option>
-          ))}
-        </select>
-        <select
-          value={draft.employeeId}
-          onChange={(event) => setDraft((prev) => ({ ...prev, employeeId: event.target.value }))}
-          className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400"
-          disabled={disabled}
-        >
-          <option value="">{artists.length ? "Assign artist" : "No employees found"}</option>
-          {artists.map((artist) => (
-            <option key={artist.id} value={artist.id}>
-              {artist.name} · {getEmploymentLabel(artist.employmentType)}
-            </option>
-          ))}
-        </select>
-        <select
-          value={draft.status}
-          onChange={(event) => setDraft((prev) => ({ ...prev, status: event.target.value }))}
-          className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400"
-          disabled={disabled}
-        >
-          {STAGE_STATUSES.map((status) => (
-            <option key={status} value={status}>
-              {getStatusOptionLabel(status)}
-            </option>
-          ))}
-        </select>
-        <input
-          type="date"
-          value={draft.startedAt || todayDateInput()}
-          onChange={(event) => setDraft((prev) => ({ ...prev, startedAt: event.target.value || todayDateInput() }))}
-          className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400"
-          disabled={disabled}
-        />
-        <input
-          type="date"
-          value={draft.endedAt}
-          onChange={(event) => setDraft((prev) => ({ ...prev, endedAt: event.target.value }))}
-          className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400"
-          disabled={disabled}
-        />
-        <button
-          type="button"
-          onClick={handleCreate}
-          disabled={!canCreate || disabled}
-          className={`inline-flex h-11 items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold text-white shadow-sm ${section.button} disabled:cursor-not-allowed disabled:opacity-50`}
-        >
-          <Plus className="h-4 w-4" /> Create
-        </button>
+      <div className="mt-3 space-y-2">
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[minmax(340px,2.25fr)_minmax(240px,1.45fr)_170px_170px_150px]">
+          <label className="space-y-1">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">{section.singular} Name</span>
+            <input
+              value={draft.name}
+              onChange={(event) => {
+                setDraft((prev) => ({ ...prev, name: event.target.value }));
+                setErrors((prev) => ({ ...prev, name: "" }));
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  handleCreate();
+                }
+              }}
+              placeholder={getNamePlaceholder(section.singular)}
+              className={`${getFieldClass(Boolean(errors.name))} min-w-0 text-[15px]`}
+              disabled={disabled}
+            />
+            <InlineError>{errors.name}</InlineError>
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Artist</span>
+            <select
+              value={draft.employeeId}
+              onChange={(event) => {
+                setDraft((prev) => ({ ...prev, employeeId: event.target.value }));
+                setErrors((prev) => ({ ...prev, employeeId: "" }));
+              }}
+              className={getFieldClass(Boolean(errors.employeeId))}
+              disabled={disabled}
+            >
+              <option value="">{artists.length ? "Assign artist" : "No employees found"}</option>
+              {artists.map((artist) => (
+                <option key={artist.id} value={artist.id}>
+                  {artist.name} · {getEmploymentLabel(artist.employmentType)}
+                </option>
+              ))}
+            </select>
+            <InlineError>{errors.employeeId}</InlineError>
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Status</span>
+            <select
+              value={draft.status}
+              onChange={(event) => {
+                setDraft((prev) => ({ ...prev, status: event.target.value }));
+                setErrors((prev) => ({ ...prev, status: "" }));
+              }}
+              className={getFieldClass(Boolean(errors.status))}
+              disabled={disabled}
+            >
+              {STAGE_STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {getStatusOptionLabel(status)}
+                </option>
+              ))}
+            </select>
+            <InlineError>{errors.status}</InlineError>
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Start Date</span>
+            <input
+              type="date"
+              value={draft.startedAt || todayDateInput()}
+              onChange={(event) => {
+                setDraft((prev) => ({ ...prev, startedAt: event.target.value || todayDateInput() }));
+                setErrors((prev) => ({ ...prev, startedAt: "" }));
+              }}
+              className={getFieldClass(Boolean(errors.startedAt))}
+              disabled={disabled}
+            />
+            <InlineError>{errors.startedAt}</InlineError>
+          </label>
+
+          <div className="flex items-end">
+            <button
+              type="button"
+              onClick={handleCreate}
+              disabled={!canCreate || disabled || createState === "loading"}
+              className={`inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white shadow-sm ${section.button} disabled:cursor-not-allowed disabled:opacity-50`}
+            >
+              <Plus className="h-4 w-4" />
+              {createState === "loading" ? "Creating..." : createState === "success" ? "Created ✓" : "Create"}
+            </button>
+          </div>
+        </div>
+
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[260px_180px_1fr]">
+          <label className="space-y-1">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Department (Optional)</span>
+            <select
+              value={draft.department}
+              onChange={(event) => setDraft((prev) => ({ ...prev, department: event.target.value, employeeId: "" }))}
+              className={getFieldClass(false)}
+              disabled={disabled}
+            >
+              <option value="">All departments</option>
+              {departmentOptions.map((department) => (
+                <option key={department} value={department}>
+                  {department}{department === recommendedDepartment ? " · Recommended" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="space-y-1">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">End Date (Optional)</span>
+            <input
+              type="date"
+              value={draft.endedAt}
+              onChange={(event) => setDraft((prev) => ({ ...prev, endedAt: event.target.value }))}
+              className={getFieldClass(false)}
+              disabled={disabled}
+            />
+          </label>
+
+          <div className="flex items-end justify-between gap-2 text-xs text-slate-500">
+            <span>Required: name, artist, status, start date.</span>
+            {!artists.length && draft.department ? (
+              <button
+                type="button"
+                onClick={() => setDraft((prev) => ({ ...prev, department: "", employeeId: "" }))}
+                className="font-semibold text-slate-700 underline-offset-2 hover:underline"
+              >
+                Select another department
+              </button>
+            ) : (
+              <span>End date stays optional.</span>
+            )}
+          </div>
+        </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-        <span>Required: name, artist, status, start date.</span>
-        {!artists.length && draft.department ? (
-          <button
-            type="button"
-            onClick={() => setDraft((prev) => ({ ...prev, department: "", employeeId: "" }))}
-            className="font-semibold text-slate-700 underline-offset-2 hover:underline"
-          >
-            Select another department
-          </button>
-        ) : (
-          <span>End date stays optional.</span>
-        )}
-      </div>
+      {errors.form ? <p className="mt-2 text-xs font-semibold text-rose-600">{errors.form}</p> : null}
     </section>
   );
 }
@@ -830,42 +996,47 @@ function WorkspaceToolbar({
   onOpenCreate,
   stageLabel
 }) {
+  const sortedUsers = useMemo(
+    () => [...users].sort((left, right) => String(left.name || "").localeCompare(String(right.name || ""))),
+    [users]
+  );
+
   return (
-    <div className="space-y-3 rounded-[30px] border border-slate-200/80 bg-white/88 p-4 shadow-sm shadow-slate-200/35 backdrop-blur">
+    <div className="space-y-2.5 rounded-[24px] border border-slate-200/80 bg-white/95 p-3.5 shadow-sm shadow-slate-200/30 backdrop-blur">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">{stageLabel} control room</p>
-          <h3 className="text-lg font-semibold tracking-tight text-slate-950">{section.title} production table</h3>
+          <h3 className="text-base font-semibold tracking-tight text-slate-950">{section.title} production table</h3>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={onSelectVisible}
-            className="rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
             {allVisibleSelected ? "Clear visible" : `Select visible (${visibleCount})`}
           </button>
           <button
             type="button"
             onClick={onOpenCreate}
-            className={`inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold text-white shadow-sm ${section.button}`}
+            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-sm ${section.button}`}
           >
             <Plus className="h-4 w-4" /> Add {section.singular}
           </button>
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,1.4fr)_180px_220px_150px_180px_140px]">
+      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[minmax(0,1.8fr)_180px_240px]">
         <label className="relative block">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             value={filters.search}
             onChange={(event) => onFilterChange({ search: event.target.value, page: 1 })}
             placeholder={`Search ${section.title.toLowerCase()}`}
-            className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-10 py-2.5 text-sm shadow-sm outline-none transition placeholder:text-slate-400 focus:border-slate-400"
+            className="h-10 w-full rounded-xl border border-slate-300 bg-white px-10 py-2 text-sm shadow-sm outline-none transition placeholder:text-slate-400 focus:border-slate-500"
           />
         </label>
-        <select value={filters.status} onChange={(event) => onFilterChange({ status: event.target.value, page: 1 })} className="h-11 rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400">
+        <select value={filters.status} onChange={(event) => onFilterChange({ status: event.target.value, page: 1 })} className="h-10 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition focus:border-slate-500">
           <option value="">All statuses</option>
           {STAGE_STATUSES.map((status) => (
             <option key={status} value={status}>
@@ -873,20 +1044,23 @@ function WorkspaceToolbar({
             </option>
           ))}
         </select>
-        <select value={filters.artistId} onChange={(event) => onFilterChange({ artistId: event.target.value, page: 1 })} className="h-11 rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400">
+        <select value={filters.artistId} onChange={(event) => onFilterChange({ artistId: event.target.value, page: 1 })} className="h-10 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition focus:border-slate-500">
           <option value="">All artists</option>
-          {[...users].sort((left, right) => String(left.name || "").localeCompare(String(right.name || ""))).map((artist) => (
+          {sortedUsers.map((artist) => (
             <option key={artist.id} value={artist.id}>
               {artist.name}
             </option>
           ))}
         </select>
-        <select value={filters.archived} onChange={(event) => onFilterChange({ archived: event.target.value, page: 1 })} className="h-11 rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400">
+      </div>
+
+      <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-[180px_200px_140px]">
+        <select value={filters.archived} onChange={(event) => onFilterChange({ archived: event.target.value, page: 1 })} className="h-10 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition focus:border-slate-500">
           <option value="active">Active only</option>
           <option value="archived">Archived only</option>
           <option value="all">Active + Archived</option>
         </select>
-        <select value={filters.sortBy} onChange={(event) => onFilterChange({ sortBy: event.target.value, page: 1 })} className="h-11 rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400">
+        <select value={filters.sortBy} onChange={(event) => onFilterChange({ sortBy: event.target.value, page: 1 })} className="h-10 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition focus:border-slate-500">
           <option value="order">Sort: Pipeline order</option>
           <option value="name">Sort: Name</option>
           <option value="artist">Sort: Artist</option>
@@ -897,7 +1071,7 @@ function WorkspaceToolbar({
         <select
           value={String(filters.pageSize)}
           onChange={(event) => onFilterChange({ pageSize: Number(event.target.value), page: 1 })}
-          className="h-11 rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-slate-400"
+          className="h-10 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm outline-none transition focus:border-slate-500"
         >
           {PAGE_SIZE_OPTIONS.map((size) => (
             <option key={size} value={size}>
@@ -956,7 +1130,6 @@ function DesktopRow({
   stage,
   users,
   selected,
-  nowTick,
   disabled,
   onToggleSelect,
   onMove,
@@ -965,7 +1138,6 @@ function DesktopRow({
   onArchive,
   onDelete
 }) {
-  const duration = resolveDurationMinutes(stage, nowTick);
   const leadAssignment = getLeadAssignment(getStageAssignments(stage), stage?.assignedUser);
 
   return (
@@ -980,9 +1152,6 @@ function DesktopRow({
         </div>
       </td>
       <td className="px-3 py-3">
-        <StatusBadge status={stage?.status || "YTS"} />
-      </td>
-      <td className="px-3 py-3">
         <div className="min-w-0 space-y-2">
           <AssignedArtistsSummary assignments={getStageAssignments(stage)} users={users} compact />
           {leadAssignment?.employee ? (
@@ -990,11 +1159,11 @@ function DesktopRow({
           ) : null}
         </div>
       </td>
+      <td className="px-3 py-3">
+        <StatusBadge status={stage?.status || "YTS"} />
+      </td>
       <td className="px-3 py-3 text-sm text-slate-700">{formatDate(resolveStageStart(stage))}</td>
       <td className="px-3 py-3 text-sm text-slate-700">{formatDate(resolveStageEnd(stage))}</td>
-      <td className="px-3 py-3">
-        <DurationPill minutes={duration} />
-      </td>
       <td className="px-3 py-3">
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={() => onMove(asset.id, -1)} className="rounded-lg border border-slate-300 p-2 text-slate-600 hover:bg-slate-50" disabled={disabled || asset.isArchived} title="Move up">
@@ -1111,6 +1280,7 @@ export default function ModellingWorkspace({
   const [editorAdvancedOpen, setEditorAdvancedOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState({ open: false, assets: [] });
   const [nowTick, setNowTick] = useState(Date.now());
+  const debouncedSearch = useDebouncedValue(filters.search, 180);
 
   const projectName = overview?.project?.name || "Project";
   const breadcrumbState = useMemo(
@@ -1176,6 +1346,10 @@ export default function ModellingWorkspace({
 
   const sectionAssets = useMemo(() => (activeSection ? assetsBySection[activeSection.key] || [] : []), [activeSection, assetsBySection]);
   const hasAnySectionAssets = sectionAssets.length > 0;
+  const filterStatus = filters.status;
+  const filterArtistId = filters.artistId;
+  const filterArchived = filters.archived;
+  const filterSortBy = filters.sortBy;
 
   const detailEntries = useMemo(() => {
     if (!activeSection) return [];
@@ -1184,23 +1358,23 @@ export default function ModellingWorkspace({
       .map((asset) => ({ asset, stage: getStageForCode(asset, normalizedStageCode) }))
       .filter((entry) => Boolean(entry.stage))
       .filter((entry) => {
-        const searchNeedle = String(filters.search || "").trim().toLowerCase();
+        const searchNeedle = String(debouncedSearch || "").trim().toLowerCase();
         const matchesSearch =
           !searchNeedle ||
           String(entry.asset.name || "").toLowerCase().includes(searchNeedle) ||
           String(entry.asset.description || "").toLowerCase().includes(searchNeedle) ||
           String(entry.stage.notes || "").toLowerCase().includes(searchNeedle);
-        const matchesStatus = !filters.status || entry.stage.status === filters.status;
+        const matchesStatus = !filterStatus || entry.stage.status === filterStatus;
         const matchesArtist =
-          !filters.artistId ||
-          getStageAssignments(entry.stage).some((assignment) => Number(assignment.employeeId || assignment.employee?.id) === Number(filters.artistId)) ||
-          entry.stage.assignedUser?.id === Number(filters.artistId);
-        const matchesArchived = filters.archived === "all" || (filters.archived === "archived" ? entry.asset.isArchived : !entry.asset.isArchived);
+          !filterArtistId ||
+          getStageAssignments(entry.stage).some((assignment) => Number(assignment.employeeId || assignment.employee?.id) === Number(filterArtistId)) ||
+          entry.stage.assignedUser?.id === Number(filterArtistId);
+        const matchesArchived = filterArchived === "all" || (filterArchived === "archived" ? entry.asset.isArchived : !entry.asset.isArchived);
         return matchesSearch && matchesStatus && matchesArtist && matchesArchived;
       });
 
     const sorted = [...filtered].sort((left, right) => {
-      switch (filters.sortBy) {
+      switch (filterSortBy) {
         case "name":
           return String(left.asset.name || "").localeCompare(String(right.asset.name || ""));
         case "artist":
@@ -1222,7 +1396,7 @@ export default function ModellingWorkspace({
     });
 
     return sorted;
-  }, [activeSection, filters, normalizedStageCode, nowTick, sectionAssets]);
+  }, [activeSection, debouncedSearch, filterArchived, filterArtistId, filterSortBy, filterStatus, normalizedStageCode, nowTick, sectionAssets]);
 
   const detailStats = useMemo(() => getSectionStats(sectionAssets, normalizedStageCode, nowTick), [normalizedStageCode, nowTick, sectionAssets]);
   const totalPages = Math.max(1, Math.ceil(detailEntries.length / Number(filters.pageSize || 25)));
@@ -1312,16 +1486,34 @@ export default function ModellingWorkspace({
 
     const stage = getStageForCode(createdAsset, normalizedStageCode);
     if (stage) {
-      await api.put(`/asset-stages/${stage.id}`, {
-        assignedUserId: getLeadAssignment(values.assignments || [])?.employeeId || null,
-        assignments: values.assignments || [],
+      const stagePayload = buildStageUpdatePayload({
         status: values.status || "YTS",
+        assignments: values.assignments || [],
+        assignedUserId: getLeadAssignment(values.assignments || [])?.employeeId || null,
         startedAt,
-        endedAt: values.endedAt || null,
-        startDate: startedAt,
-        endDate: values.endedAt || null,
-        notes: values.notes || null
+        endedAt: values.endedAt || "",
+        notes: values.notes || ""
       });
+
+      const stagePayloadErrors = validateStageCreatePayload({
+        assetName: name,
+        projectId: Number(projectId),
+        stageId: stage.id,
+        payload: stagePayload
+      });
+
+      logStagePayload("create-asset-stage", {
+        assetName: name,
+        projectId: Number(projectId),
+        stageId: stage.id,
+        payload: stagePayload
+      });
+
+      if (Object.keys(stagePayloadErrors).length) {
+        throw new Error(`Unable to create ${section.singular.toLowerCase()}. Please check required fields.`);
+      }
+
+      await api.put(`/asset-stages/${stage.id}`, stagePayload);
     }
 
     await loadAssets(false);
@@ -1376,23 +1568,35 @@ export default function ModellingWorkspace({
             : { referenceImageUrl: "" })
         });
         if (stage) {
-          await api.put(`/asset-stages/${stage.id}`, {
+          const stagePayload = buildStageUpdatePayload({
             status: editor.form.status,
-            assignedUserId: getLeadAssignment(editor.form.assignments || [])?.employeeId || null,
             assignments: editor.form.assignments || [],
+            assignedUserId: getLeadAssignment(editor.form.assignments || [])?.employeeId || null,
             startedAt: editor.form.startedAt || todayDateInput(),
-            endedAt: editor.form.endedAt || null,
-            startDate: editor.form.startedAt || todayDateInput(),
-            endDate: editor.form.endedAt || null,
-            notes: editor.form.notes || null
+            endedAt: editor.form.endedAt || "",
+            notes: editor.form.notes || ""
           });
+          logStagePayload("edit-asset-stage", {
+            assetName: editor.form.name,
+            projectId: Number(projectId),
+            stageId: stage.id,
+            payload: stagePayload
+          });
+          await api.put(`/asset-stages/${stage.id}`, stagePayload);
         }
         await loadAssets(false);
         showToast?.("success", `${SECTION_CONFIG[editor.sectionKey].singular} updated`);
       }
       closeEditor();
     } catch (err) {
-      showToast?.("error", err.userMessage || err.response?.data?.message || err.message || "Unable to save asset");
+      const statusCode = Number(err?.response?.status || 0);
+      const fallbackCreateMessage = `Unable to create ${String(editorSection?.singular || "asset").toLowerCase()}. Please check required fields.`;
+      if (editor.mode === "create" && statusCode === 400) {
+        setEditorErrors((prev) => ({ ...validateEditorForm(editor.form), ...prev }));
+        showToast?.("error", fallbackCreateMessage);
+      } else {
+        showToast?.("error", err.userMessage || err.response?.data?.message || err.message || "Unable to save asset");
+      }
     } finally {
       setBusy(false);
     }
@@ -1480,16 +1684,17 @@ export default function ModellingWorkspace({
   }
 
   async function bulkAssign() {
-    if (!bulkDraft.assignments?.length) return;
+    const normalizedAssignments = toStageAssignments(bulkDraft.assignments || []);
+    if (!normalizedAssignments.length) return;
     const targets = detailEntries.filter((entry) => selectedIds.includes(entry.asset.id));
-    const lead = getLeadAssignment(bulkDraft.assignments || []);
+    const lead = getLeadAssignment(normalizedAssignments || []);
     setBusy(true);
     try {
       await Promise.all(
         targets.map((entry) =>
           api.put(`/asset-stages/${entry.stage.id}`, {
             assignedUserId: lead?.employeeId || null,
-            assignments: bulkDraft.assignments || []
+            assignments: normalizedAssignments
           })
         )
       );
@@ -1570,8 +1775,8 @@ export default function ModellingWorkspace({
   }
 
   return (
-    <div className="space-y-5">
-      <section className="rounded-[32px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.12),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.94))] p-5 shadow-sm shadow-slate-200/45">
+    <div className="space-y-3.5">
+      <section className="rounded-[26px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.12),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.94))] p-4 shadow-sm shadow-slate-200/40">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div>
             <Link to={`/projects/${projectId}/workspace/${String(normalizedStageCode).toLowerCase()}`} state={breadcrumbState} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600 hover:bg-slate-100">
@@ -1625,8 +1830,11 @@ export default function ModellingWorkspace({
           try {
             await createAsset(activeSection.key, values);
             showToast?.("success", `${activeSection.singular} created`);
+            return true;
           } catch (err) {
-            showToast?.("error", err.userMessage || err.response?.data?.message || err.message || `Unable to create ${activeSection.singular.toLowerCase()}`);
+            const fallbackMessage = `Unable to create ${activeSection.singular.toLowerCase()}. Please check required fields.`;
+            showToast?.("error", err.userMessage || err.response?.data?.message || err.message || fallbackMessage);
+            throw err;
           } finally {
             setBusy(false);
           }
@@ -1634,7 +1842,7 @@ export default function ModellingWorkspace({
       />
 
       {!detailEntries.length ? (
-        <section className="rounded-[30px] border border-dashed border-slate-300 bg-white/90 px-6 py-7 text-center shadow-sm shadow-slate-200/35">
+        <section className="rounded-[22px] border border-dashed border-slate-300 bg-white/95 px-4 py-5 text-center shadow-sm shadow-slate-200/25">
           <div className={`mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br ${activeSection.accent}`}>
             <Plus className="h-5 w-5 text-slate-800" />
           </div>
@@ -1648,18 +1856,17 @@ export default function ModellingWorkspace({
         </section>
       ) : (
         <>
-          <section className="hidden overflow-hidden rounded-[30px] border border-slate-200/80 bg-white/90 shadow-sm shadow-slate-200/35 lg:block">
+          <section className="hidden overflow-hidden rounded-[22px] border border-slate-200/80 bg-white/95 shadow-sm shadow-slate-200/30 lg:block">
             <div className="max-h-[68vh] overflow-auto">
               <table className="min-w-full border-separate border-spacing-0 text-sm">
                 <thead className="sticky top-0 z-10 bg-slate-950 text-white">
                   <tr>
                     <th className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.18em]">Select</th>
                     <th className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.18em]">{activeSection.singular} Name</th>
-                    <th className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.18em]">Status</th>
                     <th className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.18em]">Assigned Artist</th>
+                    <th className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.18em]">Status</th>
                     <th className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.18em]">Start Date</th>
                     <th className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.18em]">End Date</th>
-                    <th className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.18em]">Time Consumption</th>
                     <th className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.18em]">Actions</th>
                   </tr>
                 </thead>
@@ -1671,7 +1878,6 @@ export default function ModellingWorkspace({
                       stage={stage}
                       users={activeUsers}
                       selected={selectedIds.includes(asset.id)}
-                      nowTick={nowTick}
                       disabled={busy}
                       onToggleSelect={(assetId) => setSelectedIds((prev) => (prev.includes(assetId) ? prev.filter((id) => id !== assetId) : [...prev, assetId]))}
                       onMove={moveAsset}
@@ -1703,7 +1909,7 @@ export default function ModellingWorkspace({
             ))}
           </div>
 
-          <section className="flex flex-col gap-3 rounded-[28px] border border-slate-200/80 bg-white/88 px-4 py-3 shadow-sm shadow-slate-200/35 backdrop-blur md:flex-row md:items-center md:justify-between">
+          <section className="flex flex-col gap-2.5 rounded-[20px] border border-slate-200/80 bg-white/95 px-3 py-2.5 shadow-sm shadow-slate-200/25 backdrop-blur md:flex-row md:items-center md:justify-between">
             <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
               <span>Showing <span className="font-semibold text-slate-900">{pagedEntries.length}</span> of <span className="font-semibold text-slate-900">{detailEntries.length}</span></span>
               <span className="text-slate-300">•</span>
@@ -1730,14 +1936,14 @@ export default function ModellingWorkspace({
             </div>
 
             <ModalSection title="Section 1 — Basic Info" description="Only the essentials stay up front so managers can create assets fast.">
-              <div className="grid gap-3 md:grid-cols-[minmax(0,1.7fr)_220px]">
+              <div className="grid gap-3 md:grid-cols-[minmax(0,2.2fr)_220px]">
                 <label className="space-y-1.5">
                   <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Asset Name *</span>
                   <input
                     value={editor.form.name}
                     onChange={(event) => updateEditorField("name", event.target.value)}
-                    placeholder={`Enter ${String(editorSection?.singular || "asset").toLowerCase()} name`}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+                    placeholder={getNamePlaceholder(editorSection?.singular || "asset")}
+                    className="h-12 w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-[15px] font-medium focus:border-slate-500"
                   />
                   <InlineError>{editorErrors.name}</InlineError>
                 </label>

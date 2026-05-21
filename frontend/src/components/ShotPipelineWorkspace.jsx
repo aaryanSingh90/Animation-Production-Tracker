@@ -7,21 +7,23 @@ import {
   ChevronRight,
   Copy,
   NotebookPen,
+  Pencil,
   Plus,
   Search,
-  Trash2
+  Trash2,
+  X
 } from "lucide-react";
 import api from "../lib/api";
 import FlexibleAssignmentField from "./FlexibleAssignmentField";
 import Loader from "./Loader";
 import Modal from "./Modal";
 import StageCommentThread from "./StageCommentThread";
-import StatusBadge from "./StatusBadge";
 import useEmployeeAvailabilitySummaries from "../hooks/useEmployeeAvailabilitySummaries";
 import { EmployeeAvailabilityHoverCard } from "./EmployeeAvailabilityHoverCard";
 import { formatDateTimeInput, formatDurationMinutes, getDepartmentLabel, initials } from "../utils/format";
 import {
   STAGE_STATUSES,
+  getStatusMeta,
   getStatusOptionLabel,
   isLateStatus
 } from "../utils/constants";
@@ -40,11 +42,6 @@ import { formatEmployeeAvailabilityLabel, getEmployeeAvailabilityMeta, getOverlo
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
 const SHOT_STAGE_CODES = ["ANIMATICS", "ANIMATION", "FX", "LIGHTING", "COMPOSITING", "EDITING"];
 const COMPLETE_SHOT_STATUSES = new Set(["DONE", "APPROVED", "FINAL"]);
-const REVIEW_ACTIONS = [
-  { label: "Lead Approve", status: "APPROVED" },
-  { label: "Lead Retake", status: "RTK" },
-  { label: "Final Approve", status: "FINAL" }
-];
 const EDITORIAL_AUDIO_STATUS_OPTIONS = [
   { value: "RECV", label: "RECV • Received" },
   { value: "IP", label: "IP • In Progress" },
@@ -67,6 +64,19 @@ const SHOT_STATUS_THEME = {
 };
 const DEFAULT_FRAME_RANGE = "101-124";
 const HEADER_COLLAPSE_SCROLL_Y = 96;
+
+function todayDateInput() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function useDebouncedValue(value, delayMs = 180) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(timeoutId);
+  }, [value, delayMs]);
+  return debounced;
+}
 
 function parseFrameRange(value) {
   const match = String(value || "")
@@ -127,10 +137,6 @@ function DurationPill({ minutes }) {
   );
 }
 
-function currentDateTimeInput() {
-  return formatDateTimeInput(new Date());
-}
-
 function resolveCreateFrameRange(value) {
   const normalized = String(value || "").trim();
   if (!normalized) return parseFrameRange(DEFAULT_FRAME_RANGE);
@@ -141,9 +147,12 @@ function buildQuickCreateForm() {
   return {
     name: "",
     frameRange: DEFAULT_FRAME_RANGE,
+    department: "",
+    artistSearch: "",
     artistId: "",
     status: "YTS",
-    startedAt: currentDateTimeInput()
+    startedAt: todayDateInput(),
+    endedAt: ""
   };
 }
 
@@ -152,9 +161,13 @@ function getStatusTone(status) {
 }
 
 function StageStatusPill({ status }) {
+  const meta = getStatusMeta(status);
   return (
-    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getStatusTone(status)}`}>
-      {getStatusOptionLabel(status)}
+    <span
+      title={getStatusOptionLabel(status)}
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${getStatusTone(status)}`}
+    >
+      {meta.shortKey || status || "YTS"}
     </span>
   );
 }
@@ -168,29 +181,13 @@ function ToolbarStat({ label, value, tone = "text-slate-100" }) {
   );
 }
 
-function SectionCard({ eyebrow, title, description, action, children, className = "" }) {
-  return (
-    <section className={`rounded-[22px] border border-slate-200/80 bg-white/90 p-3 shadow-sm shadow-slate-200/40 backdrop-blur ${className}`}>
-      <div className="mb-2 flex items-start justify-between gap-3">
-        <div>
-          {eyebrow ? <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">{eyebrow}</p> : null}
-          <h4 className="mt-1 text-sm font-semibold text-slate-950">{title}</h4>
-          {description ? <p className="mt-1 text-[11px] text-slate-500">{description}</p> : null}
-        </div>
-        {action}
-      </div>
-      {children}
-    </section>
-  );
-}
-
 function buildCreateForm(defaultDepartment = "") {
   return {
     name: "",
     frameRange: DEFAULT_FRAME_RANGE,
     assignments: [],
     status: "YTS",
-    startedAt: currentDateTimeInput(),
+    startedAt: todayDateInput(),
     endedAt: "",
     notes: "",
     assignmentDepartment: defaultDepartment,
@@ -206,6 +203,83 @@ function validateCreateForm(values) {
   if (!String(values.status || "").trim()) errors.status = "Status is required.";
   if (!String(values.startedAt || "").trim()) errors.startedAt = "Start date is required.";
   return errors;
+}
+
+function normalizeDateInput(value) {
+  const normalized = String(value || "").trim();
+  return normalized || null;
+}
+
+function toShotStageAssignments(assignments = [], usersById = new Map()) {
+  const normalizedAssignments = normalizeAssignmentList(assignments);
+  if (!normalizedAssignments.length) return [];
+
+  return ensureSingleLead(
+    normalizedAssignments
+      .map((assignment) => {
+        const employeeId = Number(assignment.employeeId || assignment.employee?.id || 0);
+        if (!employeeId) return null;
+        const employee = assignment.employee || usersById.get(employeeId) || null;
+        const departmentId = assignment.departmentId || employee?.departmentId || null;
+        return {
+          employeeId,
+          roleType: assignment.roleType === "SUPPORT" ? "SUPPORT" : "LEAD",
+          ...(departmentId ? { departmentId: String(departmentId) } : {})
+        };
+      })
+      .filter(Boolean)
+  );
+}
+
+function buildShotStagePayload(values, usersById = new Map()) {
+  const payload = {};
+
+  if ("status" in values) {
+    const status = String(values.status || "").trim().toUpperCase();
+    if (STAGE_STATUSES.includes(status)) payload.status = status;
+  }
+
+  if ("assignments" in values || "assignedUserId" in values) {
+    const assignments = toShotStageAssignments(values.assignments || [], usersById);
+    const lead = getLeadAssignment(assignments);
+    if (Array.isArray(values.assignments)) payload.assignments = assignments;
+    payload.assignedUserId = Number(values.assignedUserId || 0) || lead?.employeeId || null;
+  }
+
+  if ("startedAt" in values || "startDate" in values) {
+    const startedAt = normalizeDateInput(values.startedAt ?? values.startDate);
+    payload.startedAt = startedAt;
+    payload.startDate = startedAt;
+  }
+
+  if ("endedAt" in values || "endDate" in values) {
+    const endedAt = normalizeDateInput(values.endedAt ?? values.endDate);
+    payload.endedAt = endedAt;
+    payload.endDate = endedAt;
+  }
+
+  if ("notes" in values) {
+    const notes = String(values.notes || "").trim();
+    payload.notes = notes || null;
+  }
+
+  return payload;
+}
+
+function validateShotStagePayload({ shotLabel, projectId, stageId, payload }) {
+  const errors = {};
+  if (!String(shotLabel || "").trim()) errors.name = "Shot label is required";
+  if (!projectId) errors.projectId = "Project ID is required";
+  if (!stageId) errors.stageId = "Stage ID is required";
+  if (!payload?.status || !STAGE_STATUSES.includes(payload.status)) errors.status = "Valid status is required";
+  if (!payload?.startedAt) errors.startedAt = "Start date is required";
+  if (!Array.isArray(payload?.assignments) || !payload.assignments.length) errors.assignments = "Lead artist is required";
+  if (payload?.assignments?.some((assignment) => !Number(assignment?.employeeId || 0))) errors.assignments = "Valid artist assignment is required";
+  return errors;
+}
+
+function logShotPayload(label, payload) {
+  console.log(`[shot-pipeline] ${label}`, payload);
 }
 
 function buildOutputForm(shot) {
@@ -371,6 +445,12 @@ function buildOptimisticStatusPatch(row, nextStatus) {
 function InlineError({ children }) {
   if (!children) return null;
   return <p className="mt-1 text-xs font-medium text-rose-600">{children}</p>;
+}
+
+function getQuickAddFieldClass(hasError = false) {
+  return `h-11 w-full rounded-xl border bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition ${
+    hasError ? "border-rose-400 ring-2 ring-rose-100" : "border-slate-300 focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
+  }`;
 }
 
 function ensureSingleLead(assignments) {
@@ -935,7 +1015,9 @@ export default function ShotPipelineWorkspace({
   const [createForm, setCreateForm] = useState(() => buildCreateForm(defaultCreateDepartment));
   const [createErrors, setCreateErrors] = useState({});
   const [quickCreateForm, setQuickCreateForm] = useState(() => buildQuickCreateForm());
+  const [quickCreateErrors, setQuickCreateErrors] = useState({});
   const [quickCreateError, setQuickCreateError] = useState("");
+  const [quickCreateState, setQuickCreateState] = useState("idle");
   const [createAdvancedOpen, setCreateAdvancedOpen] = useState(false);
   const [deleteState, setDeleteState] = useState({ open: false, shot: null, many: [] });
   const [outputEditor, setOutputEditor] = useState({ open: false, shot: null, form: buildOutputForm(null) });
@@ -950,6 +1032,7 @@ export default function ShotPipelineWorkspace({
   const headerRef = useRef(null);
   const rowRefs = useRef(new Map());
   const scrollFrameRef = useRef(null);
+  const activeUsersById = useMemo(() => new Map(activeUsers.map((user) => [Number(user.id), user])), [activeUsers]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => setNowTick(Date.now()), 30 * 60 * 1000);
@@ -1045,6 +1128,35 @@ export default function ShotPipelineWorkspace({
     () => sortUsersForWorkspace(activeUsers, recommendedDepartment, summariesByUserId),
     [activeUsers, recommendedDepartment, summariesByUserId]
   );
+  const debouncedQuickArtistSearch = useDebouncedValue(quickCreateForm.artistSearch, 160);
+  const quickCreateDepartmentOptions = useMemo(
+    () => buildDepartmentOptions(activeUsers, recommendedDepartment),
+    [activeUsers, recommendedDepartment]
+  );
+  const quickCreateArtists = useMemo(() => {
+    const scopedUsers = filterUsersByDepartment(activeUsers, quickCreateForm.department);
+    const query = String(debouncedQuickArtistSearch || "").trim().toLowerCase();
+    const filteredUsers = !query
+      ? scopedUsers
+      : scopedUsers.filter((user) =>
+          [user.name, user.email, getDepartmentLabel(user), getEmploymentLabel(user.employmentType), user.role]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase()
+            .includes(query)
+        );
+    return sortUsersBySmartAvailability(
+      filteredUsers,
+      summariesByUserId,
+      quickCreateForm.department || recommendedDepartment
+    );
+  }, [
+    activeUsers,
+    debouncedQuickArtistSearch,
+    quickCreateForm.department,
+    recommendedDepartment,
+    summariesByUserId
+  ]);
 
   const groupedRows = useMemo(() => {
     if (!groupBySequence) {
@@ -1069,6 +1181,20 @@ export default function ShotPipelineWorkspace({
       }));
     }
   }, [createModalOpen, defaultCreateDepartment]);
+
+  useEffect(() => {
+    if (!defaultCreateDepartment) return;
+    setQuickCreateForm((prev) => {
+      if (prev.department) return prev;
+      return { ...prev, department: defaultCreateDepartment };
+    });
+  }, [defaultCreateDepartment]);
+
+  useEffect(() => {
+    if (quickCreateState !== "success") return;
+    const timeoutId = window.setTimeout(() => setQuickCreateState("idle"), 1400);
+    return () => window.clearTimeout(timeoutId);
+  }, [quickCreateState]);
 
   const createSecondsPreview = useMemo(() => {
     const parsed = resolveCreateFrameRange(createForm.frameRange);
@@ -1141,7 +1267,10 @@ export default function ShotPipelineWorkspace({
     if (optimisticPatch) patchStageRow(stageId, optimisticPatch);
     setBusy(true);
     try {
-      const { data } = await api.put(`/shot-stages/${stageId}`, payload);
+      const safePayload = buildShotStagePayload(payload, activeUsersById);
+      const requestPayload = Object.keys(safePayload).length ? safePayload : payload;
+      logShotPayload("update-shot-stage", requestPayload);
+      const { data } = await api.put(`/shot-stages/${stageId}`, requestPayload);
       patchStageRow(stageId, {
         stageStatus: data.status,
         assignedUser: data.assignedUser || null,
@@ -1203,17 +1332,31 @@ export default function ShotPipelineWorkspace({
 
     const stageRow = (data.stages || []).find((stage) => String(stage.stageDefinition?.code || "").toUpperCase() === normalizedStageCode);
     if (stageRow) {
-      const lead = getLeadAssignment(values.assignments || []);
-      await api.put(`/shot-stages/${stageRow.id}`, {
-        assignedUserId: lead?.employeeId || null,
-        assignments: values.assignments || [],
-        status: values.status,
-        startedAt: values.startedAt || null,
-        startDate: values.startedAt || null,
-        endedAt: values.endedAt || null,
-        endDate: values.endedAt || null,
-        notes: values.notes || null
+      const stagePayload = buildShotStagePayload(
+        {
+          assignedUserId: getLeadAssignment(values.assignments || [])?.employeeId || null,
+          assignments: values.assignments || [],
+          status: values.status,
+          startedAt: values.startedAt || null,
+          endedAt: values.endedAt || null,
+          notes: values.notes || null
+        },
+        activeUsersById
+      );
+      const stagePayloadErrors = validateShotStagePayload({
+        shotLabel: normalizedName,
+        projectId,
+        stageId: stageRow.id,
+        payload: stagePayload
       });
+      if (Object.keys(stagePayloadErrors).length) {
+        const validationError = new Error("Invalid stage payload");
+        validationError.userMessage = "Unable to create shot. Please check required fields.";
+        validationError.validation = stagePayloadErrors;
+        throw validationError;
+      }
+      logShotPayload("create-shot-stage", stagePayload);
+      await api.put(`/shot-stages/${stageRow.id}`, stagePayload);
     }
 
     showToast("success", successMessage);
@@ -1240,7 +1383,22 @@ export default function ShotPipelineWorkspace({
         assignmentDepartment: prev.assignmentDepartment || defaultCreateDepartment
       }));
     } catch (err) {
-      showToast("error", err.userMessage || err.response?.data?.message || "Unable to create shot");
+      const validation = err.validation || {};
+      if (Object.keys(validation).length) {
+        setCreateErrors((prev) => ({
+          ...prev,
+          ...(validation.name ? { name: validation.name } : {}),
+          ...(validation.assignments ? { assignments: validation.assignments } : {}),
+          ...(validation.status ? { status: validation.status } : {}),
+          ...(validation.startedAt ? { startedAt: validation.startedAt } : {})
+        }));
+      }
+      const statusCode = Number(err?.response?.status || 0);
+      if (statusCode === 400) {
+        showToast("error", "Unable to create shot. Please check required fields.");
+      } else {
+        showToast("error", err.userMessage || err.response?.data?.message || "Unable to create shot");
+      }
     } finally {
       setBusy(false);
     }
@@ -1248,10 +1406,11 @@ export default function ShotPipelineWorkspace({
 
   async function createQuickShot(event) {
     event?.preventDefault?.();
+    if (quickCreateState !== "idle") setQuickCreateState("idle");
     const artist = activeUsers.find((user) => String(user.id) === String(quickCreateForm.artistId));
     const quickDraft = {
       ...quickCreateForm,
-      endedAt: "",
+      endedAt: quickCreateForm.endedAt || "",
       notes: "",
       assignments: artist
         ? ensureSingleLead([
@@ -1267,22 +1426,50 @@ export default function ShotPipelineWorkspace({
     };
     const nextErrors = validateCreateForm(quickDraft);
     if (Object.keys(nextErrors).length) {
-      setQuickCreateError(nextErrors.name || nextErrors.assignments || nextErrors.frameRange || nextErrors.status || nextErrors.startedAt || "Complete the quick create fields");
+      setQuickCreateErrors({
+        name: nextErrors.name || "",
+        frameRange: nextErrors.frameRange || "",
+        artistId: nextErrors.assignments || "",
+        status: nextErrors.status || "",
+        startedAt: nextErrors.startedAt || ""
+      });
+      setQuickCreateError("Unable to create shot. Please check required fields.");
       showToast("error", "Complete the quick create fields");
       return;
     }
 
+    setQuickCreateState("loading");
     setBusy(true);
     try {
       await submitShotCreate(quickDraft, `${displayStageLabel} shot created`);
+      setQuickCreateErrors({});
       setQuickCreateError("");
       setQuickCreateForm((prev) => ({
         ...buildQuickCreateForm(),
+        department: prev.department || defaultCreateDepartment,
         status: prev.status || "YTS",
-        startedAt: currentDateTimeInput()
+        startedAt: todayDateInput()
       }));
+      setQuickCreateState("success");
     } catch (err) {
-      showToast("error", err.userMessage || err.response?.data?.message || "Unable to create shot");
+      const validation = err.validation || {};
+      if (Object.keys(validation).length) {
+        setQuickCreateErrors({
+          name: validation.name || "",
+          frameRange: validation.frameRange || "",
+          artistId: validation.assignments || "",
+          status: validation.status || "",
+          startedAt: validation.startedAt || ""
+        });
+        setQuickCreateError("Unable to create shot. Please check required fields.");
+      }
+      const statusCode = Number(err?.response?.status || 0);
+      if (statusCode === 400) {
+        showToast("error", "Unable to create shot. Please check required fields.");
+      } else {
+        showToast("error", err.userMessage || err.response?.data?.message || "Unable to create shot");
+      }
+      setQuickCreateState("idle");
     } finally {
       setBusy(false);
     }
@@ -1300,18 +1487,19 @@ export default function ShotPipelineWorkspace({
 
       const stageRow = (data.stages || []).find((stage) => String(stage.stageDefinition?.code || "").toUpperCase() === normalizedStageCode);
       if (stageRow) {
-        const duplicatedAssignments = getStageAssignments(row);
-        const lead = getLeadAssignment(duplicatedAssignments);
-        await api.put(`/shot-stages/${stageRow.id}`, {
-          assignedUserId: lead?.employeeId || null,
-          assignments: duplicatedAssignments,
-          status: row.stageStatus,
-          startedAt: resolveStageStart(row) || null,
-          startDate: resolveStageStart(row) || null,
-          endedAt: resolveStageEnd(row) || null,
-          endDate: resolveStageEnd(row) || null,
-          notes: row.notes || null
-        });
+        const stagePayload = buildShotStagePayload(
+          {
+            assignedUserId: getLeadAssignment(getStageAssignments(row))?.employeeId || null,
+            assignments: getStageAssignments(row),
+            status: row.stageStatus,
+            startedAt: resolveStageStart(row) || null,
+            endedAt: resolveStageEnd(row) || null,
+            notes: row.notes || null
+          },
+          activeUsersById
+        );
+        logShotPayload("duplicate-shot-stage", stagePayload);
+        await api.put(`/shot-stages/${stageRow.id}`, stagePayload);
       }
 
       await api.put(`/shots/${data.id}`, {
@@ -1684,82 +1872,150 @@ export default function ShotPipelineWorkspace({
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 pb-2">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Quick Create</p>
-            <h3 className="text-sm font-semibold text-slate-950">Add shots inline</h3>
+            <h3 className="text-sm font-semibold text-slate-950">Add shots in seconds</h3>
           </div>
           <div className="flex flex-wrap gap-1.5 text-[11px] text-slate-500">
             <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">Press Enter to create</span>
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">Defaults to now</span>
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">Start date defaults to today</span>
           </div>
         </div>
 
-        <form onSubmit={createQuickShot} className="mt-3 grid gap-2 xl:grid-cols-[minmax(0,1fr)_140px_240px_160px_190px_auto]">
-          <input
-            value={quickCreateForm.name}
-            onChange={(event) => {
-              setQuickCreateForm((prev) => ({ ...prev, name: event.target.value }));
-              setQuickCreateError("");
-            }}
-            placeholder="Shot label or sequence tag"
-            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
-          />
-          <input
-            value={quickCreateForm.frameRange}
-            onChange={(event) => {
-              setQuickCreateForm((prev) => ({ ...prev, frameRange: event.target.value }));
-              setQuickCreateError("");
-            }}
-            placeholder="101-148"
-            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400"
-          />
-          <select
-            value={quickCreateForm.artistId}
-            onChange={(event) => {
-              setQuickCreateForm((prev) => ({ ...prev, artistId: event.target.value }));
-              setQuickCreateError("");
-            }}
-            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
-          >
-            <option value="">Assign lead artist</option>
-            {assignableUsers.map((artist) => (
-              <option key={artist.id} value={artist.id}>
-                {artist.name} · {getDepartmentLabel(artist)} · {formatEmployeeAvailabilityLabel(summariesByUserId[Number(artist.id)]?.liveStatus || artist.availabilityStatus || "AVAILABLE")} · {summariesByUserId[Number(artist.id)]?.activeTasks ?? 0} active
-              </option>
-            ))}
-          </select>
-          <select
-            value={quickCreateForm.status}
-            onChange={(event) => {
-              setQuickCreateForm((prev) => ({ ...prev, status: event.target.value }));
-              setQuickCreateError("");
-            }}
-            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
-          >
-            {STAGE_STATUSES.map((status) => (
-              <option key={status} value={status}>{getStatusOptionLabel(status)}</option>
-            ))}
-          </select>
-          <input
-            type="datetime-local"
-            value={quickCreateForm.startedAt}
-            onChange={(event) => {
-              setQuickCreateForm((prev) => ({ ...prev, startedAt: event.target.value }));
-              setQuickCreateError("");
-            }}
-            className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
-          />
-          <button
-            type="submit"
-            disabled={!quickCreateCanSubmit || busy}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
-          >
-            <Plus className="h-4 w-4" /> Create
-          </button>
+        <form onSubmit={createQuickShot} className="mt-3 space-y-2.5">
+          <div className="grid gap-2 xl:grid-cols-[minmax(0,1.45fr)_140px_250px_170px_170px_140px]">
+            <input
+              value={quickCreateForm.name}
+              onChange={(event) => {
+                setQuickCreateForm((prev) => ({ ...prev, name: event.target.value }));
+                setQuickCreateErrors((prev) => ({ ...prev, name: "" }));
+                setQuickCreateError("");
+                setQuickCreateState("idle");
+              }}
+              placeholder="Shot label"
+              className={getQuickAddFieldClass(Boolean(quickCreateErrors.name))}
+            />
+            <input
+              value={quickCreateForm.frameRange}
+              onChange={(event) => {
+                setQuickCreateForm((prev) => ({ ...prev, frameRange: event.target.value }));
+                setQuickCreateErrors((prev) => ({ ...prev, frameRange: "" }));
+                setQuickCreateError("");
+                setQuickCreateState("idle");
+              }}
+              placeholder="101-148"
+              className={getQuickAddFieldClass(Boolean(quickCreateErrors.frameRange))}
+            />
+            <select
+              value={quickCreateForm.artistId}
+              onChange={(event) => {
+                setQuickCreateForm((prev) => ({ ...prev, artistId: event.target.value }));
+                setQuickCreateErrors((prev) => ({ ...prev, artistId: "" }));
+                setQuickCreateError("");
+                setQuickCreateState("idle");
+              }}
+              className={getQuickAddFieldClass(Boolean(quickCreateErrors.artistId))}
+            >
+              <option value="">Assign lead artist</option>
+              {quickCreateArtists.map((artist) => (
+                <option key={artist.id} value={artist.id}>
+                  {artist.name} · {getDepartmentLabel(artist)} · {formatEmployeeAvailabilityLabel(summariesByUserId[Number(artist.id)]?.liveStatus || artist.availabilityStatus || "AVAILABLE")} · {summariesByUserId[Number(artist.id)]?.activeTasks ?? 0} active
+                </option>
+              ))}
+            </select>
+            <select
+              value={quickCreateForm.status}
+              onChange={(event) => {
+                setQuickCreateForm((prev) => ({ ...prev, status: event.target.value }));
+                setQuickCreateErrors((prev) => ({ ...prev, status: "" }));
+                setQuickCreateError("");
+                setQuickCreateState("idle");
+              }}
+              className={getQuickAddFieldClass(Boolean(quickCreateErrors.status))}
+            >
+              {STAGE_STATUSES.map((status) => (
+                <option key={status} value={status}>{getStatusOptionLabel(status)}</option>
+              ))}
+            </select>
+            <input
+              type="date"
+              value={quickCreateForm.startedAt || todayDateInput()}
+              onChange={(event) => {
+                setQuickCreateForm((prev) => ({ ...prev, startedAt: event.target.value || todayDateInput() }));
+                setQuickCreateErrors((prev) => ({ ...prev, startedAt: "" }));
+                setQuickCreateError("");
+                setQuickCreateState("idle");
+              }}
+              className={getQuickAddFieldClass(Boolean(quickCreateErrors.startedAt))}
+            />
+            <button
+              type="submit"
+              disabled={!quickCreateCanSubmit || busy || quickCreateState === "loading"}
+              className="inline-flex h-11 w-[140px] items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+            >
+              {quickCreateState === "loading" ? "Creating..." : quickCreateState === "success" ? "Created ✓" : "Create"}
+            </button>
+          </div>
+
+          <div className="grid gap-2 md:grid-cols-[200px_minmax(0,1fr)_170px]">
+            <select
+              value={quickCreateForm.department}
+              onChange={(event) => {
+                const department = event.target.value;
+                setQuickCreateForm((prev) => ({ ...prev, department, artistId: "", artistSearch: "" }));
+                setQuickCreateErrors((prev) => ({ ...prev, artistId: "" }));
+                setQuickCreateError("");
+                setQuickCreateState("idle");
+              }}
+              className={getQuickAddFieldClass(false)}
+            >
+              <option value="">All departments</option>
+              {quickCreateDepartmentOptions.map((department) => (
+                <option key={department} value={department}>
+                  {department}{department === recommendedDepartment ? " · Recommended" : ""}
+                </option>
+              ))}
+            </select>
+
+            <label className="relative block">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                value={quickCreateForm.artistSearch}
+                onChange={(event) => {
+                  setQuickCreateForm((prev) => ({ ...prev, artistSearch: event.target.value }));
+                  setQuickCreateState("idle");
+                }}
+                placeholder="Search artist, department, or role"
+                className="h-11 w-full rounded-xl border border-slate-300 bg-white px-10 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-slate-500 focus:ring-2 focus:ring-slate-100"
+              />
+            </label>
+
+            <input
+              type="date"
+              value={quickCreateForm.endedAt || ""}
+              onChange={(event) => {
+                setQuickCreateForm((prev) => ({ ...prev, endedAt: event.target.value }));
+                setQuickCreateState("idle");
+              }}
+              className={getQuickAddFieldClass(false)}
+              placeholder="End date (optional)"
+            />
+          </div>
         </form>
         <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
           <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">Preview {quickCreateSecondsPreview}</span>
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">Start {formatWorkspaceDateTime(quickCreateForm.startedAt)}</span>
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">Start {formatWorkspaceShortDate(quickCreateForm.startedAt)}</span>
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">{quickCreateArtists.length} artist options</span>
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">Required: name, artist, status, start date</span>
         </div>
         {quickCreateError ? <p className="mt-2 text-[11px] font-medium text-rose-600">{quickCreateError}</p> : null}
+        {Object.values(quickCreateErrors).some(Boolean) ? (
+          <div className="mt-1 grid gap-1 text-[11px] text-rose-600 sm:grid-cols-2 xl:grid-cols-5">
+            <InlineError>{quickCreateErrors.name}</InlineError>
+            <InlineError>{quickCreateErrors.frameRange}</InlineError>
+            <InlineError>{quickCreateErrors.artistId}</InlineError>
+            <InlineError>{quickCreateErrors.status}</InlineError>
+            <InlineError>{quickCreateErrors.startedAt}</InlineError>
+          </div>
+        ) : null}
       </section>
 
       {error ? (
@@ -1826,9 +2082,9 @@ export default function ShotPipelineWorkspace({
                   <div className="divide-y divide-slate-200/70">
                     <div className="hidden xl:grid xl:grid-cols-[28px_minmax(0,1.65fr)_minmax(0,1.15fr)_minmax(0,0.95fr)_auto] xl:items-center xl:gap-3 xl:bg-slate-950/[0.03] xl:px-3 xl:py-2">
                       <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Pick</span>
-                      <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Shot / Sequence / Frames</span>
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Shot / Frames / Seconds</span>
                       <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Status / Artist</span>
-                      <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Dates / Time</span>
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Start / End / Time</span>
                       <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Actions</span>
                     </div>
                     <div className="space-y-2 p-2">
@@ -1869,15 +2125,13 @@ export default function ShotPipelineWorkspace({
 
                             <div className="min-w-0">
                               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                                <p className="text-sm font-semibold tracking-[0.03em] text-slate-950">{buildShotId(row.shot?.shotNumber)}</p>
+                                <p className="min-w-0 truncate text-sm font-semibold tracking-[0.03em] text-slate-950">{deriveShotLabel(row.shot)}</p>
+                                <p className="text-xs font-semibold tracking-[0.12em] text-slate-500">{buildShotId(row.shot?.shotNumber)}</p>
                                 <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-600">
                                   {row.sequence || "MAIN"}
                                 </span>
-                                {deriveShotLabel(row.shot) !== buildShotId(row.shot?.shotNumber) ? (
-                                  <p className="min-w-0 truncate text-xs text-slate-500">{deriveShotLabel(row.shot)}</p>
-                                ) : null}
                               </div>
-                              <div className="mt-1 grid gap-2 text-xs text-slate-600 sm:grid-cols-3">
+                              <div className={`mt-1 grid gap-2 text-xs text-slate-600 ${isEditingStage ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
                                 <RowMeta label="Frame Range" value={frameRangeLabel} emphasize />
                                 <RowMeta
                                   label="Seconds"
@@ -1889,16 +2143,12 @@ export default function ShotPipelineWorkspace({
                                     </div>
                                   }
                                 />
-                                <RowMeta
-                                  label="Notes"
-                                  value={
-                                    commentCount > 0
-                                      ? `${commentCount} comment${commentCount > 1 ? "s" : ""}`
-                                      : row.notes
-                                        ? "Notes added"
-                                        : "Clear"
-                                  }
-                                />
+                                {isEditingStage ? (
+                                  <RowMeta
+                                    label="Output"
+                                    value={row.shot?.finalOutputApprovalStatus || row.shot?.audioWorkflowStatus || row.shot?.audioStatus || "--"}
+                                  />
+                                ) : null}
                               </div>
                             </div>
 
@@ -1935,6 +2185,19 @@ export default function ShotPipelineWorkspace({
                             </div>
 
                             <div className="flex items-center gap-1.5 xl:justify-end">
+                              <IconToolbarButton
+                                title="Quick edit"
+                                onClick={() => {
+                                  if (!expandedRows[row.stageId]) {
+                                    toggleExpanded(row.stageId);
+                                  } else {
+                                    focusExpandedRow(row.stageId);
+                                  }
+                                }}
+                                disabled={busy}
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </IconToolbarButton>
                               <IconToolbarButton title="Move up" onClick={() => moveShot(row, -1)} disabled={busy}>
                                 <ArrowUp className="h-3.5 w-3.5" />
                               </IconToolbarButton>
@@ -2064,8 +2327,8 @@ export default function ShotPipelineWorkspace({
                                   <label className="space-y-1">
                                     <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Start Date</span>
                                     <input
-                                      type="datetime-local"
-                                      value={formatDateTimeInput(resolveStageStart(row))}
+                                      type="date"
+                                      value={formatDateTimeInput(resolveStageStart(row)).slice(0, 10)}
                                       onChange={(event) =>
                                         updateStage(
                                           row.stageId,
@@ -2082,8 +2345,8 @@ export default function ShotPipelineWorkspace({
                                   <label className="space-y-1">
                                     <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">End Date</span>
                                     <input
-                                      type="datetime-local"
-                                      value={formatDateTimeInput(resolveStageEnd(row))}
+                                      type="date"
+                                      value={formatDateTimeInput(resolveStageEnd(row)).slice(0, 10)}
                                       onChange={(event) =>
                                         updateStage(
                                           row.stageId,
@@ -2395,7 +2658,7 @@ export default function ShotPipelineWorkspace({
                   <section className="rounded-[24px] border border-slate-200 bg-slate-50/80 p-4">
                     <div className="mb-3">
                       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Section 3 — Status & Dates</p>
-                      <p className="mt-1 text-sm text-slate-500">Start date defaults to the current time so production timing begins immediately.</p>
+                      <p className="mt-1 text-sm text-slate-500">Start date defaults to today so production timing starts without extra clicks.</p>
                     </div>
                     <div className="grid gap-3 md:grid-cols-3">
                       <label className="space-y-1.5">
@@ -2419,10 +2682,10 @@ export default function ShotPipelineWorkspace({
                       <label className="space-y-1.5">
                         <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Start Date *</span>
                         <input
-                          type="datetime-local"
-                          value={createForm.startedAt || currentDateTimeInput()}
+                          type="date"
+                          value={createForm.startedAt || todayDateInput()}
                           onChange={(event) => {
-                            setCreateForm((prev) => ({ ...prev, startedAt: event.target.value || currentDateTimeInput() }));
+                            setCreateForm((prev) => ({ ...prev, startedAt: event.target.value || todayDateInput() }));
                             setCreateErrors((prev) => ({ ...prev, startedAt: "" }));
                           }}
                           className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
@@ -2432,7 +2695,7 @@ export default function ShotPipelineWorkspace({
                       <label className="space-y-1.5">
                         <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">End Date</span>
                         <input
-                          type="datetime-local"
+                          type="date"
                           value={createForm.endedAt}
                           onChange={(event) => setCreateForm((prev) => ({ ...prev, endedAt: event.target.value }))}
                           className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
@@ -2448,7 +2711,7 @@ export default function ShotPipelineWorkspace({
           <div className="-mx-6 mt-5 sticky bottom-0 border-t border-slate-200 bg-white px-6 pt-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                <p className="font-semibold">Required: frame range, assigned artist, status, start date.</p>
+                <p className="font-semibold">Required: shot label, frame range, assigned artist, status, start date.</p>
                 <p className="mt-0.5 text-amber-800">End date and notes stay optional for fast shot entry.</p>
               </div>
               <div className="flex gap-2">
