@@ -796,7 +796,7 @@ export default function ProjectStageWorkspacePage() {
   if (stageCode === "AUDIO") {
     return (
       <div className="space-y-4">
-        <PipelineQuickStageBar projectId={projectId} overview={overview} activeStageCode={stageCode} sticky />
+        <PipelineQuickStageBar projectId={projectId} overview={overview} activeStageCode={stageCode} sticky className="-mx-4 -mt-4 sm:-mx-5 lg:-mx-6 xl:-mx-8" />
         <AudioWorkspace
           projectId={projectId}
           overview={overview}
@@ -812,7 +812,7 @@ export default function ProjectStageWorkspacePage() {
   if (["MODELLING", "UNWRAPPING", "TEXTURING", "RIGGING"].includes(stageCode)) {
     return (
       <div className="space-y-4">
-        <PipelineQuickStageBar projectId={projectId} overview={overview} activeStageCode={stageCode} sticky />
+        <PipelineQuickStageBar projectId={projectId} overview={overview} activeStageCode={stageCode} sticky className="-mx-4 -mt-4 sm:-mx-5 lg:-mx-6 xl:-mx-8" />
         <ModellingWorkspace
           projectId={projectId}
           overview={overview}
@@ -831,7 +831,7 @@ export default function ProjectStageWorkspacePage() {
   if (DEDICATED_SHOT_WORKSPACE_STAGE_CODES.has(stageCode)) {
     return (
       <div className="space-y-4">
-        <PipelineQuickStageBar projectId={projectId} overview={overview} activeStageCode={stageCode} sticky />
+        <PipelineQuickStageBar projectId={projectId} overview={overview} activeStageCode={stageCode} sticky className="-mx-4 -mt-4 sm:-mx-5 lg:-mx-6 xl:-mx-8" />
         <ShotPipelineWorkspace
           projectId={projectId}
           overview={overview}
@@ -849,7 +849,7 @@ export default function ProjectStageWorkspacePage() {
 
   return (
     <div className="space-y-4">
-      <PipelineQuickStageBar projectId={projectId} overview={overview} activeStageCode={stageCode} sticky />
+      <PipelineQuickStageBar projectId={projectId} overview={overview} activeStageCode={stageCode} sticky className="-mx-4 -mt-4 sm:-mx-5 lg:-mx-6 xl:-mx-8" />
       <section className="rounded-2xl border border-slate-200 bg-white p-4">
         <div className="mb-3 flex items-start justify-between gap-3">
           <div>

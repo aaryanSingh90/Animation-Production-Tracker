@@ -426,14 +426,27 @@ export default function ProjectDetailPage() {
   }, [project]);
 
   const pipelineNodes = useMemo(() => {
-    const configuredCodes = Array.isArray(overview?.project?.activeStageCodes)
-      ? overview.project.activeStageCodes.map((code) => normalizeStageCode(code)).filter(Boolean)
+    const configuredStages = Array.isArray(overview?.project?.pipelineStages)
+      ? overview.project.pipelineStages
+          .map((stage, index) => ({
+            ...stage,
+            stageCode: normalizeStageCode(stage.stageCode),
+            order: Number(stage.order || index + 1)
+          }))
+          .filter((stage) => stage.stageCode)
+          .sort((a, b) => a.order - b.order)
       : [];
+    const configuredCodes = configuredStages.length
+      ? configuredStages.map((stage) => stage.stageCode)
+      : Array.isArray(overview?.project?.activeStageCodes)
+        ? overview.project.activeStageCodes.map((code) => normalizeStageCode(code)).filter(Boolean)
+        : [];
     const summaryCodes = (overview?.stageSummaries || []).map((summary) => normalizeStageCode(summary.stageCode)).filter(Boolean);
     const stageCodes = Array.from(new Set(configuredCodes.length ? configuredCodes : summaryCodes));
 
     return stageCodes.map((code) => {
-      const summary = stageSummaryMap.get(code) || (code === "RENDERING" ? stageSummaryMap.get("RENDER") : null);
+      const configuredStage = configuredStages.find((stage) => stage.stageCode === code);
+      const summary = configuredStage || stageSummaryMap.get(code) || (code === "RENDERING" ? stageSummaryMap.get("RENDER") : null);
       const meta = STAGE_META_BY_CODE.get(code) || {};
       const node = {
         id: code.toLowerCase(),
@@ -548,6 +561,14 @@ export default function ProjectDetailPage() {
 
   return (
     <div className="space-y-5">
+      <PipelineQuickStageBar
+        projectId={project.id}
+        overview={overview}
+        navigationState={breadcrumbState}
+        sticky
+        className="-mx-4 -mt-4 sm:-mx-5 lg:-mx-6 xl:-mx-8"
+      />
+
       <section className="overflow-hidden rounded-[32px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.12),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.94))] shadow-sm shadow-slate-200/50">
         <div className="border-b border-slate-200/80 px-5 py-5 lg:px-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
@@ -640,13 +661,6 @@ export default function ProjectDetailPage() {
           <HeaderMetric label="Units" value={productionMetrics.totalProductionUnits} caption="Shots, assets, audio" icon={Package} />
         </div>
       </section>
-
-      <PipelineQuickStageBar
-        projectId={project.id}
-        overview={overview}
-        navigationState={breadcrumbState}
-        sticky
-      />
 
       <section className="rounded-[30px] border border-slate-200/80 bg-white/88 p-5 shadow-sm shadow-slate-200/40 backdrop-blur lg:p-6">
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3">

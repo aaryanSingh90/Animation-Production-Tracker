@@ -406,6 +406,19 @@ const getProjectOverview = asyncHandler(async (req, res) => {
   const total = projectLevelRows.length + shotStages.length + assetStages.length;
   const overallProgress = total ? Math.round((completed / total) * 100) : 0;
   const activeTasks = Math.max(total - completed, 0);
+  const pipelineStages = stageSummaries.map((stage) => ({
+    stageCode: stage.stageCode,
+    stageName: stage.stageName,
+    order: stage.order,
+    trackingMode: stage.trackingMode,
+    total: stage.total,
+    completed: stage.approved,
+    inProgress: stage.inProgress,
+    delayed: stage.delayed,
+    pendingApprovals: stage.submitted,
+    assignedArtists: stage.assignedArtists,
+    completionPercent: stage.completionPercent
+  }));
 
   return res.json({
     project: {
@@ -418,6 +431,7 @@ const getProjectOverview = asyncHandler(async (req, res) => {
       totalAudioTasks: audioTasks.length,
       lightingMode: project.lightingMode,
       renderingMode: project.renderingMode,
+      pipelineStages,
       activeStageCodes: project.activeStageCodes,
       shotStageCodes: Array.from(snapshot.shotCodes),
       assetStageCodes: Array.from(snapshot.assetCodes),
