@@ -430,13 +430,6 @@ export default function ProjectStageWorkspacePage() {
       let resolvedTrackingMode =
         resolvedSummary?.trackingMode || DEFAULT_TRACKING_BY_STAGE[String(stageCode || "").toUpperCase()] || "PROJECT";
 
-      if (!resolvedSummary && stageCode === "LIGHTING") {
-        resolvedTrackingMode = overviewRes.data?.project?.lightingMode || "PROJECT";
-      }
-      if (!resolvedSummary && stageCode === "RENDERING") {
-        resolvedTrackingMode = overviewRes.data?.project?.renderingMode || "PROJECT";
-      }
-
       setWorkspaceMode(resolvedTrackingMode);
 
       if (DEDICATED_SHOT_WORKSPACE_STAGE_CODES.has(stageCode)) {
@@ -789,6 +782,16 @@ export default function ProjectStageWorkspacePage() {
   }
 
   if (loading && !overview) return <Loader label="Loading stage workspace..." />;
+
+  const activeStageCodes = (overview?.project?.activeStageCodes || []).map((code) => String(code || "").toUpperCase());
+  if (overview && activeStageCodes.length > 0 && !activeStageCodes.includes(String(stageCode || "").toUpperCase())) {
+    return (
+      <EmptyState
+        title="Stage not active"
+        description="This workspace is not enabled in the project's custom pipeline."
+      />
+    );
+  }
 
   if (stageCode === "AUDIO") {
     return (

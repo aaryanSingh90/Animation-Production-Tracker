@@ -173,7 +173,8 @@ async function initializeDynamicTracking({
   totalShots = 0,
   lightingMode = "SHOT",
   renderingMode = "PROJECT",
-  activeStageCodes = []
+  activeStageCodes = [],
+  stageInputs = []
 }) {
   const [stageDefinitions, stageTemplates] = await Promise.all([
     ensureDefaultStageDefinitions(prisma),
@@ -185,14 +186,21 @@ async function initializeDynamicTracking({
   );
   const definitionsByCode = new Map(stageDefinitions.map((definition) => [normalizeStageCode(definition.code), definition]));
   const departmentLookup = buildDepartmentLookup();
-
-  const requestedCodes = new Set(
-    (activeStageCodes.length ? activeStageCodes : BLUEPRINT_ACTIVE_CODES).map((code) => normalizeStageCode(code))
+  const inputByCode = new Map(
+    (Array.isArray(stageInputs) ? stageInputs : [])
+      .map((input) => [normalizeStageCode(getStageCodeFromLegacyStageName(input.stageName) || input.stageName), input])
+      .filter(([code]) => Boolean(code))
   );
+
+  const orderedCodes = Array.from(
+    new Set((activeStageCodes.length ? activeStageCodes : BLUEPRINT_ACTIVE_CODES).map((code) => normalizeStageCode(code)).filter(Boolean))
+  );
+  const requestedCodes = new Set(orderedCodes);
+  const orderByCode = new Map(orderedCodes.map((code, index) => [code, index + 1]));
 
   const filteredDefinitions = stageDefinitions
     .filter((definition) => definition.isActive && requestedCodes.has(normalizeStageCode(definition.code)))
-    .sort((a, b) => a.order - b.order);
+    .sort((a, b) => (orderByCode.get(normalizeStageCode(a.code)) || 999) - (orderByCode.get(normalizeStageCode(b.code)) || 999));
 
   const createProjectStagesForCodes = [];
   const createShotStagesForCodes = [];
@@ -217,10 +225,11 @@ async function initializeDynamicTracking({
     if (definition.trackingMode === "ASSET") createAssetStagesForCodes.push(code);
   }
 
-  const projectStageRows = createProjectStagesForCodes.map((code, index) => {
+  const projectStageRows = createProjectStagesForCodes.map((code) => {
     const definition = definitionsByCode.get(code);
     const legacyStageName = getLegacyStageNameFromCode(code);
     const stageTemplate = templateByLegacy.get(legacyStageName) || null;
+    const input = inputByCode.get(code) || {};
 
     return {
       projectId,
@@ -229,9 +238,10 @@ async function initializeDynamicTracking({
       stageDefinitionId: definition?.id || null,
       stageTemplateId: stageTemplate?.id || null,
       customName: null,
-      order: index + 1,
+      order: orderByCode.get(code) || definition?.order || 999,
       departmentName: departmentLookup.get(legacyStageName) || `${definition?.name || "General"} Department`,
       status: "YTS",
+      deadline: input.deadline ? new Date(input.deadline) : null,
       isActive: true
     };
   });
@@ -666,9 +676,15 @@ const createProject = asyncHandler(async (req, res) => {
   if (advancedTracking) {
     const safeLightingMode = "SHOT";
     const safeRenderingMode = renderingMode === "SHOT" ? "SHOT" : "PROJECT";
+    const orderedStageCodesFromStages = Array.isArray(stages)
+      ? stages
+          .sort((a, b) => Number(a.order || 0) - Number(b.order || 0))
+          .map((item) => normalizeStageCode(getStageCodeFromLegacyStageName(item.stageName) || item.stageName))
+          .filter(Boolean)
+      : [];
     const normalizedActiveCodes = Array.from(
       new Set(
-        ((activeStageCodes || []).length ? activeStageCodes : BLUEPRINT_ACTIVE_CODES)
+        (orderedStageCodesFromStages.length ? orderedStageCodesFromStages : (activeStageCodes || []).length ? activeStageCodes : BLUEPRINT_ACTIVE_CODES)
           .map((code) => normalizeStageCode(code))
           .filter(Boolean)
       )
@@ -697,7 +713,8 @@ const createProject = asyncHandler(async (req, res) => {
       totalShots: project.totalShots,
       lightingMode: safeLightingMode,
       renderingMode: safeRenderingMode,
-      activeStageCodes: normalizedActiveCodes
+      activeStageCodes: normalizedActiveCodes,
+      stageInputs: stages
     });
   } else {
     const requestedStages = Array.isArray(stages) && stages.length

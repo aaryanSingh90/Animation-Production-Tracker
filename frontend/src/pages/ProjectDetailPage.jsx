@@ -1,32 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import { AlertTriangle, ArrowRight, Building2, CheckCheck, Clock3, Clapperboard, FolderKanban, Package, Pencil, Trash2, Workflow } from "lucide-react";
+import { AlertTriangle, ArrowRight, Building2, CheckCircle2, Clapperboard, FolderKanban, Grid2X2, ListTree, Package, Pencil, Plus, RadioTower, Trash2, UsersRound, Workflow } from "lucide-react";
 import api from "../lib/api";
 import Loader from "../components/Loader";
 import EmptyState from "../components/EmptyState";
 import Modal from "../components/Modal";
-import PipelineQuickStageBar from "../components/PipelineQuickStageBar";
+import PipelineQuickStageBar, { PIPELINE_STAGE_ITEMS } from "../components/PipelineQuickStageBar";
 import ProgressBar from "../components/ProgressBar";
-import { formatDate, formatDateInput, labelize } from "../utils/format";
-import { buildStageWorkspacePath } from "../utils/stageRouting";
+import { formatDateInput, labelize } from "../utils/format";
+import { buildStageWorkspacePath, stageSlugFromCode } from "../utils/stageRouting";
 import { isCompleteStatus, isLateStatus, isPendingReviewStatus } from "../utils/constants";
 import { useToastStore } from "../store/toastStore";
 
-const CORE_PIPELINE = [
-  { id: "animatics", label: "Animatics", stageCode: "ANIMATICS", workspaceSlug: "animatics", tracking: "SHOT", color: "#8B5CF6" },
-  { id: "audio", label: "Audio", stageCode: "AUDIO", workspaceSlug: "audio", tracking: "PROJECT", color: "#6366F1" },
-  { id: "modelling", label: "Modelling", stageCode: "MODELLING", workspaceSlug: "modelling", tracking: "ASSET", color: "#EC4899" },
-  { id: "unwrapping", label: "Unwrapping", stageCode: "UNWRAPPING", workspaceSlug: "unwrapping", tracking: "ASSET", color: "#D946EF" },
-  { id: "texturing", label: "Texturing", stageCode: "TEXTURING", workspaceSlug: "texturing", tracking: "ASSET", color: "#EF4444" },
-  { id: "rigging", label: "Rigging", stageCode: "RIGGING", workspaceSlug: "rigging", tracking: "ASSET", color: "#F59E0B" },
-  { id: "animation", label: "Animation", stageCode: "ANIMATION", workspaceSlug: "animation", tracking: "SHOT", color: "#3B82F6" },
-  { id: "fx", label: "FX", stageCode: "FX", workspaceSlug: "fx", tracking: "SHOT", color: "#A855F7" },
-  { id: "lighting", label: "Lighting", stageCode: "LIGHTING", workspaceSlug: "lighting", tracking: "SHOT", color: "#F97316" },
-  { id: "composite", label: "Composite", stageCode: "COMPOSITING", workspaceSlug: "composite", tracking: "SHOT", color: "#84CC16" },
-  { id: "editing", label: "Editing", stageCode: "EDITING", workspaceSlug: "editing", tracking: "SHOT", color: "#06B6D4" }
-];
-
-const EXTRA_WORKSPACE_ORDER = ["RENDERING"];
+const STAGE_META_BY_CODE = new Map(PIPELINE_STAGE_ITEMS.map((stage) => [stage.code, stage]));
+const WORKSPACE_VIEW_STORAGE_PREFIX = "projectWorkspaceView";
 
 const STATUS_TONE = {
   healthy: "bg-emerald-50 text-emerald-700 border-emerald-200",
@@ -56,7 +43,21 @@ function resolveStageCode(stage) {
 
   const stageName = String(stage?.stageName || "").toUpperCase();
   if (stageName === "RENDER") return "RENDERING";
+  if (stageName === "COMPING") return "COMPOSITING";
   return stageName || null;
+}
+
+function normalizeStageCode(value) {
+  const normalized = String(value || "").trim().toUpperCase();
+  if (normalized === "RENDER") return "RENDERING";
+  if (normalized === "COMPING" || normalized === "COMPOSITE") return "COMPOSITING";
+  return normalized;
+}
+
+function formatStageLabel(code, fallback) {
+  if (fallback) return fallback;
+  if (code === "RENDERING") return "Final Output";
+  return labelize(code);
 }
 
 function pluralize(count, singular, plural = `${singular}s`) {
@@ -74,25 +75,6 @@ function deriveProjectStatus(project, overview) {
     return { label: "In Review", tone: STATUS_TONE.warning };
   }
   return PROJECT_STATUS_META[project?.overallStatus] || PROJECT_STATUS_META.ON_TRACK;
-}
-
-function resolveNodeHealth(nearestDeadline, delayedCount) {
-  if (delayedCount > 0) {
-    return { label: "Overdue", tone: STATUS_TONE.danger };
-  }
-  if (!nearestDeadline) {
-    return { label: "No deadline", tone: STATUS_TONE.neutral };
-  }
-
-  const now = new Date();
-  const deadline = new Date(nearestDeadline);
-  const diffDays = Math.ceil((deadline.getTime() - now.getTime()) / 86400000);
-
-  if (diffDays <= 3) {
-    return { label: `Due in ${Math.max(diffDays, 0)}d`, tone: STATUS_TONE.warning };
-  }
-
-  return { label: `Due ${formatDate(deadline)}`, tone: STATUS_TONE.healthy };
 }
 
 function deriveStageState(metrics) {
@@ -166,10 +148,10 @@ function FlowNode({ node, onOpen }) {
       aria-label={`Open ${node.label} workspace`}
     >
       <div className="relative z-10 mt-5 flex h-4 w-4 items-center justify-center rounded-full border-4 border-white shadow-sm" style={{ backgroundColor: node.color }} />
-      <div className="flex-1 rounded-[28px] border border-slate-200/80 bg-white/90 p-4 shadow-sm shadow-slate-200/40 transition duration-200 group-hover:-translate-y-0.5 group-hover:border-slate-300 group-hover:shadow-lg">
+      <div className="flex-1 rounded-2xl border border-slate-200/80 bg-white/90 p-3 shadow-sm shadow-slate-200/40 transition duration-200 group-hover:-translate-y-0.5 group-hover:border-slate-300 group-hover:shadow-lg">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-lg font-semibold tracking-tight text-slate-950">{node.label}</p>
+            <p className="text-base font-semibold tracking-tight text-slate-950">{node.label}</p>
             <p className="mt-1 text-sm text-slate-500">{node.summaryText}</p>
           </div>
           <div className="flex flex-col items-end gap-2">
@@ -183,10 +165,10 @@ function FlowNode({ node, onOpen }) {
             <ProgressBar value={node.progress} />
           </div>
           <div className="grid min-w-[240px] gap-2 text-xs text-slate-600 sm:grid-cols-2">
-            <span className="rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2">Approvals: <strong className="text-slate-900">{node.pendingApprovals}</strong></span>
-            <span className="rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2">Artists: <strong className="text-slate-900">{node.assignedArtists}</strong></span>
-            <span className="rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2">Health: <strong className="text-slate-900">{node.healthBadge.label}</strong></span>
-            <span className="rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2">Open work: <strong className="text-slate-900">{node.remainingWork}</strong></span>
+            <span className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2">Tasks: <strong className="text-slate-900">{node.total}</strong></span>
+            <span className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2">IP: <strong className="text-slate-900">{node.inProgress}</strong></span>
+            <span className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2">Delayed: <strong className="text-slate-900">{node.delayedCount}</strong></span>
+            <span className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2">Done: <strong className="text-slate-900">{node.approved}</strong></span>
           </div>
         </div>
 
@@ -203,11 +185,11 @@ function WorkspaceCard({ node, onOpen }) {
     <button
       type="button"
       onClick={onOpen}
-      className="group rounded-[28px] border border-slate-200/80 bg-white/90 p-4 text-left shadow-sm shadow-slate-200/40 transition duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-lg"
+      className="group rounded-2xl border border-slate-200/80 bg-white/90 p-3 text-left shadow-sm shadow-slate-200/40 transition duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-lg"
     >
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="inline-flex h-10 w-10 items-center justify-center rounded-2xl text-sm font-bold text-white" style={{ backgroundColor: node.color }}>
+        <div className="min-w-0">
+          <div className="inline-flex h-8 w-8 items-center justify-center rounded-xl text-xs font-bold text-white" style={{ backgroundColor: node.color }}>
             {node.label
               .split(" ")
               .map((part) => part[0] || "")
@@ -215,21 +197,21 @@ function WorkspaceCard({ node, onOpen }) {
               .slice(0, 2)
               .toUpperCase()}
           </div>
-          <h3 className="mt-3 text-lg font-semibold tracking-tight text-slate-950">{node.label}</h3>
-          <p className="mt-1 text-sm text-slate-500">{node.summaryText}</p>
+          <h3 className="mt-2 truncate text-base font-semibold tracking-tight text-slate-950">{node.label}</h3>
+          <p className="mt-1 text-xs text-slate-500">{node.summaryText}</p>
         </div>
         <TrackingBadge tracking={node.tracking} modeLabel={node.modeLabel} />
       </div>
 
-      <div className="mt-4 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
-        <span className="rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2">Progress: <strong className="text-slate-900">{node.progress}%</strong></span>
-        <span className="rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2">Artists: <strong className="text-slate-900">{node.assignedArtists}</strong></span>
-        <span className="rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2">Approvals: <strong className="text-slate-900">{node.pendingApprovals}</strong></span>
-        <span className="rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2">Remaining: <strong className="text-slate-900">{node.remainingWork}</strong></span>
+      <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
+        <span className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2">Tasks: <strong className="text-slate-900">{node.total}</strong></span>
+        <span className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2">IP: <strong className="text-slate-900">{node.inProgress}</strong></span>
+        <span className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2">Delayed: <strong className="text-slate-900">{node.delayedCount}</strong></span>
+        <span className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2">Complete: <strong className="text-slate-900">{node.progress}%</strong></span>
       </div>
 
-      <div className="mt-4 flex items-center justify-between">
-        <StageHealthBadge badge={node.healthBadge} />
+      <div className="mt-3 flex items-center justify-between">
+        <StageHealthBadge badge={node.stateBadge} />
         <span className="inline-flex items-center gap-1 text-sm font-semibold text-slate-900">
           Open Workspace <ArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" />
         </span>
@@ -259,7 +241,6 @@ function collectStageMetrics(project, overview, node, stageSummaryMap, recordBuc
     return {
       ...metrics,
       summaryText: totalShots ? `${pluralize(totalShots, "shot")} prepared for downstream work` : "Create the project cut list to unlock shot workspaces",
-      healthBadge: totalShots ? { label: "Ready", tone: STATUS_TONE.healthy } : { label: "No shots yet", tone: STATUS_TONE.warning },
       stateBadge: deriveStageState(metrics),
       actionLabel: totalShots ? "Manage shot list" : "Create shots"
     };
@@ -304,7 +285,7 @@ function collectStageMetrics(project, overview, node, stageSummaryMap, recordBuc
   const progress = total ? Math.round((approved / total) * 100) : fallbackSummary?.completionPercent || 0;
   const pendingApprovals = submitted;
   const remainingWork = Math.max(total - approved, 0);
-  const assignedArtists = assignedUserIds.size;
+  const assignedArtists = assignedUserIds.size || fallbackSummary?.assignedArtists || 0;
   const metrics = {
     total,
     approved,
@@ -330,7 +311,6 @@ function collectStageMetrics(project, overview, node, stageSummaryMap, recordBuc
   return {
     ...metrics,
     summaryText: trackingLabel,
-    healthBadge: resolveNodeHealth(nearestDeadline, delayedCount),
     stateBadge: deriveStageState(metrics),
     actionLabel: "Open workspace"
   };
@@ -350,6 +330,21 @@ export default function ProjectDetailPage() {
   const [overview, setOverview] = useState(null);
   const [editingProject, setEditingProject] = useState(false);
   const [projectForm, setProjectForm] = useState(initialProjectForm);
+  const [workspaceView, setWorkspaceView] = useState("flow");
+
+  useEffect(() => {
+    const savedView = window.localStorage.getItem(`${WORKSPACE_VIEW_STORAGE_PREFIX}:${id}`);
+    if (savedView === "flow" || savedView === "grid") {
+      setWorkspaceView(savedView);
+    } else {
+      setWorkspaceView("flow");
+    }
+  }, [id]);
+
+  function updateWorkspaceView(view) {
+    setWorkspaceView(view);
+    window.localStorage.setItem(`${WORKSPACE_VIEW_STORAGE_PREFIX}:${id}`, view);
+  }
 
   async function fetchData() {
     setLoading(true);
@@ -388,7 +383,7 @@ export default function ProjectDetailPage() {
   const stageSummaryMap = useMemo(() => {
     const map = new Map();
     for (const summary of overview?.stageSummaries || []) {
-      map.set(String(summary.stageCode || "").toUpperCase(), summary);
+      map.set(normalizeStageCode(summary.stageCode), summary);
     }
     return map;
   }, [overview]);
@@ -396,7 +391,7 @@ export default function ProjectDetailPage() {
   const recordBuckets = useMemo(() => {
     const buckets = new Map();
     const pushRecord = (code, record) => {
-      const normalizedCode = String(code || "").toUpperCase();
+      const normalizedCode = normalizeStageCode(code);
       if (!normalizedCode) return;
       if (!buckets.has(normalizedCode)) buckets.set(normalizedCode, []);
       buckets.get(normalizedCode).push(record);
@@ -430,45 +425,26 @@ export default function ProjectDetailPage() {
     return buckets;
   }, [project]);
 
-  const coreNodes = useMemo(() => {
-    return CORE_PIPELINE.map((node) => {
-      const metrics = collectStageMetrics(project, overview, node, stageSummaryMap, recordBuckets);
-      const modeLabel =
-        node.tracking === "HYBRID"
-          ? node.stageCode === "LIGHTING"
-            ? `${overview?.project?.lightingMode || project?.lightingMode || "PROJECT"} MODE`
-            : `${overview?.project?.renderingMode || project?.renderingMode || "PROJECT"} MODE`
-          : null;
+  const pipelineNodes = useMemo(() => {
+    const configuredCodes = Array.isArray(overview?.project?.activeStageCodes)
+      ? overview.project.activeStageCodes.map((code) => normalizeStageCode(code)).filter(Boolean)
+      : [];
+    const summaryCodes = (overview?.stageSummaries || []).map((summary) => normalizeStageCode(summary.stageCode)).filter(Boolean);
+    const stageCodes = Array.from(new Set(configuredCodes.length ? configuredCodes : summaryCodes));
 
-      return {
-        ...node,
-        ...metrics,
-        modeLabel,
-        path: buildStageWorkspacePath(project?.id, node.workspaceSlug)
-      };
-    });
-  }, [project, overview, recordBuckets, stageSummaryMap]);
-
-  const additionalWorkspaces = useMemo(() => {
-    const representedCodes = new Set(CORE_PIPELINE.filter((node) => node.stageCode).map((node) => node.stageCode));
-    const extras = (overview?.stageSummaries || [])
-      .filter((summary) => !representedCodes.has(String(summary.stageCode || "").toUpperCase()))
-      .sort((a, b) => {
-        const orderA = EXTRA_WORKSPACE_ORDER.indexOf(String(a.stageCode || "").toUpperCase());
-        const orderB = EXTRA_WORKSPACE_ORDER.indexOf(String(b.stageCode || "").toUpperCase());
-        return (orderA === -1 ? 999 : orderA) - (orderB === -1 ? 999 : orderB);
-      });
-
-    return extras.map((summary) => {
-      const code = String(summary.stageCode || "").toUpperCase();
+    return stageCodes.map((code) => {
+      const summary = stageSummaryMap.get(code) || (code === "RENDERING" ? stageSummaryMap.get("RENDER") : null);
+      const meta = STAGE_META_BY_CODE.get(code) || {};
       const node = {
+        id: code.toLowerCase(),
+        label: formatStageLabel(code, summary?.stageName || meta.label),
         stageCode: code,
-        label: summary.stageName || labelize(code),
-        workspaceSlug: code === "RENDER" ? "rendering" : code.toLowerCase().replaceAll("_", "-"),
-        tracking: summary.trackingMode || "PROJECT",
-        color: "#64748B"
+        workspaceSlug: meta.slug || stageSlugFromCode(code) || code.toLowerCase().replaceAll("_", "-"),
+        tracking: summary?.trackingMode || "PROJECT",
+        color: meta.color || "#64748B"
       };
       const metrics = collectStageMetrics(project, overview, node, stageSummaryMap, recordBuckets);
+
       return {
         ...node,
         ...metrics,
@@ -476,7 +452,41 @@ export default function ProjectDetailPage() {
         path: buildStageWorkspacePath(project?.id, node.workspaceSlug)
       };
     });
-  }, [overview, project, recordBuckets, stageSummaryMap]);
+  }, [project, overview, recordBuckets, stageSummaryMap]);
+
+  const productionMetrics = useMemo(() => {
+    const apiMetrics = overview?.productionMetrics || {};
+    const totalTasks = Number(apiMetrics.totalTasks ?? pipelineNodes.reduce((sum, node) => sum + Number(node.total || 0), 0));
+    const completedTasks = Number(apiMetrics.completedTasks ?? pipelineNodes.reduce((sum, node) => sum + Number(node.approved || 0), 0));
+    return {
+      completion: overview?.progress?.overallProgress ?? project?.progressPercent ?? 0,
+      totalStages: Number(apiMetrics.totalStages ?? pipelineNodes.length),
+      activeStages: Number(apiMetrics.activeStages ?? pipelineNodes.filter((node) => node.total > 0 && node.approved < node.total).length),
+      totalTasks,
+      completedTasks,
+      activeTasks: Number(apiMetrics.activeTasks ?? Math.max(totalTasks - completedTasks, 0)),
+      delayedTasks: Number(apiMetrics.delayedTasks ?? overview?.delayedTasksCount ?? 0),
+      activeArtists: Number(apiMetrics.activeArtists ?? pipelineNodes.reduce((sum, node) => sum + Number(node.assignedArtists || 0), 0)),
+      totalProductionUnits: Number(
+        apiMetrics.totalProductionUnits ??
+          (Number(overview?.project?.totalShots ?? project?.shots?.length ?? 0) +
+            Number(overview?.project?.totalAssets ?? project?.assets?.length ?? 0) +
+            Number(overview?.project?.totalAudioTasks ?? 0))
+      )
+    };
+  }, [overview, pipelineNodes, project]);
+
+  const quickActionTargets = useMemo(() => {
+    const shotNode = pipelineNodes.find((node) => node.stageCode === "ANIMATICS") || pipelineNodes.find((node) => node.tracking === "SHOT");
+    const assetNode = pipelineNodes.find((node) => node.stageCode === "MODELLING") || pipelineNodes.find((node) => node.tracking === "ASSET");
+    const audioNode = pipelineNodes.find((node) => node.stageCode === "AUDIO");
+
+    return {
+      shot: shotNode?.path || null,
+      asset: assetNode?.path || null,
+      audio: audioNode?.path || null
+    };
+  }, [pipelineNodes]);
 
   const projectStatus = useMemo(() => deriveProjectStatus(project, overview), [project, overview]);
 
@@ -570,6 +580,36 @@ export default function ProjectDetailPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              {quickActionTargets.shot ? (
+                <button
+                  onClick={() => navigate(quickActionTargets.shot, { state: breadcrumbState })}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-white/90 px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  <Plus size={15} /> Add Shot
+                </button>
+              ) : null}
+              {quickActionTargets.asset ? (
+                <button
+                  onClick={() => navigate(quickActionTargets.asset, { state: breadcrumbState })}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-white/90 px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  <Plus size={15} /> Add Asset
+                </button>
+              ) : null}
+              {quickActionTargets.audio ? (
+                <button
+                  onClick={() => navigate(quickActionTargets.audio, { state: breadcrumbState })}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-white/90 px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  <Plus size={15} /> Add Audio
+                </button>
+              ) : null}
+              <Link
+                to="/dashboard"
+                className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-white/90 px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                <RadioTower size={15} /> Dashboard
+              </Link>
               <button
                 onClick={() => setEditingProject(true)}
                 className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-white/90 px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
@@ -590,13 +630,14 @@ export default function ProjectDetailPage() {
           </div>
         </div>
 
-        <div className="grid gap-3 px-5 py-5 md:grid-cols-2 xl:grid-cols-6 lg:px-6">
-          <HeaderMetric label="Overall Progress" value={`${overview?.progress?.overallProgress ?? project.progressPercent ?? 0}%`} caption="Production completion" icon={Workflow} />
-          <HeaderMetric label="Due Date" value={formatDate(project.dueDate)} caption={`Audio received ${formatDate(project.audioReceivedDate)}`} icon={Clock3} />
-          <HeaderMetric label="Total Shots" value={overview?.project?.totalShots ?? project.shots?.length ?? 0} caption="Shot production units" icon={Clapperboard} />
-          <HeaderMetric label="Total Assets" value={overview?.project?.totalAssets ?? project.assets?.length ?? 0} caption="Characters, props, BG" icon={Package} />
-          <HeaderMetric label="Pending Approvals" value={overview?.pendingApprovalsCount ?? 0} caption="Needs manager review" icon={CheckCheck} tone={(overview?.pendingApprovalsCount ?? 0) > 0 ? "text-amber-700" : "text-slate-900"} />
-          <HeaderMetric label="Delayed Tasks" value={overview?.delayedTasksCount ?? 0} caption="Overdue production work" icon={AlertTriangle} tone={(overview?.delayedTasksCount ?? 0) > 0 ? "text-rose-700" : "text-slate-900"} />
+        <div className="grid gap-3 px-5 py-5 md:grid-cols-2 xl:grid-cols-7 lg:px-6">
+          <HeaderMetric label="Complete" value={`${productionMetrics.completion}%`} caption="Project completion" icon={Workflow} />
+          <HeaderMetric label="Stages" value={productionMetrics.totalStages} caption={`${productionMetrics.activeStages} active`} icon={ListTree} />
+          <HeaderMetric label="Active Tasks" value={productionMetrics.activeTasks} caption={`${productionMetrics.totalTasks} total tasks`} icon={Clapperboard} />
+          <HeaderMetric label="Completed" value={productionMetrics.completedTasks} caption="Done tasks" icon={CheckCircle2} tone="text-emerald-700" />
+          <HeaderMetric label="Delayed" value={productionMetrics.delayedTasks} caption="Overdue tasks" icon={AlertTriangle} tone={productionMetrics.delayedTasks > 0 ? "text-rose-700" : "text-slate-900"} />
+          <HeaderMetric label="Artists" value={productionMetrics.activeArtists} caption="Assigned artists" icon={UsersRound} />
+          <HeaderMetric label="Units" value={productionMetrics.totalProductionUnits} caption="Shots, assets, audio" icon={Package} />
         </div>
       </section>
 
@@ -610,65 +651,65 @@ export default function ProjectDetailPage() {
       <section className="rounded-[30px] border border-slate-200/80 bg-white/88 p-5 shadow-sm shadow-slate-200/40 backdrop-blur lg:p-6">
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Production Pipeline Workspace</p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">Pipeline Flow Visualization</h2>
-            <p className="mt-1 text-sm text-slate-500">Follow the studio production path, then jump directly into the right workspace.</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Project Workspace</p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+              {workspaceView === "flow" ? "Pipeline Flow" : "Stage Grid"}
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              {pipelineNodes.length} configured stage{pipelineNodes.length === 1 ? "" : "s"} from this project pipeline.
+            </p>
           </div>
-          <div className="flex flex-wrap gap-2 text-xs font-semibold text-slate-500">
-            <span className="rounded-full border border-slate-200 bg-slate-50/80 px-3 py-1.5">Hybrid modes respect project lighting/render settings</span>
-          </div>
-        </div>
-
-        <div className="relative pl-1 md:pl-2">
-          <div className="absolute bottom-4 left-[7px] top-6 w-px bg-gradient-to-b from-slate-200 via-slate-300 to-slate-200 md:left-[10px]" />
-          <div className="space-y-4">
-            {coreNodes.map((node) => (
-              <FlowNode
-                key={node.id}
-                node={node}
-                onOpen={() => navigate(node.path, { state: breadcrumbState })}
-              />
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="rounded-[30px] border border-slate-200/80 bg-white/88 p-5 shadow-sm shadow-slate-200/40 backdrop-blur lg:p-6">
-        <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Workspace Stage Grid</p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">Open A Production Workspace</h2>
-            <p className="mt-1 text-sm text-slate-500">Each card is a lightweight command surface for one focused stage workspace.</p>
+          <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
+            <button
+              type="button"
+              onClick={() => updateWorkspaceView("flow")}
+              className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition ${
+                workspaceView === "flow" ? "bg-slate-950 text-white shadow-sm" : "text-slate-600 hover:bg-white"
+              }`}
+            >
+              <ListTree size={15} /> Flow View
+            </button>
+            <button
+              type="button"
+              onClick={() => updateWorkspaceView("grid")}
+              className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition ${
+                workspaceView === "grid" ? "bg-slate-950 text-white shadow-sm" : "text-slate-600 hover:bg-white"
+              }`}
+            >
+              <Grid2X2 size={15} /> Grid View
+            </button>
           </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
-          {coreNodes
-            .filter((node) => !node.milestone)
-            .map((node) => (
+        {workspaceView === "flow" ? (
+          <div className="relative pl-1 md:pl-2">
+            <div className="absolute bottom-4 left-[7px] top-6 w-px bg-gradient-to-b from-slate-200 via-slate-300 to-slate-200 md:left-[10px]" />
+            <div className="space-y-3">
+              {pipelineNodes.map((node) => (
+                <FlowNode
+                  key={node.id}
+                  node={node}
+                  onOpen={() => navigate(node.path, { state: breadcrumbState })}
+                />
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
+            {pipelineNodes.map((node) => (
               <WorkspaceCard
                 key={node.id}
                 node={node}
                 onOpen={() => navigate(node.path, { state: breadcrumbState })}
               />
             ))}
-        </div>
+          </div>
+        )}
 
-        {additionalWorkspaces.length ? (
-          <div className="mt-6 border-t border-slate-200 pt-6">
-            <div className="mb-4">
-              <h3 className="text-lg font-semibold tracking-tight text-slate-950">Additional Active Workspaces</h3>
-              <p className="text-sm text-slate-500">Still available for this project’s live tracking configuration.</p>
-            </div>
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {additionalWorkspaces.map((node) => (
-                <WorkspaceCard
-                  key={node.stageCode}
-                  node={node}
-                  onOpen={() => navigate(node.path, { state: breadcrumbState })}
-                />
-              ))}
-            </div>
+        {!pipelineNodes.length ? (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center">
+            <p className="text-sm font-semibold text-slate-800">No configured stages</p>
+            <p className="mt-1 text-xs text-slate-500">This project has no active pipeline stages.</p>
           </div>
         ) : null}
       </section>

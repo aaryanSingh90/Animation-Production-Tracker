@@ -1,7 +1,7 @@
 import { ArrowRight } from "lucide-react";
 import { memo, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { buildStageWorkspacePath } from "../utils/stageRouting";
+import { buildStageWorkspacePath, stageSlugFromCode } from "../utils/stageRouting";
 
 const STAGE_ITEMS = [
   { code: "ANIMATICS", slug: "animatics", label: "Animatics" },
@@ -19,6 +19,7 @@ const STAGE_ITEMS = [
 ];
 
 export const PIPELINE_STAGE_ITEMS = STAGE_ITEMS;
+const STAGE_META_BY_CODE = new Map(STAGE_ITEMS.map((stage) => [stage.code, stage]));
 
 function normalizeStageCode(value) {
   const normalized = String(value || "").trim().toUpperCase();
@@ -111,8 +112,23 @@ function PipelineQuickStageBar({
   }, [overview]);
 
   const stageItems = useMemo(
-    () =>
-      STAGE_ITEMS.map((stage) => {
+    () => {
+      const configuredCodes = Array.isArray(overview?.project?.activeStageCodes)
+        ? overview.project.activeStageCodes.map((code) => normalizeStageCode(code)).filter(Boolean)
+        : [];
+      const summaryCodes = (overview?.stageSummaries || []).map((summary) => normalizeStageCode(summary?.stageCode)).filter(Boolean);
+      const codes = Array.from(new Set(configuredCodes.length ? configuredCodes : summaryCodes.length ? summaryCodes : STAGE_ITEMS.map((stage) => stage.code)));
+
+      return codes.map((code) => {
+        const meta = STAGE_META_BY_CODE.get(code) || {
+          code,
+          slug: stageSlugFromCode(code) || code.toLowerCase().replaceAll("_", "-"),
+          label: code === "RENDERING" ? "Final Output" : code.toLowerCase().replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase())
+        };
+        const stage = {
+          ...meta,
+          code
+        };
         const summary = summaryByCode.get(stage.code) || (stage.code === "RENDERING" ? summaryByCode.get("RENDER") : null);
         const metrics = deriveStageMetrics(summary);
         return {
@@ -121,8 +137,9 @@ function PipelineQuickStageBar({
           indicator: deriveIndicator(metrics),
           isActive: normalizeStageCode(stage.code) === normalizedActiveStageCode
         };
-      }),
-    [normalizedActiveStageCode, summaryByCode]
+      });
+    },
+    [normalizedActiveStageCode, overview, summaryByCode]
   );
   const activeIndex = stageItems.findIndex((stage) => stage.isActive);
   const hoveredStage = stageItems.find((stage) => stage.code === hoveredStageCode);

@@ -381,14 +381,22 @@ const getProjectOverview = asyncHandler(async (req, res) => {
     });
   }
 
+  const stageOrderByCode = new Map((project.activeStageCodes || []).map((code, index) => [normalizeOverviewStageCode(code), index + 1]));
+
   const stageSummaries = Array.from(stageSummaryMap.values()).map((item) => {
     const { assignedArtistIds, ...summary } = item;
     return {
       ...summary,
+      order: stageOrderByCode.get(normalizeOverviewStageCode(item.stageCode)) || 999,
       assignedArtists: assignedArtistIds?.size || 0,
       completionPercent: item.total ? Math.round((item.approved / item.total) * 100) : isCompleteStatus(item.status) ? 100 : 0
     };
-  });
+  }).sort((a, b) => (a.order || 999) - (b.order || 999) || String(a.stageName || a.stageCode).localeCompare(String(b.stageName || b.stageCode)));
+
+  const activeArtistIds = new Set();
+  for (const item of stageSummaryMap.values()) {
+    for (const id of item.assignedArtistIds || []) activeArtistIds.add(id);
+  }
 
   const completed =
     projectLevelRows.filter((stage) => isCompleteStatus(stage.status)).length +
@@ -397,6 +405,7 @@ const getProjectOverview = asyncHandler(async (req, res) => {
 
   const total = projectLevelRows.length + shotStages.length + assetStages.length;
   const overallProgress = total ? Math.round((completed / total) * 100) : 0;
+  const activeTasks = Math.max(total - completed, 0);
 
   return res.json({
     project: {
@@ -419,6 +428,16 @@ const getProjectOverview = asyncHandler(async (req, res) => {
       projectStageProgress,
       shotStageProgress,
       assetStageProgress
+    },
+    productionMetrics: {
+      totalStages: stageSummaries.length,
+      activeStages: stageSummaries.filter((stage) => stage.total > 0 && stage.approved < stage.total).length,
+      totalTasks: total,
+      completedTasks: completed,
+      activeTasks,
+      delayedTasks: delayedTasks.length,
+      activeArtists: activeArtistIds.size,
+      totalProductionUnits: project.totalShots + project.assets.length + audioTasks.length
     },
     stageSummaries,
     delayedTasksCount: delayedTasks.length,

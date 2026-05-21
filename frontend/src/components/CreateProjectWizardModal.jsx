@@ -22,6 +22,7 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Clapperboard,
   Clock3,
   Flag,
   GripVertical,
@@ -30,9 +31,7 @@ import {
   MoveRight,
   Palette,
   PlusCircle,
-  ShieldCheck,
   Sparkles,
-  Users,
   X
 } from "lucide-react";
 import Modal from "./Modal";
@@ -66,25 +65,6 @@ const STAGE_EMOJI = {
   comping: "🎞️",
   compositing: "🎞️",
   editing: "✂️"
-};
-
-const DEFAULT_STAGE_HOURS = {
-  audio: 8,
-  animatics: 12,
-  modelling: 24,
-  unwrapping: 14,
-  charactermodelling: 24,
-  blendshapes: 16,
-  bgmodelling: 18,
-  rigging: 20,
-  texturing: 18,
-  animation: 30,
-  lighting: 20,
-  composite: 12,
-  rendering: 16,
-  comping: 12,
-  compositing: 12,
-  editing: 10
 };
 
 function normalizeKey(value) {
@@ -184,71 +164,6 @@ function SortableStageCard({
               disabled={saving}
             />
           </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-slate-700">Estimated Hours</label>
-            <input
-              type="number"
-              min="1"
-              value={settings.estimatedHours || ""}
-              onChange={(event) =>
-                setSettings((prev) => ({
-                  ...prev,
-                  [stage.id]: {
-                    ...prev[stage.id],
-                    estimatedHours: Number(event.target.value) || ""
-                  }
-                }))
-              }
-              className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
-              disabled={saving}
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-slate-700">Depends On</label>
-            <select
-              value={settings.dependsOn || ""}
-              onChange={(event) =>
-                setSettings((prev) => ({
-                  ...prev,
-                  [stage.id]: {
-                    ...prev[stage.id],
-                    dependsOn: event.target.value
-                  }
-                }))
-              }
-              className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
-              disabled={saving}
-            >
-              <option value="">No dependency</option>
-              {stageOptions
-                .filter((option) => option.id !== stage.id)
-                .map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.name}
-                  </option>
-                ))}
-            </select>
-          </div>
-
-          <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
-            <input
-              type="checkbox"
-              checked={Boolean(settings.approvalRequired)}
-              onChange={(event) =>
-                setSettings((prev) => ({
-                  ...prev,
-                  [stage.id]: {
-                    ...prev[stage.id],
-                    approvalRequired: event.target.checked
-                  }
-                }))
-              }
-              disabled={saving}
-            />
-            Approval required at this stage
-          </label>
         </div>
       )}
     </div>
@@ -312,27 +227,6 @@ export default function CreateProjectWizardModal({
   );
 
   const complexity = useMemo(() => estimateComplexity(selectedStages.length), [selectedStages.length]);
-
-  const estimatedHours = useMemo(() => {
-    return selectedStages.reduce((sum, stage) => {
-      const settingsHours = Number(stageSettings[stage.id]?.estimatedHours || 0);
-      if (settingsHours > 0) return sum + settingsHours;
-      return sum + (DEFAULT_STAGE_HOURS[normalizeKey(stage.name)] || 12);
-    }, 0);
-  }, [selectedStages, stageSettings]);
-
-  const estimatedDays = useMemo(() => Math.max(1, Math.ceil(estimatedHours / 8)), [estimatedHours]);
-
-  const approvalGates = useMemo(() => {
-    return selectedStages.filter((stage) => Boolean(stageSettings[stage.id]?.approvalRequired)).length;
-  }, [selectedStages, stageSettings]);
-
-  const artistEstimate = useMemo(() => {
-    if (!selectedStages.length) return 0;
-    if (selectedStages.length <= 4) return 2;
-    if (selectedStages.length <= 8) return 4;
-    return 6;
-  }, [selectedStages.length]);
 
   useEffect(() => {
     if (!open) return;
@@ -478,12 +372,17 @@ export default function CreateProjectWizardModal({
       renderingMode: details.renderingMode === "SHOT" ? "SHOT" : "PROJECT",
       activeStageCodes,
       stages: selectedStages.map((stage, index) => {
+        const settings = stageSettings[stage.id] || {};
         const stagePayload = {
           stageTemplateId: stage.id,
           stageName: stage.legacyStageName || resolveStageCode(stage) || "CUSTOM",
           order: index + 1,
           isActive: true
         };
+
+        if (settings.deadline) {
+          stagePayload.deadline = settings.deadline;
+        }
 
         if (!stage.legacyStageName) {
           stagePayload.customName = stage.name;
@@ -784,19 +683,6 @@ export default function CreateProjectWizardModal({
                     </button>
                   </div>
 
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Pipeline Tracking Rules</p>
-                    <div className="mt-3 grid gap-3 md:grid-cols-2">
-                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-                        <p className="text-sm font-semibold text-slate-900">Lighting</p>
-                        <p className="mt-1 text-xs text-slate-600">Locked to shot-level tracking for production continuity.</p>
-                      </div>
-                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-                        <p className="text-sm font-semibold text-slate-900">Rendering</p>
-                        <p className="mt-1 text-xs text-slate-600">Removed from the default pipeline. Legacy rendering workspaces remain accessible if older projects still use them.</p>
-                      </div>
-                    </div>
-                  </div>
                 </div>
               )}
 
@@ -904,7 +790,6 @@ export default function CreateProjectWizardModal({
                       <p><span className="font-semibold text-slate-700">Start Date:</span> {details.startDate || "-"}</p>
                       <p><span className="font-semibold text-slate-700">Due Date:</span> {details.dueDate || "-"}</p>
                       <p><span className="font-semibold text-slate-700">Total Shots:</span> {details.totalShots}</p>
-                      <p><span className="font-semibold text-slate-700">Lighting:</span> Shot-level only</p>
                       <p><span className="font-semibold text-slate-700">Thumbnail:</span> {details.thumbnailUrl ? "Provided" : "Not set"}</p>
                     </div>
                   </div>
@@ -934,9 +819,8 @@ export default function CreateProjectWizardModal({
 
               <div className="grid grid-cols-2 gap-2">
                 <SummaryStat label="Stages" value={selectedStages.length} icon={<Sparkles size={14} />} />
-                <SummaryStat label="Duration" value={`${estimatedDays}d`} icon={<Clock3 size={14} />} />
-                <SummaryStat label="Artists" value={artistEstimate} icon={<Users size={14} />} />
-                <SummaryStat label="Approvals" value={approvalGates} icon={<ShieldCheck size={14} />} />
+                <SummaryStat label="Shots" value={Number(details.totalShots) || 0} icon={<Clapperboard size={14} />} />
+                <SummaryStat label="Audio" value={selectedStages.some((stage) => resolveStageCode(stage) === "AUDIO") ? "On" : "Off"} icon={<Palette size={14} />} />
               </div>
 
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
@@ -954,9 +838,6 @@ export default function CreateProjectWizardModal({
                 </div>
               </div>
 
-              <p className="text-[11px] text-slate-500">
-                <span className="font-semibold">Note:</span> Advanced stage settings are planning metadata for manager clarity.
-              </p>
             </div>
           </aside>
         </div>
