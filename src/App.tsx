@@ -13,6 +13,12 @@ import { Team } from './pages/Team'
 import { ShotMatrix } from './pages/ShotMatrix'
 import { Settings } from './pages/Settings'
 
+function ManagerOnly({ children }: { children: React.ReactNode }) {
+  const role = useAuthStore(s => s.currentUser?.role)
+  if (role !== 'MANAGER') return <Navigate to="/" replace />
+  return <>{children}</>
+}
+
 function AppInner() {
   const ready = useInitializeApp()
   const currentUser = useAuthStore(s => s.currentUser)
@@ -35,9 +41,9 @@ function AppInner() {
           path="/clients/:clientId/projects/:projectId/pipeline/:stageSlug"
           element={<WorkspacePage />}
         />
-        <Route path="/team" element={<Team />} />
-        <Route path="/shots" element={<ShotMatrix />} />
-        <Route path="/settings" element={<Settings />} />
+        <Route path="/team"     element={<ManagerOnly><Team /></ManagerOnly>} />
+        <Route path="/shots"    element={<ShotMatrix />} />
+        <Route path="/settings" element={<ManagerOnly><Settings /></ManagerOnly>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

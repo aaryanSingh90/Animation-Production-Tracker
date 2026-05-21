@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import { Plus, ArrowLeft, Trash2 } from 'lucide-react'
 import { useClientStore } from '../store/clientStore'
+import { usePipelineStore } from '../store/pipelineStore'
+import { useAuthStore } from '../store/authStore'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { format } from 'date-fns'
 
@@ -17,9 +19,20 @@ export function ClientDetail() {
   const { clientId } = useParams<{ clientId: string }>()
   const navigate = useNavigate()
   const { clients, projects, addProject, deleteProject } = useClientStore()
+  const allTasks = usePipelineStore(s => s.tasks)
+  const currentUser = useAuthStore(s => s.currentUser)
+  const isManager = currentUser?.role === 'MANAGER'
 
   const client = clients.find(c => c.id === clientId)
-  const clientProjects = projects.filter(p => p.clientId === clientId)
+  const allClientProjects = projects.filter(p => p.clientId === clientId)
+
+  // Employees only see projects they have tasks in
+  const myProjectIds = isManager
+    ? null
+    : new Set(allTasks.filter(t => t.assignedArtistId === currentUser?.id).map(t => t.projectId))
+  const clientProjects = isManager
+    ? allClientProjects
+    : allClientProjects.filter(p => myProjectIds!.has(p.id))
 
   const [showForm, setShowForm] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
@@ -61,17 +74,18 @@ export function ClientDetail() {
             {client.description && <p className="text-sm text-gray-500 mt-1">{client.description}</p>}
             {client.contactEmail && <p className="text-xs text-gray-400 mt-1">{client.contactEmail}</p>}
           </div>
-          <button
-            onClick={() => setShowForm(v => !v)}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg"
-          >
-            <Plus className="w-4 h-4" /> New Project
-          </button>
+          {isManager && (
+            <button
+              onClick={() => setShowForm(v => !v)}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg"
+            >
+              <Plus className="w-4 h-4" /> New Project
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Add form */}
-      {showForm && (
+      {isManager && showForm && (
         <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6 space-y-3">
           <h2 className="text-sm font-semibold text-gray-700">New Project</h2>
           <div className="grid grid-cols-3 gap-3">
@@ -117,12 +131,14 @@ export function ClientDetail() {
                 <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_BADGES[proj.status]}`}>
                   {proj.status.replace('_', ' ')}
                 </span>
-                <button
-                  onClick={() => setDeleteId(proj.id)}
-                  className="p-1 rounded hover:bg-red-50 text-gray-300 hover:text-red-500"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                {isManager && (
+                  <button
+                    onClick={() => setDeleteId(proj.id)}
+                    className="p-1 rounded hover:bg-red-50 text-gray-300 hover:text-red-500"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
               <Link to={`/clients/${clientId}/projects/${proj.id}`}>
                 <h3 className="text-base font-semibold text-gray-900 hover:text-indigo-700 mb-1">{proj.name}</h3>

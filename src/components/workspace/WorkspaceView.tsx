@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { StageConfig } from '../../types'
 import { usePipelineStore } from '../../store/pipelineStore'
+import { useAuthStore } from '../../store/authStore'
 import { QuickAddBar } from './QuickAddBar'
 import { FilterBar, DEFAULT_FILTERS, type FilterState } from './FilterBar'
 import { applyFilters } from '../../utils/filterUtils'
@@ -22,12 +23,16 @@ interface Props {
 export function WorkspaceView({ projectId, stageConfig, subStageSlug, clientId }: Props) {
   const navigate = useNavigate()
   const allStoreTasks = usePipelineStore(s => s.tasks)
+  const currentUser = useAuthStore(s => s.currentUser)
+  const isManager = currentUser?.role === 'MANAGER'
 
   const subStageConfig = stageConfig.subStages.find(ss => ss.slug === subStageSlug)
     ?? stageConfig.subStages[0]
 
   const allTasks = allStoreTasks.filter(
-    t => t.subStageId === subStageConfig.id && t.projectId === projectId
+    t => t.subStageId === subStageConfig.id &&
+         t.projectId === projectId &&
+         (isManager || t.assignedArtistId === currentUser?.id)
   )
 
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS)
@@ -61,12 +66,14 @@ export function WorkspaceView({ projectId, stageConfig, subStageSlug, clientId }
         </div>
       )}
 
-      {/* Quick add */}
-      <QuickAddBar
-        stageConfig={stageConfig}
-        subStageConfig={subStageConfig}
-        projectId={projectId}
-      />
+      {/* Quick add — manager only */}
+      {isManager && (
+        <QuickAddBar
+          stageConfig={stageConfig}
+          subStageConfig={subStageConfig}
+          projectId={projectId}
+        />
+      )}
 
       {/* Filter bar */}
       <FilterBar

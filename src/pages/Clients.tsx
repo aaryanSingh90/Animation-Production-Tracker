@@ -2,16 +2,30 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Plus, Briefcase, Mail, Trash2 } from 'lucide-react'
 import { useClientStore } from '../store/clientStore'
+import { usePipelineStore } from '../store/pipelineStore'
+import { useAuthStore } from '../store/authStore'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { format } from 'date-fns'
 
 function newId() { return `client-${Date.now()}` }
 
 export function Clients() {
-  const { clients, projects, addClient, deleteClient } = useClientStore()
+  const { clients: allClients, projects, addClient, deleteClient } = useClientStore()
+  const allTasks = usePipelineStore(s => s.tasks)
+  const currentUser = useAuthStore(s => s.currentUser)
+  const isManager = currentUser?.role === 'MANAGER'
   const [showForm, setShowForm] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [form, setForm] = useState({ name: '', description: '', contactEmail: '' })
+
+  // Employees only see clients that have projects they have tasks in
+  const myProjectIds = isManager
+    ? null
+    : new Set(allTasks.filter(t => t.assignedArtistId === currentUser?.id).map(t => t.projectId))
+  const myClientIds = isManager
+    ? null
+    : new Set(projects.filter(p => myProjectIds!.has(p.id)).map(p => p.clientId))
+  const clients = isManager ? allClients : allClients.filter(c => myClientIds!.has(c.id))
 
   function submit() {
     if (!form.name.trim()) return
@@ -33,16 +47,18 @@ export function Clients() {
           <h1 className="text-2xl font-bold text-gray-900">Clients</h1>
           <p className="text-sm text-gray-500 mt-1">{clients.length} client{clients.length !== 1 ? 's' : ''}</p>
         </div>
-        <button
-          onClick={() => setShowForm(v => !v)}
-          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg"
-        >
-          <Plus className="w-4 h-4" /> New Client
-        </button>
+        {isManager && (
+          <button
+            onClick={() => setShowForm(v => !v)}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg"
+          >
+            <Plus className="w-4 h-4" /> New Client
+          </button>
+        )}
       </div>
 
-      {/* Add form */}
-      {showForm && (
+      {/* Add form — manager only */}
+      {isManager && showForm && (
         <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6 space-y-3">
           <h2 className="text-sm font-semibold text-gray-700">New Client</h2>
           <div className="grid grid-cols-3 gap-3">
@@ -123,14 +139,16 @@ export function Clients() {
                     <td className="px-4 py-3 text-gray-500 text-xs">
                       {format(new Date(client.createdAt), 'MMM d, yyyy')}
                     </td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => setDeleteId(client.id)}
-                        className="p-1.5 rounded hover:bg-red-50 text-gray-400 hover:text-red-500"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
+                    {isManager && (
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => setDeleteId(client.id)}
+                          className="p-1.5 rounded hover:bg-red-50 text-gray-400 hover:text-red-500"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 )
               })}

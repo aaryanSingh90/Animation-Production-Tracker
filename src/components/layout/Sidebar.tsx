@@ -3,7 +3,7 @@ import { LayoutDashboard, Users, Briefcase, Grid3X3, Settings, Film, LogOut } fr
 import { clsx } from 'clsx'
 import { useAuthStore } from '../../store/authStore'
 
-const NAV_ITEMS = [
+const MANAGER_NAV = [
   { to: '/',         icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/clients',  icon: Briefcase,       label: 'Clients' },
   { to: '/team',     icon: Users,           label: 'Team' },
@@ -11,9 +11,18 @@ const NAV_ITEMS = [
   { to: '/settings', icon: Settings,        label: 'Settings' },
 ]
 
+const TEAM_NAV = [
+  { to: '/',        icon: LayoutDashboard, label: 'My Dashboard' },
+  { to: '/clients', icon: Briefcase,       label: 'My Projects' },
+  { to: '/shots',   icon: Grid3X3,         label: 'Shot Matrix' },
+]
+
 export function Sidebar() {
   const currentUser = useAuthStore(s => s.currentUser)
   const logout = useAuthStore(s => s.logout)
+
+  const isManager = currentUser?.role === 'MANAGER'
+  const navItems = isManager ? MANAGER_NAV : TEAM_NAV
   const initials = currentUser?.name.split(' ').map(n => n[0]).join('') ?? '?'
 
   return (
@@ -29,7 +38,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 p-3 space-y-0.5">
-        {NAV_ITEMS.map(({ to, icon: Icon, label }) => (
+        {navItems.map(({ to, icon: Icon, label }) => (
           <NavLink
             key={to}
             to={to}
@@ -49,8 +58,18 @@ export function Sidebar() {
         ))}
       </nav>
 
+      {/* Role badge */}
+      <div className="px-4 pb-2">
+        <div className={clsx(
+          'text-xs font-medium px-2 py-1 rounded-full text-center',
+          isManager ? 'bg-indigo-900 text-indigo-300' : 'bg-violet-900 text-violet-300'
+        )}>
+          {isManager ? 'Admin / Manager' : 'Team Member'}
+        </div>
+      </div>
+
       <div className="p-3 border-t border-slate-700">
-        <div className="flex items-center gap-2 px-3 py-2 rounded-lg group">
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg">
           <div
             className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
             style={{ backgroundColor: currentUser?.avatarColor ?? '#6366f1' }}
