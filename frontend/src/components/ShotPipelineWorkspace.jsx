@@ -64,6 +64,19 @@ const SHOT_STATUS_THEME = {
 };
 const DEFAULT_FRAME_RANGE = "101-124";
 const HEADER_COLLAPSE_SCROLL_Y = 96;
+const ENABLE_PIPELINE_DEBUG = Boolean(import.meta?.env?.DEV);
+
+function debugPipeline(context, payload) {
+  if (!ENABLE_PIPELINE_DEBUG) return;
+  console.log(`[pipeline:${context}]`, payload);
+}
+
+function normalizeToken(value) {
+  return String(value || "")
+    .trim()
+    .replace(/[-\s]+/g, "_")
+    .toUpperCase();
+}
 
 function todayDateInput() {
   return new Date().toISOString().slice(0, 10);
@@ -308,14 +321,48 @@ function deriveSequence(shot) {
   return "MAIN";
 }
 
+function rowMatchesFilters(row, filters) {
+  const searchNeedle = String(filters?.search || "").trim().toLowerCase();
+  const normalizedStatusFilter = normalizeToken(filters?.status || "");
+  const artistFilterId = Number(filters?.artistId || 0);
+  const overdueOnly = Boolean(filters?.overdueOnly);
+  const rowLead = getLeadAssignment(getStageAssignments(row), row.assignedUser);
+  const rowLeadId = Number(rowLead?.employeeId || row.assignedUser?.id || 0);
+  const rowSearchText = [
+    deriveShotLabel(row.shot),
+    row.shot?.name,
+    row.shot?.label,
+    row.sequence,
+    row.notes,
+    row.assignedUser?.name
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (searchNeedle && !rowSearchText.includes(searchNeedle)) return false;
+  if (normalizedStatusFilter && normalizeToken(row.stageStatus) !== normalizedStatusFilter) return false;
+  if (artistFilterId && rowLeadId !== artistFilterId) return false;
+  if (overdueOnly && !isLateStatus(row.stageStatus, row.deadline || row.endDate)) return false;
+  return true;
+}
+
 function mapStageRow(entry) {
+  const normalizedStatus = normalizeToken(entry.status || entry.stageStatus || "YTS") || "YTS";
+  const normalizedShot = entry.shot
+    ? {
+        ...entry.shot,
+        label: entry.shot.label || entry.shot.name || entry.shot.shotLabel || "",
+        name: entry.shot.name || entry.shot.label || entry.shot.shotLabel || ""
+      }
+    : null;
   return {
     id: entry.id,
     shotId: entry.shotId,
     stageId: entry.id,
-    stageStatus: entry.status,
+    stageStatus: STAGE_STATUSES.includes(normalizedStatus) ? normalizedStatus : "YTS",
     assignedUser: entry.assignedUser,
-    taskAssignments: entry.taskAssignments || [],
+    taskAssignments: entry.taskAssignments || entry.assignments || [],
     deadline: entry.deadline,
     submittedAt: entry.submittedAt,
     approvedAt: entry.approvedAt,
@@ -328,8 +375,8 @@ function mapStageRow(entry) {
     durationMinutes: entry.durationMinutes,
     timeConsumedMin: entry.timeConsumedMin,
     isTimerRunning: entry.isTimerRunning,
-    shot: entry.shot,
-    sequence: deriveSequence(entry.shot),
+    shot: normalizedShot,
+    sequence: deriveSequence(normalizedShot),
     raw: entry
   };
 }
@@ -1032,6 +1079,7 @@ export default function ShotPipelineWorkspace({
   const headerRef = useRef(null);
   const rowRefs = useRef(new Map());
   const scrollFrameRef = useRef(null);
+  const quickNameInputRef = useRef(null);
   const activeUsersById = useMemo(() => new Map(activeUsers.map((user) => [Number(user.id), user])), [activeUsers]);
 
   useEffect(() => {
@@ -1091,9 +1139,20 @@ export default function ShotPipelineWorkspace({
         }
       });
 
-      setRows((data.items || []).map(mapStageRow));
+      const normalizedRows = (data.items || []).map(mapStageRow);
+      setRows(normalizedRows);
       setPagination(data.pagination || { page: 1, pageSize: 25, total: 0, totalPages: 1 });
       setSelectedIds((prev) => prev.filter((id) => (data.items || []).some((item) => item.id === id)));
+      debugPipeline("shot.tableData", {
+        stageCode: normalizedStageCode,
+        count: normalizedRows.length,
+        sample: normalizedRows.slice(0, 5).map((row) => ({
+          id: row.id,
+          shotId: row.shotId,
+          name: deriveShotLabel(row.shot),
+          status: row.stageStatus
+        }))
+      });
     } catch (err) {
       setError(err.userMessage || err.response?.data?.message || `Failed to load ${displayStageLabel.toLowerCase()} workspace`);
       setRows([]);
@@ -1107,18 +1166,37 @@ export default function ShotPipelineWorkspace({
   const allVisibleSelected = Boolean(rowIds.length) && rowIds.every((id) => selectedIds.includes(id));
   const selectedRows = useMemo(() => rows.filter((row) => selectedIds.includes(row.id)), [rows, selectedIds]);
 
+  useEffect(() => {
+    debugPipeline("shot.renderRows", {
+      count: rows.length,
+      filters,
+      sample: rows.slice(0, 5).map((row) => ({
+        id: row.id,
+        shotId: row.shotId,
+        name: deriveShotLabel(row.shot),
+        status: row.stageStatus
+      }))
+    });
+  }, [filters, rows]);
+
   const headerStats = useMemo(() => {
-    const totalRows = stageSummary?.total || pagination.total || rows.length;
+    const localTotal = rows.length;
+    const localInProgress = rows.filter((row) => row.stageStatus === "IP").length;
+    const localFinal = rows.filter((row) => row.stageStatus === "FINAL").length;
+    const localOverdue = rows.filter((row) => isLateStatus(row.stageStatus, row.deadline || row.endDate)).length;
+    const localCompletion = localTotal
+      ? Math.round((rows.filter((row) => COMPLETE_SHOT_STATUSES.has(normalizeToken(row.stageStatus))).length / localTotal) * 100)
+      : 0;
     const visibleDuration = rows.reduce((sum, row) => sum + (resolveDurationMinutes(row, nowTick) || 0), 0);
     const assignedArtists = new Set(
       rows.flatMap((row) => getStageAssignments(row).map((assignment) => Number(assignment.employeeId || assignment.employee?.id || 0)).filter(Boolean))
     ).size;
     return {
-      total: totalRows,
-      inProgress: stageSummary?.inProgress || rows.filter((row) => row.stageStatus === "IP").length,
-      final: rows.filter((row) => row.stageStatus === "FINAL").length,
-      overdue: stageSummary?.delayed || rows.filter((row) => isLateStatus(row.stageStatus, row.deadline || row.endDate)).length,
-      completion: stageSummary?.completionPercent || 0,
+      total: localTotal || stageSummary?.total || pagination.total,
+      inProgress: localInProgress || stageSummary?.inProgress || 0,
+      final: localFinal || stageSummary?.final || 0,
+      overdue: localOverdue || stageSummary?.delayed || 0,
+      completion: localCompletion || stageSummary?.completionPercent || 0,
       assignedArtists,
       visibleDuration
     };
@@ -1322,13 +1400,16 @@ export default function ShotPipelineWorkspace({
       throw new Error("Invalid frame range");
     }
     const normalizedName = String(values.name || "").trim();
-    const { data } = await api.post(`/projects/${projectId}/shots`, {
+    const shotCreatePayload = {
       frameStart: range.frameStart,
       frameEnd: range.frameEnd,
       label: normalizedName || undefined,
       name: normalizedName || undefined,
       status: values.status
-    });
+    };
+    debugPipeline("shot.quickAdd.submit", { stageCode: normalizedStageCode, payload: shotCreatePayload });
+    const { data } = await api.post(`/projects/${projectId}/shots`, shotCreatePayload);
+    debugPipeline("shot.quickAdd.shotResponse", data);
 
     const stageRow = (data.stages || []).find((stage) => String(stage.stageDefinition?.code || "").toUpperCase() === normalizedStageCode);
     if (stageRow) {
@@ -1356,11 +1437,42 @@ export default function ShotPipelineWorkspace({
         throw validationError;
       }
       logShotPayload("create-shot-stage", stagePayload);
-      await api.put(`/shot-stages/${stageRow.id}`, stagePayload);
+      const { data: createdStage } = await api.put(`/shot-stages/${stageRow.id}`, stagePayload);
+      debugPipeline("shot.quickAdd.stageResponse", createdStage);
+
+      const fallbackShot = {
+        id: data.id || stageRow.shotId,
+        shotNumber: data.shotNumber || data.order || stageRow.shot?.shotNumber || null,
+        frameStart: range.frameStart,
+        frameEnd: range.frameEnd,
+        label: normalizedName || data.label || data.name || "",
+        name: normalizedName || data.name || data.label || ""
+      };
+      const stageEntry = {
+        ...stageRow,
+        ...(createdStage || {}),
+        id: createdStage?.id || stageRow.id,
+        shotId: createdStage?.shotId || stageRow.shotId || fallbackShot.id,
+        shot: createdStage?.shot || stageRow.shot || data.shot || fallbackShot
+      };
+      const createdRow = mapStageRow(stageEntry);
+      const shouldRenderCreatedRow = rowMatchesFilters(createdRow, filters);
+      setRows((prev) => {
+        const deduped = prev.filter((row) => row.shotId !== createdRow.shotId);
+        if (!shouldRenderCreatedRow) return deduped;
+        return [createdRow, ...deduped];
+      });
+      if (shouldRenderCreatedRow) {
+        setPagination((prev) => ({
+          ...prev,
+          total: prev.total + 1,
+          totalPages: Math.max(1, Math.ceil((prev.total + 1) / Number(prev.pageSize || 25)))
+        }));
+      }
     }
 
     showToast("success", successMessage);
-    await loadRows(false);
+    void loadRows(false);
   }
 
   async function createShot(event) {
@@ -1447,10 +1559,14 @@ export default function ShotPipelineWorkspace({
       setQuickCreateForm((prev) => ({
         ...buildQuickCreateForm(),
         department: prev.department || defaultCreateDepartment,
+        artistId: prev.artistId || "",
         status: prev.status || "YTS",
         startedAt: todayDateInput()
       }));
       setQuickCreateState("success");
+      window.requestAnimationFrame(() => {
+        quickNameInputRef.current?.focus();
+      });
     } catch (err) {
       const validation = err.validation || {};
       if (Object.keys(validation).length) {
@@ -1883,6 +1999,7 @@ export default function ShotPipelineWorkspace({
         <form onSubmit={createQuickShot} className="mt-3 space-y-2.5">
           <div className="grid gap-2 xl:grid-cols-[minmax(0,1.45fr)_140px_250px_170px_170px_140px]">
             <input
+              ref={quickNameInputRef}
               value={quickCreateForm.name}
               onChange={(event) => {
                 setQuickCreateForm((prev) => ({ ...prev, name: event.target.value }));
@@ -2030,8 +2147,14 @@ export default function ShotPipelineWorkspace({
           <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-slate-950 text-white shadow-lg shadow-slate-950/15">
             <Plus className="h-4 w-4" />
           </div>
-          <h3 className="mt-3 text-base font-semibold text-slate-950">No {displayStageLabel} shots yet</h3>
-          <p className="mt-1 text-sm text-slate-500">Create the first shot row to start staffing, timing, and reviews.</p>
+          <h3 className="mt-3 text-base font-semibold text-slate-950">
+            {filters.search || filters.status || filters.artistId || filters.overdueOnly ? "No rows match current filters" : `No ${displayStageLabel} shots yet`}
+          </h3>
+          <p className="mt-1 text-sm text-slate-500">
+            {filters.search || filters.status || filters.artistId || filters.overdueOnly
+              ? "Adjust search or filters to view existing rows."
+              : "Create the first shot row to start staffing, timing, and reviews."}
+          </p>
           <div className="mt-3 flex flex-wrap justify-center gap-2">
             <button type="button" onClick={openCreateModal} className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">Open Create Shot</button>
           </div>

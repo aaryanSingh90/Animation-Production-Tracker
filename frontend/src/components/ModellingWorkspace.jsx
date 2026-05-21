@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   AlertCircle,
@@ -44,6 +44,7 @@ import { formatEmployeeAvailabilityLabel, getEmployeeAvailabilityMeta, getOverlo
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
 const QUICK_CREATE_SUCCESS_TIMEOUT_MS = 1200;
+const ENABLE_PIPELINE_DEBUG = Boolean(import.meta?.env?.DEV);
 
 const SECTION_CONFIG = {
   CHARACTER: {
@@ -122,6 +123,18 @@ function createInitialForm(sectionKey) {
     description: "",
     referenceImageUrl: ""
   };
+}
+
+function debugPipeline(context, payload) {
+  if (!ENABLE_PIPELINE_DEBUG) return;
+  console.log(`[pipeline:${context}]`, payload);
+}
+
+function normalizeToken(value) {
+  return String(value || "")
+    .trim()
+    .replace(/[-\s]+/g, "_")
+    .toUpperCase();
 }
 
 function useDebouncedValue(value, delayMs = 180) {
@@ -211,10 +224,40 @@ function normalizeStageLabel(value) {
 }
 
 function getSectionKeyForAsset(asset) {
-  if (asset?.subCategory === "CHARACTER_BLENDSHAPES") return "CHARACTER_BLENDSHAPES";
-  if (asset?.subCategory === "PROP" || asset?.type === "PROP") return "PROP";
-  if (asset?.subCategory === "BG" || asset?.type === "BG" || asset?.type === "ENVIRONMENT") return "BG";
+  const subCategory = normalizeToken(asset?.subCategory);
+  const type = normalizeToken(asset?.type);
+  const category = normalizeToken(asset?.category);
+  const lane = normalizeToken(asset?.lane);
+  const merged = [subCategory, type, category, lane].filter(Boolean).join("|");
+
+  if (merged.includes("BLENDSHAPE")) return "CHARACTER_BLENDSHAPES";
+  if (["PROP", "PROPS"].some((token) => merged.includes(token))) return "PROP";
+  if (["BG", "BACKGROUND", "ENVIRONMENT", "ENV", "SET"].some((token) => merged.includes(token))) return "BG";
+  if (["CHARACTER", "CHAR"].some((token) => merged.includes(token))) return "CHARACTER";
   return "CHARACTER";
+}
+
+function normalizeStageRecord(stage) {
+  if (!stage) return stage;
+  return {
+    ...stage,
+    status: normalizeToken(stage.status || "YTS") || "YTS",
+    stageStatus: normalizeToken(stage.stageStatus || stage.status || "YTS") || "YTS",
+    taskAssignments: stage.taskAssignments || stage.assignments || []
+  };
+}
+
+function normalizeAssetRecord(asset) {
+  if (!asset) return asset;
+  const canonicalSectionKey = getSectionKeyForAsset(asset);
+  const canonicalSection = SECTION_CONFIG[canonicalSectionKey] || SECTION_CONFIG.CHARACTER;
+  const stages = (asset.stages || []).map((stage) => normalizeStageRecord(stage));
+  return {
+    ...asset,
+    type: normalizeToken(asset.type || canonicalSection.type) || canonicalSection.type,
+    subCategory: normalizeToken(asset.subCategory || canonicalSection.subCategory) || canonicalSection.subCategory,
+    stages
+  };
 }
 
 function getStageForCode(asset, stageCode) {
@@ -731,6 +774,7 @@ function AssignedArtistsSummary({ assignments, users, compact = false }) {
 
 function QuickCreateRow({ section, users, recommendedDepartment, disabled, onCreate }) {
   const departmentOptions = useMemo(() => buildDepartmentOptions(users, recommendedDepartment), [users, recommendedDepartment]);
+  const nameInputRef = useRef(null);
   const [draft, setDraft] = useState(() => ({
     name: "",
     department: resolvePreferredDepartment(users, recommendedDepartment),
@@ -808,13 +852,16 @@ function QuickCreateRow({ section, users, recommendedDepartment, disabled, onCre
       setDraft((prev) => ({
         name: "",
         department: prev.department,
-        employeeId: "",
+        employeeId: prev.employeeId,
         status: "YTS",
         startedAt: todayDateInput(),
         endedAt: ""
       }));
       setErrors({});
       setCreateState("success");
+      window.requestAnimationFrame(() => {
+        nameInputRef.current?.focus();
+      });
     } catch (_error) {
       setCreateState("idle");
       setErrors((prev) => ({
@@ -839,6 +886,7 @@ function QuickCreateRow({ section, users, recommendedDepartment, disabled, onCre
           <label className="space-y-1">
             <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">{section.singular} Name</span>
             <input
+              ref={nameInputRef}
               value={draft.name}
               onChange={(event) => {
                 setDraft((prev) => ({ ...prev, name: event.target.value }));
@@ -1314,7 +1362,19 @@ export default function ModellingWorkspace({
           archived: "all"
         }
       });
-      setAssets(sortByAssetOrder(data.items || []));
+      const normalizedItems = sortByAssetOrder((data.items || []).map((asset) => normalizeAssetRecord(asset)));
+      setAssets(normalizedItems);
+      debugPipeline("modelling.tableData", {
+        stageCode: normalizedStageCode,
+        count: normalizedItems.length,
+        sample: normalizedItems.slice(0, 5).map((asset) => ({
+          id: asset.id,
+          name: asset.name,
+          type: asset.type,
+          subCategory: asset.subCategory,
+          sectionKey: getSectionKeyForAsset(asset)
+        }))
+      });
     } catch (err) {
       setError(err.userMessage || err.response?.data?.message || `Failed to load ${displayStageLabel.toLowerCase()} assets`);
       setAssets([]);
@@ -1364,7 +1424,7 @@ export default function ModellingWorkspace({
           String(entry.asset.name || "").toLowerCase().includes(searchNeedle) ||
           String(entry.asset.description || "").toLowerCase().includes(searchNeedle) ||
           String(entry.stage.notes || "").toLowerCase().includes(searchNeedle);
-        const matchesStatus = !filterStatus || entry.stage.status === filterStatus;
+        const matchesStatus = !filterStatus || normalizeToken(entry.stage.status) === normalizeToken(filterStatus);
         const matchesArtist =
           !filterArtistId ||
           getStageAssignments(entry.stage).some((assignment) => Number(assignment.employeeId || assignment.employee?.id) === Number(filterArtistId)) ||
@@ -1474,6 +1534,7 @@ export default function ModellingWorkspace({
     const name = String(values.name || "").trim();
     const startedAt = values.startedAt || todayDateInput();
     if (!name) throw new Error(`${section.singular} name is required`);
+    debugPipeline("modelling.quickAdd.submit", { sectionKey, stageCode: normalizedStageCode, values });
 
     const { data: createdAsset } = await api.post(`/projects/${projectId}/assets`, {
       name,
@@ -1483,8 +1544,11 @@ export default function ModellingWorkspace({
       ...(String(values.description || "").trim() ? { description: String(values.description).trim() } : {}),
       ...(String(values.referenceImageUrl || "").trim() ? { referenceImageUrl: String(values.referenceImageUrl).trim() } : {})
     });
+    debugPipeline("modelling.quickAdd.assetResponse", createdAsset);
 
-    const stage = getStageForCode(createdAsset, normalizedStageCode);
+    let nextAsset = normalizeAssetRecord(createdAsset);
+
+    const stage = getStageForCode(nextAsset, normalizedStageCode);
     if (stage) {
       const stagePayload = buildStageUpdatePayload({
         status: values.status || "YTS",
@@ -1513,10 +1577,35 @@ export default function ModellingWorkspace({
         throw new Error(`Unable to create ${section.singular.toLowerCase()}. Please check required fields.`);
       }
 
-      await api.put(`/asset-stages/${stage.id}`, stagePayload);
+      const { data: stageResponse } = await api.put(`/asset-stages/${stage.id}`, stagePayload);
+      debugPipeline("modelling.quickAdd.stageResponse", stageResponse);
+      nextAsset = normalizeAssetRecord({
+        ...nextAsset,
+        stages: (nextAsset.stages || []).map((item) => (item.id === stage.id ? { ...item, ...stageResponse } : item))
+      });
+    } else {
+      debugPipeline("modelling.quickAdd.missingStage", {
+        assetId: nextAsset.id,
+        stageCode: normalizedStageCode,
+        asset: nextAsset
+      });
     }
 
-    await loadAssets(false);
+    setAssetList((current) => [nextAsset, ...current.filter((asset) => asset.id !== nextAsset.id)]);
+    debugPipeline("modelling.renderRows", {
+      section: sectionKey,
+      renderCount: assetsBySection?.[sectionKey]?.length,
+      created: {
+        id: nextAsset.id,
+        name: nextAsset.name,
+        type: nextAsset.type,
+        subCategory: nextAsset.subCategory,
+        bucket: getSectionKeyForAsset(nextAsset)
+      }
+    });
+    if (!stage) {
+      void loadAssets(false);
+    }
   }
 
   async function persistAssetUpdate(assetId, payload) {
@@ -1533,10 +1622,12 @@ export default function ModellingWorkspace({
 
   async function persistStageUpdate(assetId, stageId, payload, optimisticPatch = {}) {
     const previous = assets;
-    setAssetList((current) => current.map((asset) => (asset.id !== assetId ? asset : patchAssetStage(asset, stageId, optimisticPatch))));
+    const safeOptimisticPatch = normalizeStageRecord(optimisticPatch);
+    setAssetList((current) => current.map((asset) => (asset.id !== assetId ? asset : patchAssetStage(asset, stageId, safeOptimisticPatch))));
     try {
       const { data } = await api.put(`/asset-stages/${stageId}`, payload);
-      setAssetList((current) => current.map((asset) => (asset.id !== assetId ? asset : patchAssetStage(asset, stageId, data))));
+      const normalizedStage = normalizeStageRecord(data);
+      setAssetList((current) => current.map((asset) => (asset.id !== assetId ? asset : patchAssetStage(asset, stageId, normalizedStage))));
     } catch (err) {
       setAssets(previous);
       showToast?.("error", err.userMessage || err.response?.data?.message || `Unable to update ${displayStageLabel.toLowerCase()} row`);
