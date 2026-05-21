@@ -6,6 +6,7 @@ import Loader from "../components/Loader";
 import AudioWorkspace from "../components/AudioWorkspace";
 import ModellingWorkspace from "../components/ModellingWorkspace";
 import ShotPipelineWorkspace from "../components/ShotPipelineWorkspace";
+import PipelineQuickStageBar from "../components/PipelineQuickStageBar";
 import EmptyState from "../components/EmptyState";
 import Modal from "../components/Modal";
 import StatusBadge from "../components/StatusBadge";
@@ -791,51 +792,61 @@ export default function ProjectStageWorkspacePage() {
 
   if (stageCode === "AUDIO") {
     return (
-      <AudioWorkspace
-        projectId={projectId}
-        overview={overview}
-        stageSummary={stageSummary}
-        users={users}
-        recommendedDepartment={requiredDepartment}
-        showToast={showToast}
-      />
+      <div className="space-y-4">
+        <PipelineQuickStageBar projectId={projectId} overview={overview} activeStageCode={stageCode} sticky />
+        <AudioWorkspace
+          projectId={projectId}
+          overview={overview}
+          stageSummary={stageSummary}
+          users={users}
+          recommendedDepartment={requiredDepartment}
+          showToast={showToast}
+        />
+      </div>
     );
   }
 
   if (["MODELLING", "UNWRAPPING", "TEXTURING", "RIGGING"].includes(stageCode)) {
     return (
-      <ModellingWorkspace
-        projectId={projectId}
-        overview={overview}
-        stageSummary={stageSummary}
-        users={users}
-        recommendedDepartment={requiredDepartment}
-        workspaceVariant={workspaceVariant}
-        stageCode={stageCode}
-        stageLabel={stageSummary?.stageName || stageDisplayLabel || "Asset Workspace"}
-        showToast={showToast}
-      />
+      <div className="space-y-4">
+        <PipelineQuickStageBar projectId={projectId} overview={overview} activeStageCode={stageCode} sticky />
+        <ModellingWorkspace
+          projectId={projectId}
+          overview={overview}
+          stageSummary={stageSummary}
+          users={users}
+          recommendedDepartment={requiredDepartment}
+          workspaceVariant={workspaceVariant}
+          stageCode={stageCode}
+          stageLabel={stageSummary?.stageName || stageDisplayLabel || "Asset Workspace"}
+          showToast={showToast}
+        />
+      </div>
     );
   }
 
   if (DEDICATED_SHOT_WORKSPACE_STAGE_CODES.has(stageCode)) {
     return (
-      <ShotPipelineWorkspace
-        projectId={projectId}
-        overview={overview}
-        stageSummary={stageSummary}
-        users={users}
-        recommendedDepartment={requiredDepartment}
-        stageCode={stageCode}
-        stageLabel={stageSummary?.stageName || stageDisplayLabel || "Shot Workspace"}
-        currentUser={currentUser}
-        showToast={showToast}
-      />
+      <div className="space-y-4">
+        <PipelineQuickStageBar projectId={projectId} overview={overview} activeStageCode={stageCode} sticky />
+        <ShotPipelineWorkspace
+          projectId={projectId}
+          overview={overview}
+          stageSummary={stageSummary}
+          users={users}
+          recommendedDepartment={requiredDepartment}
+          stageCode={stageCode}
+          stageLabel={stageSummary?.stageName || stageDisplayLabel || "Shot Workspace"}
+          currentUser={currentUser}
+          showToast={showToast}
+        />
+      </div>
     );
   }
 
   return (
     <div className="space-y-4">
+      <PipelineQuickStageBar projectId={projectId} overview={overview} activeStageCode={stageCode} sticky />
       <section className="rounded-2xl border border-slate-200 bg-white p-4">
         <div className="mb-3 flex items-start justify-between gap-3">
           <div>

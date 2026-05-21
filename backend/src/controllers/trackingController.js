@@ -3,7 +3,7 @@ const { asyncHandler, AppError } = require("../utils/http");
 const { getTrackingDefinitionSnapshot, ensureProjectShotStageCoverage } = require("../utils/trackingSetup");
 const { getLegacyStageNameFromCode, normalizeStageCode } = require("../utils/stageDefinitions");
 const { MANAGER_ROLES } = require("../utils/constants");
-const { TASK_ASSIGNMENT_INCLUDE } = require("../utils/taskAssignments");
+const { TASK_ASSIGNMENT_INCLUDE, getAssignedEmployeeIds } = require("../utils/taskAssignments");
 const {
   COMPLETED_STATUSES,
   isApprovedStatus,
@@ -32,6 +32,19 @@ function isManagerRole(role) {
 
 function isAudioStageRow(stage) {
   return normalizeOverviewStageCode(stage?.stageDefinition?.code || stage?.stageName) === "AUDIO";
+}
+
+function addAssignedArtists(bucket, stage) {
+  if (!bucket.assignedArtistIds) bucket.assignedArtistIds = new Set();
+
+  for (const id of getAssignedEmployeeIds(stage, stage?.assignedUserId)) {
+    bucket.assignedArtistIds.add(id);
+  }
+
+  for (const assignment of Array.isArray(stage?.assignments) ? stage.assignments : []) {
+    const userId = Number(assignment?.userId || assignment?.user?.id || 0);
+    if (Number.isInteger(userId) && userId > 0) bucket.assignedArtistIds.add(userId);
+  }
 }
 
 async function assertProjectAccess(projectId, user) {
@@ -125,6 +138,11 @@ const getProjectOverview = asyncHandler(async (req, res) => {
           select: {
             userId: true
           }
+        },
+        taskAssignments: {
+          select: {
+            employeeId: true
+          }
         }
       }
     },
@@ -134,6 +152,11 @@ const getProjectOverview = asyncHandler(async (req, res) => {
           select: {
             id: true,
             name: true
+          }
+        },
+        taskAssignments: {
+          select: {
+            employeeId: true
           }
         }
       }
@@ -147,6 +170,11 @@ const getProjectOverview = asyncHandler(async (req, res) => {
               select: {
                 id: true,
                 name: true
+              }
+            },
+            taskAssignments: {
+              select: {
+                employeeId: true
               }
             }
           }
@@ -162,6 +190,11 @@ const getProjectOverview = asyncHandler(async (req, res) => {
               select: {
                 id: true,
                 name: true
+              }
+            },
+            taskAssignments: {
+              select: {
+                employeeId: true
               }
             }
           }
@@ -226,11 +259,13 @@ const getProjectOverview = asyncHandler(async (req, res) => {
         submitted: 0,
         inProgress: 0,
         delayed: 0,
+        assignedArtistIds: new Set(),
         status: stage.status
       });
     }
 
     const bucket = stageSummaryMap.get(code);
+    addAssignedArtists(bucket, stage);
     if (isCompleteStatus(stage.status)) bucket.approved += 1;
     if (isPendingReviewStatus(stage.status)) bucket.submitted += 1;
     if (stage.status === "IP") bucket.inProgress += 1;
@@ -248,8 +283,11 @@ const getProjectOverview = asyncHandler(async (req, res) => {
       submitted: audioTasks.filter((task) => isPendingReviewStatus(task.status)).length,
       inProgress: audioTasks.filter((task) => task.status === "IP").length,
       delayed: audioTasks.filter((task) => isLateStatus(task.status, task.endDate)).length,
+      assignedArtistIds: new Set(),
       status: audioTasks[0]?.status || "YTS"
     });
+    const bucket = stageSummaryMap.get(code);
+    for (const task of audioTasks) addAssignedArtists(bucket, task);
   }
 
   for (const stage of shotStages) {
@@ -264,6 +302,7 @@ const getProjectOverview = asyncHandler(async (req, res) => {
         submitted: 0,
         inProgress: 0,
         delayed: 0,
+        assignedArtistIds: new Set(),
         status: "YTS"
       });
     }
@@ -271,6 +310,7 @@ const getProjectOverview = asyncHandler(async (req, res) => {
     const bucket = stageSummaryMap.get(code);
     bucket.trackingMode = "SHOT";
     bucket.total += 1;
+    addAssignedArtists(bucket, stage);
     if (isCompleteStatus(stage.status)) bucket.approved += 1;
     if (isPendingReviewStatus(stage.status)) bucket.submitted += 1;
     if (stage.status === "IP") bucket.inProgress += 1;
@@ -289,6 +329,7 @@ const getProjectOverview = asyncHandler(async (req, res) => {
         submitted: 0,
         inProgress: 0,
         delayed: 0,
+        assignedArtistIds: new Set(),
         status: "YTS"
       });
     }
@@ -296,6 +337,7 @@ const getProjectOverview = asyncHandler(async (req, res) => {
     const bucket = stageSummaryMap.get(code);
     bucket.trackingMode = "ASSET";
     bucket.total += 1;
+    addAssignedArtists(bucket, stage);
     if (isCompleteStatus(stage.status)) bucket.approved += 1;
     if (isPendingReviewStatus(stage.status)) bucket.submitted += 1;
     if (stage.status === "IP") bucket.inProgress += 1;
@@ -334,14 +376,19 @@ const getProjectOverview = asyncHandler(async (req, res) => {
       submitted: 0,
       inProgress: 0,
       delayed: 0,
+      assignedArtistIds: new Set(),
       status: "YTS"
     });
   }
 
-  const stageSummaries = Array.from(stageSummaryMap.values()).map((item) => ({
-    ...item,
-    completionPercent: item.total ? Math.round((item.approved / item.total) * 100) : isCompleteStatus(item.status) ? 100 : 0
-  }));
+  const stageSummaries = Array.from(stageSummaryMap.values()).map((item) => {
+    const { assignedArtistIds, ...summary } = item;
+    return {
+      ...summary,
+      assignedArtists: assignedArtistIds?.size || 0,
+      completionPercent: item.total ? Math.round((item.approved / item.total) * 100) : isCompleteStatus(item.status) ? 100 : 0
+    };
+  });
 
   const completed =
     projectLevelRows.filter((stage) => isCompleteStatus(stage.status)).length +

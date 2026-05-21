@@ -5,6 +5,7 @@ import api from "../lib/api";
 import Loader from "../components/Loader";
 import EmptyState from "../components/EmptyState";
 import Modal from "../components/Modal";
+import PipelineQuickStageBar from "../components/PipelineQuickStageBar";
 import ProgressBar from "../components/ProgressBar";
 import { formatDate, formatDateInput, labelize } from "../utils/format";
 import { buildStageWorkspacePath } from "../utils/stageRouting";
@@ -598,6 +599,13 @@ export default function ProjectDetailPage() {
           <HeaderMetric label="Delayed Tasks" value={overview?.delayedTasksCount ?? 0} caption="Overdue production work" icon={AlertTriangle} tone={(overview?.delayedTasksCount ?? 0) > 0 ? "text-rose-700" : "text-slate-900"} />
         </div>
       </section>
+
+      <PipelineQuickStageBar
+        projectId={project.id}
+        overview={overview}
+        navigationState={breadcrumbState}
+        sticky
+      />
 
       <section className="rounded-[30px] border border-slate-200/80 bg-white/88 p-5 shadow-sm shadow-slate-200/40 backdrop-blur lg:p-6">
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
