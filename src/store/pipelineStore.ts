@@ -1,11 +1,13 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
 import type { TaskRow, TaskStatus } from '../types'
 import { INITIAL_TASKS } from '../data/initialData'
 import { calcSeconds } from '../utils/calcSeconds'
+import { db } from '../db/database'
 
 interface PipelineState {
   tasks: TaskRow[]
+  initialized: boolean
+  initialize: () => Promise<void>
   addTask: (task: TaskRow) => void
   updateTask: (id: string, patch: Partial<TaskRow>) => void
   updateTaskStatus: (id: string, newStatus: TaskStatus, userId?: string) => void
@@ -18,88 +20,83 @@ interface PipelineState {
   getTasksByArtist: (artistId: string) => TaskRow[]
 }
 
-export const usePipelineStore = create<PipelineState>()(
-  persist(
-    (set, get) => ({
-      tasks: INITIAL_TASKS,
+export const usePipelineStore = create<PipelineState>()((set, get) => ({
+  tasks: [],
+  initialized: false,
 
-      addTask: (task) =>
-        set(s => ({ tasks: [...s.tasks, task] })),
+  initialize: async () => {
+    const count = await db.tasks.count()
+    if (count === 0) await db.tasks.bulkAdd(INITIAL_TASKS)
+    const tasks = await db.tasks.toArray()
+    set({ tasks, initialized: true })
+  },
 
-      updateTask: (id, patch) =>
-        set(s => ({
-          tasks: s.tasks.map(t => {
-            if (t.id !== id) return t
-            const updated = { ...t, ...patch, updatedAt: new Date().toISOString() }
-            if (patch.frameRange !== undefined) {
-              updated.seconds = calcSeconds(patch.frameRange ?? '')
-            }
-            return updated
-          }),
-        })),
+  addTask: (task) => {
+    set(s => ({ tasks: [...s.tasks, task] }))
+    db.tasks.add(task)
+  },
 
-      updateTaskStatus: (id, newStatus, userId) =>
-        set(s => ({
-          tasks: s.tasks.map(t => {
-            if (t.id !== id) return t
-            return {
-              ...t,
-              status: newStatus,
-              updatedAt: new Date().toISOString(),
-              statusHistory: [
-                ...t.statusHistory,
-                {
-                  from: t.status,
-                  to: newStatus,
-                  changedAt: new Date().toISOString(),
-                  changedByUserId: userId,
-                },
-              ],
-            }
-          }),
-        })),
+  updateTask: (id, patch) => {
+    const updatedAt = new Date().toISOString()
+    const extra = patch.frameRange !== undefined ? { seconds: calcSeconds(patch.frameRange ?? '') } : {}
+    const fullPatch = { ...patch, ...extra, updatedAt }
+    set(s => ({ tasks: s.tasks.map(t => t.id === id ? { ...t, ...fullPatch } : t) }))
+    db.tasks.update(id, fullPatch)
+  },
 
-      deleteTask: (id) =>
-        set(s => ({ tasks: s.tasks.filter(t => t.id !== id) })),
+  updateTaskStatus: (id, newStatus, userId) => {
+    const task = get().tasks.find(t => t.id === id)
+    if (!task) return
+    const updatedAt = new Date().toISOString()
+    const updated: TaskRow = {
+      ...task,
+      status: newStatus,
+      updatedAt,
+      statusHistory: [
+        ...task.statusHistory,
+        { from: task.status, to: newStatus, changedAt: updatedAt, changedByUserId: userId },
+      ],
+    }
+    set(s => ({ tasks: s.tasks.map(t => t.id === id ? updated : t) }))
+    db.tasks.put(updated)
+  },
 
-      bulkUpdateStatus: (ids, status) =>
-        set(s => ({
-          tasks: s.tasks.map(t =>
-            ids.includes(t.id)
-              ? {
-                  ...t,
-                  status,
-                  updatedAt: new Date().toISOString(),
-                  statusHistory: [
-                    ...t.statusHistory,
-                    { from: t.status, to: status, changedAt: new Date().toISOString() },
-                  ],
-                }
-              : t
-          ),
-        })),
+  deleteTask: (id) => {
+    set(s => ({ tasks: s.tasks.filter(t => t.id !== id) }))
+    db.tasks.delete(id)
+  },
 
-      bulkUpdateArtist: (ids, artistId) =>
-        set(s => ({
-          tasks: s.tasks.map(t =>
-            ids.includes(t.id)
-              ? { ...t, assignedArtistId: artistId, updatedAt: new Date().toISOString() }
-              : t
-          ),
-        })),
+  bulkUpdateStatus: (ids, status) => {
+    const updatedAt = new Date().toISOString()
+    const updated = get().tasks.map(t => {
+      if (!ids.includes(t.id)) return t
+      return {
+        ...t, status, updatedAt,
+        statusHistory: [...t.statusHistory, { from: t.status, to: status, changedAt: updatedAt }],
+      }
+    })
+    set({ tasks: updated })
+    ids.forEach(id => {
+      const t = updated.find(x => x.id === id)
+      if (t) db.tasks.put(t)
+    })
+  },
 
-      bulkDeleteTasks: (ids) =>
-        set(s => ({ tasks: s.tasks.filter(t => !ids.includes(t.id)) })),
+  bulkUpdateArtist: (ids, artistId) => {
+    const updatedAt = new Date().toISOString()
+    set(s => ({ tasks: s.tasks.map(t => ids.includes(t.id) ? { ...t, assignedArtistId: artistId, updatedAt } : t) }))
+    ids.forEach(id => db.tasks.update(id, { assignedArtistId: artistId, updatedAt }))
+  },
 
-      getTasksBySubStage: (subStageId, projectId) =>
-        get().tasks.filter(t => t.subStageId === subStageId && t.projectId === projectId),
+  bulkDeleteTasks: (ids) => {
+    set(s => ({ tasks: s.tasks.filter(t => !ids.includes(t.id)) }))
+    db.tasks.bulkDelete(ids)
+  },
 
-      getTasksByProject: (projectId) =>
-        get().tasks.filter(t => t.projectId === projectId),
-
-      getTasksByArtist: (artistId) =>
-        get().tasks.filter(t => t.assignedArtistId === artistId),
-    }),
-    { name: 'anim-pipeline' }
-  )
-)
+  getTasksBySubStage: (subStageId, projectId) =>
+    get().tasks.filter(t => t.subStageId === subStageId && t.projectId === projectId),
+  getTasksByProject: (projectId) =>
+    get().tasks.filter(t => t.projectId === projectId),
+  getTasksByArtist: (artistId) =>
+    get().tasks.filter(t => t.assignedArtistId === artistId),
+}))

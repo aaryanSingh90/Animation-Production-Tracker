@@ -1,4 +1,4 @@
-import { useParams, Navigate } from 'react-router-dom'
+import { useParams, Navigate, Link } from 'react-router-dom'
 import { useClientStore } from '../store/clientStore'
 import { STAGE_MAP } from '../config/stageConfigs'
 import { PipelineNav } from '../components/navigation/PipelineNav'
@@ -30,9 +30,13 @@ export function WorkspacePage() {
       {/* Project header */}
       <div className="bg-white border-b border-gray-200 px-6 py-3">
         <div className="flex items-center gap-2 text-sm text-gray-500">
-          <span>{client.name}</span>
+          <Link to={`/clients/${clientId}`} className="hover:text-gray-900 hover:underline transition-colors">
+            {client.name}
+          </Link>
           <span>/</span>
-          <span className="font-medium text-gray-900">{project.name}</span>
+          <Link to={`/clients/${clientId}/projects/${projectId}`} className="font-medium text-gray-900 hover:text-indigo-600 hover:underline transition-colors">
+            {project.name}
+          </Link>
           <span>/</span>
           <span className="text-indigo-600 font-medium">{stageConfig.icon} {stageConfig.name}</span>
         </div>

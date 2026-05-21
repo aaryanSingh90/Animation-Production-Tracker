@@ -1,10 +1,12 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
 import type { Employee } from '../types'
 import { INITIAL_EMPLOYEES } from '../data/initialData'
+import { db } from '../db/database'
 
 interface EmployeeState {
   employees: Employee[]
+  initialized: boolean
+  initialize: () => Promise<void>
   addEmployee: (emp: Employee) => void
   updateEmployee: (id: string, patch: Partial<Employee>) => void
   deactivateEmployee: (id: string) => void
@@ -12,24 +14,32 @@ interface EmployeeState {
   getEmployee: (id: string) => Employee | undefined
 }
 
-export const useEmployeeStore = create<EmployeeState>()(
-  persist(
-    (set, get) => ({
-      employees: INITIAL_EMPLOYEES,
+export const useEmployeeStore = create<EmployeeState>()((set, get) => ({
+  employees: [],
+  initialized: false,
 
-      addEmployee: (emp) =>
-        set(s => ({ employees: [...s.employees, emp] })),
+  initialize: async () => {
+    const count = await db.employees.count()
+    if (count === 0) await db.employees.bulkAdd(INITIAL_EMPLOYEES)
+    const employees = await db.employees.toArray()
+    set({ employees, initialized: true })
+  },
 
-      updateEmployee: (id, patch) =>
-        set(s => ({ employees: s.employees.map(e => e.id === id ? { ...e, ...patch } : e) })),
+  addEmployee: (emp) => {
+    set(s => ({ employees: [...s.employees, emp] }))
+    db.employees.add(emp)
+  },
 
-      deactivateEmployee: (id) =>
-        set(s => ({ employees: s.employees.map(e => e.id === id ? { ...e, active: false } : e) })),
+  updateEmployee: (id, patch) => {
+    set(s => ({ employees: s.employees.map(e => e.id === id ? { ...e, ...patch } : e) }))
+    db.employees.update(id, patch)
+  },
 
-      getActiveEmployees: () => get().employees.filter(e => e.active),
+  deactivateEmployee: (id) => {
+    set(s => ({ employees: s.employees.map(e => e.id === id ? { ...e, active: false } : e) }))
+    db.employees.update(id, { active: false })
+  },
 
-      getEmployee: (id) => get().employees.find(e => e.id === id),
-    }),
-    { name: 'anim-employees' }
-  )
-)
+  getActiveEmployees: () => get().employees.filter(e => e.active),
+  getEmployee: (id) => get().employees.find(e => e.id === id),
+}))

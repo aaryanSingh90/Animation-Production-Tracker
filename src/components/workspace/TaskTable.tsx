@@ -1,16 +1,16 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import {
   useReactTable,
   getCoreRowModel,
   flexRender,
   type ColumnDef,
 } from '@tanstack/react-table'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { Trash2, AlertTriangle, ChevronRight } from 'lucide-react'
 import type { TaskRow, SubStageConfig } from '../../types'
 import { usePipelineStore } from '../../store/pipelineStore'
 import { StatusDropdown } from '../ui/StatusDropdown'
 import { ArtistDropdown } from '../employees/ArtistDropdown'
-import { ArtistChip } from '../employees/ArtistChip'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { isOverdue } from '../../utils/calcSeconds'
 import { clsx } from 'clsx'
@@ -26,6 +26,7 @@ interface Props {
 export function TaskTable({ tasks, subStageConfig, selectedIds, onSelect, onRowClick }: Props) {
   const { updateTask, updateTaskStatus, deleteTask } = usePipelineStore()
   const [deleteId, setDeleteId] = useState<string | null>(null)
+  const parentRef = useRef<HTMLDivElement>(null)
 
   const allSelected = tasks.length > 0 && tasks.every(t => selectedIds.includes(t.id))
   const someSelected = tasks.some(t => selectedIds.includes(t.id))
@@ -207,11 +208,27 @@ export function TaskTable({ tasks, subStageConfig, selectedIds, onSelect, onRowC
     getCoreRowModel: getCoreRowModel(),
   })
 
+  const rows = table.getRowModel().rows
+
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 45,
+    overscan: 8,
+  })
+
+  const virtualRows = virtualizer.getVirtualItems()
+  const totalSize = virtualizer.getTotalSize()
+  const paddingTop = virtualRows.length > 0 ? (virtualRows[0]?.start ?? 0) : 0
+  const paddingBottom = virtualRows.length > 0
+    ? totalSize - (virtualRows[virtualRows.length - 1]?.end ?? 0)
+    : 0
+
   return (
     <>
-      <div className="overflow-x-auto">
+      <div ref={parentRef} className="overflow-auto" style={{ maxHeight: 'calc(100vh - 280px)' }}>
         <table className="w-full text-sm border-collapse">
-          <thead>
+          <thead className="sticky top-0 z-10">
             {table.getHeaderGroups().map(hg => (
               <tr key={hg.id} className="bg-gray-50 border-b border-gray-200">
                 {hg.headers.map(header => (
@@ -227,51 +244,58 @@ export function TaskTable({ tasks, subStageConfig, selectedIds, onSelect, onRowC
             ))}
           </thead>
           <tbody>
-            {table.getRowModel().rows.length === 0 ? (
+            {rows.length === 0 ? (
               <tr>
-                <td
-                  colSpan={columns.length}
-                  className="px-4 py-12 text-center text-sm text-gray-400"
-                >
+                <td colSpan={columns.length} className="px-4 py-12 text-center text-sm text-gray-400">
                   No tasks yet — use the Quick Add bar above to create one.
                 </td>
               </tr>
             ) : (
-              table.getRowModel().rows.map(row => {
-                const task = row.original
-                const overdue = isOverdue(task.endDate, task.status)
-                const isSelected = selectedIds.includes(task.id)
-                return (
-                  <tr
-                    key={row.id}
-                    onClick={() => onRowClick(task)}
-                    className={clsx(
-                      'border-b border-gray-100 cursor-pointer transition-colors',
-                      isSelected ? 'bg-indigo-50' : 'hover:bg-gray-50',
-                      overdue && 'bg-red-50 hover:bg-red-100'
-                    )}
-                  >
-                    {row.getVisibleCells().map(cell => (
-                      <td
-                        key={cell.id}
-                        className={clsx(
-                          'px-3 py-2.5 align-middle',
-                          cell.column.id === 'endDate' && overdue && 'text-red-600'
-                        )}
-                      >
-                        {cell.column.id === 'itemName' && overdue && (
-                          <span className="inline-flex items-center gap-1">
-                            <AlertTriangle className="w-3 h-3 text-red-500 shrink-0" />
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                          </span>
-                        )}
-                        {!(cell.column.id === 'itemName' && overdue) &&
-                          flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </td>
-                    ))}
-                  </tr>
-                )
-              })
+              <>
+                {paddingTop > 0 && (
+                  <tr><td style={{ height: paddingTop }} colSpan={columns.length} /></tr>
+                )}
+                {virtualRows.map(virtualRow => {
+                  const row = rows[virtualRow.index]
+                  const task = row.original
+                  const overdue = isOverdue(task.endDate, task.status)
+                  const isSelected = selectedIds.includes(task.id)
+                  return (
+                    <tr
+                      key={row.id}
+                      onClick={() => onRowClick(task)}
+                      style={{ height: virtualRow.size }}
+                      className={clsx(
+                        'border-b border-gray-100 cursor-pointer transition-colors',
+                        isSelected ? 'bg-indigo-50' : 'hover:bg-gray-50',
+                        overdue && !isSelected && 'bg-red-50 hover:bg-red-100'
+                      )}
+                    >
+                      {row.getVisibleCells().map(cell => (
+                        <td
+                          key={cell.id}
+                          className={clsx(
+                            'px-3 py-2.5 align-middle',
+                            cell.column.id === 'endDate' && overdue && 'text-red-600'
+                          )}
+                        >
+                          {cell.column.id === 'itemName' && overdue ? (
+                            <span className="inline-flex items-center gap-1">
+                              <AlertTriangle className="w-3 h-3 text-red-500 shrink-0" />
+                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            </span>
+                          ) : (
+                            flexRender(cell.column.columnDef.cell, cell.getContext())
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+                  )
+                })}
+                {paddingBottom > 0 && (
+                  <tr><td style={{ height: paddingBottom }} colSpan={columns.length} /></tr>
+                )}
+              </>
             )}
           </tbody>
         </table>
