@@ -83,7 +83,7 @@ export default function Topbar({ user, onLogout }) {
   const title = titleByRoot[root] || "Animation Tracker";
 
   return (
-    <header className="sticky top-0 z-30 border-b border-slate-200/70 bg-slate-50/90 backdrop-blur-xl">
+    <header data-app-topbar="true" className="sticky top-0 z-30 border-b border-slate-200/70 bg-slate-50/90 backdrop-blur-xl">
       <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-3 sm:px-5 lg:px-6 xl:px-8">
         <div className="min-w-0">
           <div className="mb-1 flex flex-wrap items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">

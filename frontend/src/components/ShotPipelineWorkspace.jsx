@@ -1029,7 +1029,8 @@ export default function ShotPipelineWorkspace({
   showToast,
   stageCode,
   stageLabel,
-  currentUser
+  currentUser,
+  stickyTopOffset = 160
 }) {
   const activeUsers = useMemo(() => users.filter((user) => user?.isActive !== false), [users]);
   const summariesByUserId = useEmployeeAvailabilitySummaries(activeUsers);
@@ -1748,7 +1749,7 @@ export default function ShotPipelineWorkspace({
       window.requestAnimationFrame(() => {
         const rowNode = rowRefs.current.get(stageId);
         if (!rowNode) return;
-        const stickyOffset = (headerRef.current?.offsetHeight || 0) + 96;
+        const stickyOffset = (headerRef.current?.offsetHeight || 0) + stickyTopOffset + 24;
         const targetTop = rowNode.getBoundingClientRect().top + window.scrollY - stickyOffset;
         window.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
       });
@@ -1801,12 +1802,13 @@ export default function ShotPipelineWorkspace({
   }
 
   return (
-    <div className="-mt-3 space-y-3 md:-mt-4">
+    <div className="space-y-3">
       <section
         ref={headerRef}
-        className={`sticky top-3 z-20 overflow-hidden rounded-[24px] border border-slate-900/90 bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.12),_transparent_30%),linear-gradient(180deg,_rgba(15,23,42,0.98),_rgba(2,6,23,0.98))] text-white backdrop-blur transition-[transform,padding,box-shadow] duration-300 ${
+        className={`sticky z-20 overflow-hidden rounded-[24px] border border-slate-900/90 bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.12),_transparent_30%),linear-gradient(180deg,_rgba(15,23,42,0.98),_rgba(2,6,23,0.98))] text-white backdrop-blur transition-[transform,padding,box-shadow] duration-300 ${
           headerCompact ? "shadow-xl shadow-slate-950/15" : "shadow-2xl shadow-slate-950/20"
         }`}
+        style={{ top: `${Math.max(0, stickyTopOffset)}px` }}
       >
         <div className={`px-4 transition-all duration-300 ${headerCompact ? "space-y-2 py-2.5" : "space-y-3 py-3"}`}>
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">

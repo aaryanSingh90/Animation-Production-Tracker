@@ -566,7 +566,6 @@ export default function ProjectDetailPage() {
         overview={overview}
         navigationState={breadcrumbState}
         sticky
-        className="-mx-4 -mt-4 sm:-mx-5 lg:-mx-6 xl:-mx-8"
       />
 
       <section className="overflow-hidden rounded-[32px] border border-slate-200/80 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.12),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.94))] shadow-sm shadow-slate-200/50">

@@ -1,18 +1,5 @@
-import {
-  ArrowRight,
-  Box,
-  Clapperboard,
-  Film,
-  Layers3,
-  MonitorCheck,
-  Music2,
-  Paintbrush,
-  Scissors,
-  Sparkles,
-  Sun,
-  Wrench
-} from "lucide-react";
-import { memo, useEffect, useMemo, useState } from "react";
+import { Box, Clapperboard, Film, Layers3, MonitorCheck, Music2, Paintbrush, Scissors, Sparkles, Sun, Wrench } from "lucide-react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { buildStageWorkspacePath, stageSlugFromCode } from "../utils/stageRouting";
 
@@ -33,6 +20,8 @@ const STAGE_ITEMS = [
 
 export const PIPELINE_STAGE_ITEMS = STAGE_ITEMS;
 const STAGE_META_BY_CODE = new Map(STAGE_ITEMS.map((stage) => [stage.code, stage]));
+const FALLBACK_TOPBAR_HEIGHT = 84;
+const FALLBACK_BAR_HEIGHT = 56;
 
 function normalizeStageCode(value) {
   const normalized = String(value || "").trim().toUpperCase();
@@ -73,46 +62,41 @@ function deriveStageMetrics(summary) {
 function deriveStageVisual(metrics) {
   if (metrics.delayed > 0) {
     return {
-      label: `${metrics.delayed} Delayed`,
+      label: `${metrics.delayed} delayed`,
       dot: "bg-rose-500",
-      text: "text-rose-600",
-      border: "border-rose-200",
-      soft: "bg-rose-50"
+      text: "text-rose-700",
+      border: "border-rose-200"
     };
   }
   if (metrics.pending > 0) {
     return {
-      label: `${metrics.pending} Pending`,
+      label: `${metrics.pending} pending`,
       dot: "bg-amber-400",
-      text: "text-amber-600",
-      border: "border-amber-200",
-      soft: "bg-amber-50"
+      text: "text-amber-700",
+      border: "border-amber-200"
     };
   }
   if (metrics.progress >= 100 && metrics.total > 0) {
     return {
-      label: "Approved",
+      label: "approved",
       dot: "bg-emerald-500",
-      text: "text-emerald-600",
-      border: "border-emerald-200",
-      soft: "bg-emerald-50"
+      text: "text-emerald-700",
+      border: "border-emerald-200"
     };
   }
   if (metrics.inProgress > 0 || metrics.progress > 0) {
     return {
       label: `${metrics.progress}%`,
-      dot: "bg-blue-500",
-      text: "text-blue-600",
-      border: "border-blue-200",
-      soft: "bg-blue-50"
+      dot: "bg-sky-500",
+      text: "text-sky-700",
+      border: "border-sky-200"
     };
   }
   return {
-    label: "Queued",
+    label: "queued",
     dot: "bg-slate-400",
-    text: "text-slate-500",
-    border: "border-slate-200",
-    soft: "bg-slate-50"
+    text: "text-slate-600",
+    border: "border-slate-200"
   };
 }
 
@@ -122,13 +106,15 @@ function PipelineQuickStageBar({
   activeStageCode = "",
   navigationState,
   sticky = true,
-  className = ""
+  className = "",
+  onLayoutChange
 }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const [hoveredStageCode, setHoveredStageCode] = useState("");
+  const barRef = useRef(null);
   const normalizedActiveStageCode = normalizeStageCode(activeStageCode);
   const resolvedNavigationState = navigationState ?? location.state;
+  const [stickyTop, setStickyTop] = useState(FALLBACK_TOPBAR_HEIGHT);
 
   const summaryByCode = useMemo(() => {
     const map = new Map();
@@ -140,53 +126,50 @@ function PipelineQuickStageBar({
     return map;
   }, [overview]);
 
-  const stageItems = useMemo(
-    () => {
-      const configuredStages = Array.isArray(overview?.project?.pipelineStages)
-        ? overview.project.pipelineStages
-            .map((stage, index) => ({
-              ...stage,
-              stageCode: normalizeStageCode(stage.stageCode),
-              order: Number(stage.order || index + 1)
-            }))
-            .filter((stage) => stage.stageCode)
-            .sort((a, b) => a.order - b.order)
+  const stageItems = useMemo(() => {
+    const configuredStages = Array.isArray(overview?.project?.pipelineStages)
+      ? overview.project.pipelineStages
+          .map((stage, index) => ({
+            ...stage,
+            stageCode: normalizeStageCode(stage.stageCode),
+            order: Number(stage.order || index + 1)
+          }))
+          .filter((stage) => stage.stageCode)
+          .sort((a, b) => a.order - b.order)
+      : [];
+    const configuredCodes = configuredStages.length
+      ? configuredStages.map((stage) => stage.stageCode)
+      : Array.isArray(overview?.project?.activeStageCodes)
+        ? overview.project.activeStageCodes.map((code) => normalizeStageCode(code)).filter(Boolean)
         : [];
-      const configuredCodes = configuredStages.length
-        ? configuredStages.map((stage) => stage.stageCode)
-        : Array.isArray(overview?.project?.activeStageCodes)
-          ? overview.project.activeStageCodes.map((code) => normalizeStageCode(code)).filter(Boolean)
-          : [];
-      const summaryCodes = (overview?.stageSummaries || []).map((summary) => normalizeStageCode(summary?.stageCode)).filter(Boolean);
-      const codes = Array.from(new Set(configuredCodes.length ? configuredCodes : summaryCodes.length ? summaryCodes : STAGE_ITEMS.map((stage) => stage.code)));
+    const summaryCodes = (overview?.stageSummaries || []).map((summary) => normalizeStageCode(summary?.stageCode)).filter(Boolean);
+    const codes = Array.from(new Set(configuredCodes.length ? configuredCodes : summaryCodes.length ? summaryCodes : STAGE_ITEMS.map((stage) => stage.code)));
 
-      return codes.map((code) => {
-        const configuredStage = configuredStages.find((stage) => stage.stageCode === code);
-        const meta = STAGE_META_BY_CODE.get(code) || {
-          code,
-          slug: stageSlugFromCode(code) || code.toLowerCase().replaceAll("_", "-"),
-          label: code === "RENDERING" ? "Final Output" : code.toLowerCase().replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase()),
-          Icon: Layers3
-        };
-        const stage = {
-          ...meta,
-          code,
-          label: configuredStage?.stageName || meta.label
-        };
-        const summary = configuredStage || summaryByCode.get(stage.code) || (stage.code === "RENDERING" ? summaryByCode.get("RENDER") : null);
-        const metrics = deriveStageMetrics(summary);
-        return {
-          ...stage,
-          metrics,
-          visual: deriveStageVisual(metrics),
-          isActive: normalizeStageCode(stage.code) === normalizedActiveStageCode
-        };
-      });
-    },
-    [normalizedActiveStageCode, overview, summaryByCode]
-  );
+    return codes.map((code) => {
+      const configuredStage = configuredStages.find((stage) => stage.stageCode === code);
+      const meta = STAGE_META_BY_CODE.get(code) || {
+        code,
+        slug: stageSlugFromCode(code) || code.toLowerCase().replaceAll("_", "-"),
+        label: code === "RENDERING" ? "Final Output" : code.toLowerCase().replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase()),
+        Icon: Layers3
+      };
+      const stage = {
+        ...meta,
+        code,
+        label: configuredStage?.stageName || meta.label
+      };
+      const summary = configuredStage || summaryByCode.get(stage.code) || (stage.code === "RENDERING" ? summaryByCode.get("RENDER") : null);
+      const metrics = deriveStageMetrics(summary);
+      return {
+        ...stage,
+        metrics,
+        visual: deriveStageVisual(metrics),
+        isActive: normalizeStageCode(stage.code) === normalizedActiveStageCode
+      };
+    });
+  }, [normalizedActiveStageCode, overview, summaryByCode]);
+
   const activeIndex = stageItems.findIndex((stage) => stage.isActive);
-  const hoveredStage = stageItems.find((stage) => stage.code === hoveredStageCode);
 
   useEffect(() => {
     if (!projectId || activeIndex < 0) return undefined;
@@ -208,65 +191,103 @@ function PipelineQuickStageBar({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [activeIndex, navigate, projectId, resolvedNavigationState, stageItems]);
 
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const topbarNode = document.querySelector("[data-app-topbar='true']");
+    let frameId = null;
+
+    const syncLayout = () => {
+      const measuredTop = Math.round(topbarNode?.getBoundingClientRect?.().height || FALLBACK_TOPBAR_HEIGHT);
+      const nextTop = measuredTop > 0 ? measuredTop : FALLBACK_TOPBAR_HEIGHT;
+      const measuredBarHeight = Math.round(barRef.current?.getBoundingClientRect?.().height || FALLBACK_BAR_HEIGHT);
+      const nextBarHeight = measuredBarHeight > 0 ? measuredBarHeight : FALLBACK_BAR_HEIGHT;
+
+      setStickyTop((previous) => (previous === nextTop ? previous : nextTop));
+      onLayoutChange?.({
+        stickyTop: nextTop,
+        barHeight: nextBarHeight
+      });
+    };
+
+    const requestSync = () => {
+      if (frameId) window.cancelAnimationFrame(frameId);
+      frameId = window.requestAnimationFrame(syncLayout);
+    };
+
+    requestSync();
+
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(requestSync) : null;
+    if (observer && topbarNode) observer.observe(topbarNode);
+    if (observer && barRef.current) observer.observe(barRef.current);
+    window.addEventListener("resize", requestSync);
+
+    return () => {
+      if (frameId) window.cancelAnimationFrame(frameId);
+      observer?.disconnect();
+      window.removeEventListener("resize", requestSync);
+    };
+  }, [onLayoutChange, stageItems.length]);
+
   return (
-    <section className={`${sticky ? "sticky top-[84px] z-[35] sm:top-[76px]" : ""} ${className}`.trim()}>
-      <div className="border-y border-slate-200/80 bg-white/95 shadow-sm shadow-slate-200/70 backdrop-blur-xl">
-        <div className="flex items-center justify-between px-3 pt-2">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-600">Pipeline Quick Access</p>
-          {hoveredStage ? (
-            <div className="hidden items-center gap-2 text-[11px] text-slate-500 md:flex">
-              <span className="font-semibold text-slate-800">{hoveredStage.label}</span>
-              <span>{hoveredStage.metrics.total} total</span>
-              <span>{hoveredStage.metrics.inProgress} IP</span>
-              <span>{hoveredStage.metrics.delayed} delayed</span>
-              <span>{hoveredStage.metrics.pending} approvals</span>
+    <section
+      ref={barRef}
+      className={`${sticky ? "sticky z-[25]" : ""} ${className}`.trim()}
+      style={sticky ? { top: `${stickyTop}px` } : undefined}
+    >
+      <div className="rounded-2xl border border-slate-200/85 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.96))] shadow-[0_8px_18px_-18px_rgba(15,23,42,0.45)] backdrop-blur">
+        <div className="flex h-[56px] items-center gap-3 px-3 sm:px-4 lg:px-5">
+          <div className="hidden shrink-0 border-r border-slate-200/80 pr-3 sm:block">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Pipeline Quick Access</p>
+            <p className="text-[11px] text-slate-500">Project navigation</p>
+          </div>
+
+          <div className="relative min-w-0 flex-1">
+            <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-4 bg-gradient-to-r from-slate-50 via-slate-50/90 to-transparent" />
+            <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-4 bg-gradient-to-l from-slate-50 via-slate-50/90 to-transparent" />
+
+            <div className="overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+              <ul className="flex min-w-max items-center gap-1.5 py-1">
+                {stageItems.map((stage) => {
+                  const link = buildStageWorkspacePath(projectId, stage.slug);
+                  const Icon = stage.Icon || Layers3;
+
+                  return (
+                    <li key={stage.code}>
+                      <Link
+                        to={link}
+                        state={resolvedNavigationState}
+                        aria-current={stage.isActive ? "page" : undefined}
+                        title={`${stage.label}: ${stage.metrics.total} total, ${stage.metrics.completed} completed, ${stage.metrics.inProgress} in progress, ${stage.metrics.delayed} delayed, ${stage.metrics.artists} artists, ${stage.metrics.pending} pending approvals`}
+                        className={`inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-xs font-semibold transition duration-200 ${
+                          stage.isActive
+                            ? "border-sky-300 bg-sky-50 text-sky-950 shadow-[0_0_0_1px_rgba(186,230,253,0.9),0_10px_24px_-20px_rgba(14,165,233,0.95)]"
+                            : `${stage.visual.border} bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50`
+                        }`}
+                      >
+                        <Icon className="h-3.5 w-3.5 shrink-0" />
+                        <span className={`h-2 w-2 shrink-0 rounded-full ${stage.isActive ? "bg-sky-500" : stage.visual.dot}`} />
+                        <span className="max-w-[10rem] truncate whitespace-nowrap">{stage.label}</span>
+                        <span
+                          className={`hidden rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] sm:inline ${
+                            stage.isActive ? "border-sky-200 bg-white text-sky-700" : "border-slate-200 bg-slate-50 text-slate-600"
+                          } ${stage.isActive ? "" : stage.visual.text}`}
+                        >
+                          {stage.visual.label}
+                        </span>
+                        <span
+                          className={`inline-flex min-w-[1.8rem] items-center justify-center rounded-full border px-1.5 py-0.5 text-[10px] font-bold ${
+                            stage.isActive ? "border-sky-200 bg-white text-sky-700" : "border-slate-200 bg-slate-50 text-slate-700"
+                          }`}
+                        >
+                          {stage.metrics.total}
+                        </span>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
-          ) : null}
-        </div>
-
-        <div className="relative">
-          <div className="pointer-events-none absolute bottom-0 left-0 top-0 w-6 bg-gradient-to-r from-white via-white/95 to-transparent" />
-          <div className="pointer-events-none absolute bottom-0 right-0 top-0 w-6 bg-gradient-to-l from-white via-white/95 to-transparent" />
-
-          <div className="overflow-x-auto px-3 pb-2 pt-2 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-            <ul className="flex min-w-max items-center gap-1.5">
-              {stageItems.map((stage, index) => {
-                const link = buildStageWorkspacePath(projectId, stage.slug);
-                const Icon = stage.Icon || Layers3;
-
-                return (
-                  <li key={stage.code} className="group relative flex items-center gap-1.5">
-                    <Link
-                      to={link}
-                      state={resolvedNavigationState}
-                      aria-current={stage.isActive ? "page" : undefined}
-                      title={`${stage.label}: ${stage.metrics.total} total, ${stage.metrics.completed} completed, ${stage.metrics.inProgress} in progress, ${stage.metrics.delayed} delayed, ${stage.metrics.artists} artists, ${stage.metrics.pending} pending approvals`}
-                      onMouseEnter={() => setHoveredStageCode(stage.code)}
-                      onFocus={() => setHoveredStageCode(stage.code)}
-                      onMouseLeave={() => setHoveredStageCode("")}
-                      onBlur={() => setHoveredStageCode("")}
-                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold transition duration-200 ${
-                        stage.isActive
-                          ? "border-blue-500 bg-slate-950 text-white shadow-lg shadow-blue-500/20 ring-1 ring-blue-400/40"
-                          : `${stage.visual.border} ${stage.visual.soft} text-slate-800 hover:border-slate-400 hover:bg-white hover:shadow-sm`
-                      }`}
-                    >
-                      <Icon className="h-3.5 w-3.5" />
-                      <span className={`h-2 w-2 rounded-full ${stage.isActive ? "bg-white" : stage.visual.dot}`} />
-                      <span>{stage.label}</span>
-                      <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${stage.isActive ? "bg-white/15 text-white" : "bg-white/80 text-slate-700"}`}>
-                        {stage.metrics.active}
-                      </span>
-                      <span className={`text-[10px] font-bold uppercase tracking-[0.1em] ${stage.isActive ? "text-blue-100" : stage.visual.text}`}>
-                        {stage.visual.label}
-                      </span>
-                    </Link>
-
-                    {index < stageItems.length - 1 ? <ArrowRight className="h-3.5 w-3.5 text-slate-300" /> : null}
-                  </li>
-                );
-              })}
-            </ul>
           </div>
         </div>
       </div>

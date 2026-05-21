@@ -263,6 +263,7 @@ export default function ProjectStageWorkspacePage() {
   });
 
   const [collapsedSequences, setCollapsedSequences] = useState({});
+  const [pipelineLayout, setPipelineLayout] = useState({ stickyTop: 84, barHeight: 56 });
 
   const stageSummary = useMemo(() => {
     const rows = overview?.stageSummaries || [];
@@ -274,6 +275,7 @@ export default function ProjectStageWorkspacePage() {
   const isAnimaticsWorkspace = stageCode === "ANIMATICS" && isShotMode;
   const isEditingWorkspace = stageCode === "EDITING";
   const assetLaneOptions = useMemo(() => ASSET_LANE_OPTIONS[String(stageCode || "").toUpperCase()] || [], [stageCode]);
+  const workspaceStickyTopOffset = pipelineLayout.stickyTop + pipelineLayout.barHeight + 10;
 
   const requiredDepartment = useMemo(() => stageDepartmentFromCode(stageCode), [stageCode]);
   const eligibleUsers = useMemo(() => {
@@ -795,62 +797,93 @@ export default function ProjectStageWorkspacePage() {
 
   if (stageCode === "AUDIO") {
     return (
-      <div className="space-y-4">
-        <PipelineQuickStageBar projectId={projectId} overview={overview} activeStageCode={stageCode} sticky className="-mx-4 -mt-4 sm:-mx-5 lg:-mx-6 xl:-mx-8" />
-        <AudioWorkspace
+      <div className="space-y-3">
+        <PipelineQuickStageBar
           projectId={projectId}
           overview={overview}
-          stageSummary={stageSummary}
-          users={users}
-          recommendedDepartment={requiredDepartment}
-          showToast={showToast}
+          activeStageCode={stageCode}
+          sticky
+          onLayoutChange={setPipelineLayout}
         />
+        <div className="pt-2">
+          <AudioWorkspace
+            projectId={projectId}
+            overview={overview}
+            stageSummary={stageSummary}
+            users={users}
+            recommendedDepartment={requiredDepartment}
+            showToast={showToast}
+          />
+        </div>
       </div>
     );
   }
 
   if (["MODELLING", "UNWRAPPING", "TEXTURING", "RIGGING"].includes(stageCode)) {
     return (
-      <div className="space-y-4">
-        <PipelineQuickStageBar projectId={projectId} overview={overview} activeStageCode={stageCode} sticky className="-mx-4 -mt-4 sm:-mx-5 lg:-mx-6 xl:-mx-8" />
-        <ModellingWorkspace
+      <div className="space-y-3">
+        <PipelineQuickStageBar
           projectId={projectId}
           overview={overview}
-          stageSummary={stageSummary}
-          users={users}
-          recommendedDepartment={requiredDepartment}
-          workspaceVariant={workspaceVariant}
-          stageCode={stageCode}
-          stageLabel={stageSummary?.stageName || stageDisplayLabel || "Asset Workspace"}
-          showToast={showToast}
+          activeStageCode={stageCode}
+          sticky
+          onLayoutChange={setPipelineLayout}
         />
+        <div className="pt-2">
+          <ModellingWorkspace
+            projectId={projectId}
+            overview={overview}
+            stageSummary={stageSummary}
+            users={users}
+            recommendedDepartment={requiredDepartment}
+            workspaceVariant={workspaceVariant}
+            stageCode={stageCode}
+            stageLabel={stageSummary?.stageName || stageDisplayLabel || "Asset Workspace"}
+            showToast={showToast}
+          />
+        </div>
       </div>
     );
   }
 
   if (DEDICATED_SHOT_WORKSPACE_STAGE_CODES.has(stageCode)) {
     return (
-      <div className="space-y-4">
-        <PipelineQuickStageBar projectId={projectId} overview={overview} activeStageCode={stageCode} sticky className="-mx-4 -mt-4 sm:-mx-5 lg:-mx-6 xl:-mx-8" />
-        <ShotPipelineWorkspace
+      <div className="space-y-3">
+        <PipelineQuickStageBar
           projectId={projectId}
           overview={overview}
-          stageSummary={stageSummary}
-          users={users}
-          recommendedDepartment={requiredDepartment}
-          stageCode={stageCode}
-          stageLabel={stageSummary?.stageName || stageDisplayLabel || "Shot Workspace"}
-          currentUser={currentUser}
-          showToast={showToast}
+          activeStageCode={stageCode}
+          sticky
+          onLayoutChange={setPipelineLayout}
         />
+        <div className="pt-2">
+          <ShotPipelineWorkspace
+            projectId={projectId}
+            overview={overview}
+            stageSummary={stageSummary}
+            users={users}
+            recommendedDepartment={requiredDepartment}
+            stageCode={stageCode}
+            stageLabel={stageSummary?.stageName || stageDisplayLabel || "Shot Workspace"}
+            currentUser={currentUser}
+            showToast={showToast}
+            stickyTopOffset={workspaceStickyTopOffset}
+          />
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
-      <PipelineQuickStageBar projectId={projectId} overview={overview} activeStageCode={stageCode} sticky className="-mx-4 -mt-4 sm:-mx-5 lg:-mx-6 xl:-mx-8" />
-      <section className="rounded-2xl border border-slate-200 bg-white p-4">
+    <div className="space-y-3">
+      <PipelineQuickStageBar
+        projectId={projectId}
+        overview={overview}
+        activeStageCode={stageCode}
+        sticky
+        onLayoutChange={setPipelineLayout}
+      />
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 pt-6">
         <div className="mb-3 flex items-start justify-between gap-3">
           <div>
             <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Stage Workspace</p>
