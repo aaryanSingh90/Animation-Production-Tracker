@@ -88,6 +88,28 @@ export function TaskTable({ tasks, subStageConfig, selectedIds, onSelect, onRowC
               />
             )
           }
+          if (col.key === 'audioStatus') {
+            return (
+              <div onClick={e => e.stopPropagation()}>
+                <StatusDropdown
+                  value={task.audioStatus ?? 'NOT_STARTED'}
+                  onChange={s => updateTask(task.id, { audioStatus: s })}
+                  compact
+                />
+              </div>
+            )
+          }
+          if (col.key === 'finalOutput') {
+            return (
+              <input
+                value={task.finalOutput ?? ''}
+                onChange={e => updateTask(task.id, { finalOutput: e.target.value })}
+                onClick={e => e.stopPropagation()}
+                placeholder="Link or note…"
+                className="text-xs border border-transparent rounded px-1 py-0.5 hover:border-gray-300 focus:border-indigo-400 focus:outline-none bg-transparent w-full"
+              />
+            )
+          }
           if (col.key === 'assignedArtistId') {
             return (
               <div onClick={e => e.stopPropagation()}>

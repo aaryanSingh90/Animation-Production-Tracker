@@ -5,6 +5,7 @@ import { StatusPill } from '../components/ui/StatusPill'
 import { StatusDropdown } from '../components/ui/StatusDropdown'
 import type { TaskStatus } from '../types'
 
+// Shot-wise stages for the matrix (excludes Cut Shots which is inside Animatics)
 const SHOT_STAGES = STAGE_CONFIGS.filter(s => s.workflowType === 'SHOT')
 
 export function ShotMatrix() {

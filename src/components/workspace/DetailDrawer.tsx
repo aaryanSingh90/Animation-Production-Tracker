@@ -80,7 +80,7 @@ export function DetailDrawer({ task, onClose }: Props) {
 
         {/* Time consumed */}
         <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1.5">Time Consumed (hrs)</label>
+          <label className="block text-xs font-medium text-gray-500 mb-1.5">Total Time Consumed (hrs)</label>
           <input
             type="number"
             value={task.timeConsumed ?? ''}
@@ -89,6 +89,28 @@ export function DetailDrawer({ task, onClose }: Props) {
             placeholder="e.g. 8"
           />
         </div>
+
+        {/* Editing-stage extras */}
+        {task.audioStatus !== undefined && (
+          <>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1.5">Audio Status</label>
+              <StatusDropdown
+                value={task.audioStatus ?? 'NOT_STARTED'}
+                onChange={s => updateTask(task.id, { audioStatus: s })}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1.5">Final Output</label>
+              <input
+                value={task.finalOutput ?? ''}
+                onChange={e => updateTask(task.id, { finalOutput: e.target.value })}
+                placeholder="Link or filename…"
+                className="w-full px-2 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+          </>
+        )}
 
         {/* Notes */}
         <div>

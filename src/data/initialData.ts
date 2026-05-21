@@ -49,7 +49,7 @@ export const INITIAL_EMPLOYEES: Employee[] = [
     email: 'arjun@studioxyz.com',
     role: 'ARTIST',
     department: 'Rigging',
-    specialization: 'Facial Rigging',
+    specialization: 'Character Rigging',
     active: true,
     avatarColor: '#f59e0b',
   },
@@ -75,128 +75,121 @@ export const INITIAL_EMPLOYEES: Employee[] = [
   },
 ]
 
-function makeTask(
-  id: string,
-  subStageId: string,
-  projectId: string,
-  overrides: Partial<TaskRow>
-): TaskRow {
+function makeTask(id: string, subStageId: string, projectId: string, overrides: Partial<TaskRow>): TaskRow {
   return {
-    id,
-    subStageId,
-    projectId,
-    itemName: '',
-    shotNumber: undefined,
-    frameRange: undefined,
-    seconds: undefined,
-    assignedArtistId: null,
-    status: 'NOT_STARTED',
-    startDate: null,
-    endDate: null,
-    timeConsumed: undefined,
-    notes: undefined,
-    createdAt: '2026-05-20T00:00:00Z',
-    updatedAt: '2026-05-20T00:00:00Z',
+    id, subStageId, projectId,
+    itemName: '', shotNumber: undefined, frameRange: undefined, seconds: undefined,
+    assignedArtistId: null, status: 'NOT_STARTED',
+    startDate: null, endDate: null, timeConsumed: undefined,
+    audioStatus: undefined, finalOutput: undefined, notes: undefined,
+    createdAt: '2026-05-20T00:00:00Z', updatedAt: '2026-05-20T00:00:00Z',
     statusHistory: [],
     ...overrides,
   }
 }
 
 export const INITIAL_TASKS: TaskRow[] = [
-  // Audio
-  makeTask('task-audio-1', 'audio-audio', 'project-1', {
-    itemName: 'Main Soundtrack',
-    assignedArtistId: 'emp-1',
-    status: 'IN_PROGRESS',
-    startDate: '2026-05-20',
-    endDate: '2026-05-30',
-  }),
-
-  // Animatics - Animatics sub-stage
+  // ── Animatics ──────────────────────────────────────────────
   makeTask('task-anim-1', 'animatics-animatics', 'project-1', {
-    itemName: 'Elephant',
-    assignedArtistId: 'emp-1',
-    status: 'IN_PROGRESS',
-    startDate: '2026-05-20',
-    endDate: '2026-05-25',
+    itemName: 'Elephant', assignedArtistId: 'emp-1', status: 'IN_PROGRESS',
+    startDate: '2026-05-20', endDate: '2026-05-20',
   }),
-  makeTask('task-anim-2', 'animatics-animatics', 'project-1', {
-    itemName: 'Boy',
-    status: 'NOT_STARTED',
-  }),
+  makeTask('task-anim-2', 'animatics-animatics', 'project-1', { itemName: 'Boy' }),
 
-  // Animatics - Cut Shots
+  // Animatics – Cut Shots
   makeTask('task-cs-1', 'animatics-cut-shots', 'project-1', {
-    itemName: 'Shot_01',
-    shotNumber: 'Shot_01',
-    frameRange: '101-124',
-    seconds: 1,
-    assignedArtistId: 'emp-1',
-    status: 'IN_PROGRESS',
-  }),
-  makeTask('task-cs-2', 'animatics-cut-shots', 'project-1', {
-    itemName: 'Shot_02',
-    shotNumber: 'Shot_02',
-    frameRange: '101-148',
-    seconds: 2,
-    status: 'NOT_STARTED',
+    itemName: 'Shot _01', shotNumber: 'Shot _01', frameRange: '101-124', seconds: 1,
+    assignedArtistId: 'emp-1', status: 'IN_PROGRESS',
   }),
 
-  // Modelling - Character
+  // ── Audio ───────────────────────────────────────────────────
+  makeTask('task-audio-1', 'audio-audio', 'project-1', {
+    itemName: 'Elephant', assignedArtistId: 'emp-1', status: 'IN_PROGRESS',
+    startDate: '2026-05-20', endDate: '2026-05-20',
+  }),
+
+  // ── Modelling – Character ───────────────────────────────────
   makeTask('task-mod-char-1', 'modelling-character', 'project-1', {
-    itemName: 'Elephant',
-    assignedArtistId: 'emp-2',
-    status: 'IN_PROGRESS',
-    startDate: '2026-05-20',
-    endDate: '2026-06-05',
+    itemName: 'Elephant', assignedArtistId: 'emp-2', status: 'IN_PROGRESS',
+    startDate: '2026-05-20', endDate: '2026-05-20',
   }),
-  makeTask('task-mod-char-2', 'modelling-character', 'project-1', {
-    itemName: 'Boy',
-    status: 'NOT_STARTED',
-  }),
+  makeTask('task-mod-char-2', 'modelling-character', 'project-1', { itemName: 'Boy' }),
 
-  // Rigging - Character Rig
-  makeTask('task-rig-char-1', 'rigging-character-rig', 'project-1', {
-    itemName: 'Elephant',
-    assignedArtistId: 'emp-3',
-    status: 'NOT_STARTED',
-  }),
+  // Modelling – Character Blendshapes
+  makeTask('task-mod-bs-1', 'modelling-character-blendshapes', 'project-1', { itemName: 'Elephant' }),
 
-  // Animation - Shot 01 & 02
+  // Modelling – Props & Bg are empty initially
+
+  // ── Unwrapping – Character ──────────────────────────────────
+  makeTask('task-unw-char-1', 'unwrapping-character', 'project-1', {
+    itemName: 'Elephant', assignedArtistId: 'emp-2', status: 'IN_PROGRESS',
+    startDate: '2026-05-20', endDate: '2026-05-20',
+  }),
+  makeTask('task-unw-char-2', 'unwrapping-character', 'project-1', { itemName: 'Boy' }),
+
+  // ── Texturing – Character ───────────────────────────────────
+  makeTask('task-tex-char-1', 'texturing-character', 'project-1', {
+    itemName: 'Elephant', assignedArtistId: 'emp-2', status: 'IN_PROGRESS',
+    startDate: '2026-05-20', endDate: '2026-05-20',
+  }),
+  makeTask('task-tex-char-2', 'texturing-character', 'project-1', { itemName: 'Boy' }),
+
+  // ── Rigging – Character ─────────────────────────────────────
+  makeTask('task-rig-char-1', 'rigging-character', 'project-1', {
+    itemName: 'Elephant', assignedArtistId: 'emp-3', status: 'IN_PROGRESS',
+    startDate: '2026-05-20', endDate: '2026-05-20',
+  }),
+  makeTask('task-rig-char-2', 'rigging-character', 'project-1', { itemName: 'Boy' }),
+
+  // ── Animation (Shot-wise) ───────────────────────────────────
   makeTask('task-animshot-1', 'animation-animation', 'project-1', {
-    itemName: 'Shot_01',
-    shotNumber: 'Shot_01',
-    frameRange: '101-124',
-    seconds: 1,
-    assignedArtistId: 'emp-1',
-    status: 'IN_PROGRESS',
-    startDate: '2026-05-20',
-    endDate: '2026-05-28',
+    itemName: 'Shot _01', shotNumber: 'Shot _01', frameRange: '101-124', seconds: 1,
+    assignedArtistId: 'emp-1', status: 'IN_PROGRESS',
+    startDate: '2026-05-20', endDate: '2026-05-20',
   }),
   makeTask('task-animshot-2', 'animation-animation', 'project-1', {
-    itemName: 'Shot_02',
-    shotNumber: 'Shot_02',
-    frameRange: '101-148',
-    seconds: 2,
-    status: 'NOT_STARTED',
+    itemName: 'Shot _02', shotNumber: 'Shot _02', frameRange: '101-148', seconds: 2,
   }),
 
-  // FX - Shot 01
+  // ── FX ──────────────────────────────────────────────────────
   makeTask('task-fx-1', 'fx-fx', 'project-1', {
-    itemName: 'Shot_01',
-    shotNumber: 'Shot_01',
-    frameRange: '101-124',
-    seconds: 1,
-    status: 'NOT_STARTED',
+    itemName: 'Shot _01', shotNumber: 'Shot _01', frameRange: '101-124', seconds: 1,
+    assignedArtistId: 'emp-1', status: 'IN_PROGRESS',
+    startDate: '2026-05-20', endDate: '2026-05-20',
+  }),
+  makeTask('task-fx-2', 'fx-fx', 'project-1', {
+    itemName: 'Shot _02', shotNumber: 'Shot _02', frameRange: '101-148', seconds: 2,
   }),
 
-  // Lighting - Shot 01
+  // ── Lighting ────────────────────────────────────────────────
   makeTask('task-light-1', 'lighting-lighting', 'project-1', {
-    itemName: 'Shot_01',
-    shotNumber: 'Shot_01',
-    frameRange: '101-124',
-    seconds: 1,
-    assignedArtistId: 'emp-5',
-    status: 'NOT_STARTED',
+    itemName: 'Shot _01', shotNumber: 'Shot _01', frameRange: '101-124', seconds: 1,
+    assignedArtistId: 'emp-5', status: 'IN_PROGRESS',
+    startDate: '2026-05-20', endDate: '2026-05-20',
+  }),
+  makeTask('task-light-2', 'lighting-lighting', 'project-1', {
+    itemName: 'Shot _02', shotNumber: 'Shot _02', frameRange: '101-148', seconds: 2,
+  }),
+
+  // ── Compositing ─────────────────────────────────────────────
+  makeTask('task-comp-1', 'compositing-compositing', 'project-1', {
+    itemName: 'Shot _01', shotNumber: 'Shot _01', frameRange: '101-124', seconds: 1,
+    assignedArtistId: 'emp-1', status: 'IN_PROGRESS',
+    startDate: '2026-05-20', endDate: '2026-05-20',
+  }),
+  makeTask('task-comp-2', 'compositing-compositing', 'project-1', {
+    itemName: 'Shot _02', shotNumber: 'Shot _02', frameRange: '101-148', seconds: 2,
+  }),
+
+  // ── Editing ─────────────────────────────────────────────────
+  makeTask('task-edit-1', 'editing-editing', 'project-1', {
+    itemName: 'Shot _01', shotNumber: 'Shot _01', frameRange: '101-124', seconds: 1,
+    assignedArtistId: 'emp-4', status: 'IN_PROGRESS',
+    startDate: '2026-05-20', endDate: '2026-05-20',
+    audioStatus: 'NOT_STARTED', finalOutput: '',
+  }),
+  makeTask('task-edit-2', 'editing-editing', 'project-1', {
+    itemName: 'Shot _02', shotNumber: 'Shot _02', frameRange: '101-148', seconds: 2,
+    audioStatus: 'NOT_STARTED', finalOutput: '',
   }),
 ]

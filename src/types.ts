@@ -83,6 +83,9 @@ export interface TaskRow {
   startDate: string | null
   endDate: string | null
   timeConsumed?: number
+  // Editing stage extras (matching Excel layout)
+  audioStatus?: TaskStatus
+  finalOutput?: string
   notes?: string
   createdAt: string
   updatedAt: string
@@ -96,7 +99,7 @@ export type WorkflowType = 'ASSET' | 'SHOT'
 export interface ColumnConfig {
   key: string
   label: string
-  type: 'text' | 'frameRange' | 'seconds' | 'status' | 'artist' | 'date' | 'number'
+  type: 'text' | 'frameRange' | 'seconds' | 'status' | 'audioStatus' | 'artist' | 'date' | 'number'
   readOnly?: boolean
   width?: number
 }
