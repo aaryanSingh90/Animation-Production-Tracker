@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useLayoutEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { Search, ChevronDown, X, UserX } from 'lucide-react'
 import { useEmployeeStore } from '../../store/employeeStore'
 import { usePipelineStore } from '../../store/pipelineStore'
@@ -15,36 +16,78 @@ interface Props {
   readOnly?: boolean
 }
 
+interface PanelPos { top: number; left: number; width: number }
+
 export function ArtistDropdown({ value, onChange, filterDept, readOnly = false }: Props) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
-  const ref = useRef<HTMLDivElement>(null)
-  const searchRef = useRef<HTMLInputElement>(null)
+  const [pos, setPos] = useState<PanelPos | null>(null)
+
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const panelRef   = useRef<HTMLDivElement>(null)
+  const searchRef  = useRef<HTMLInputElement>(null)
+
   const employees = useEmployeeStore(s => s.employees)
-  const tasks = usePipelineStore(s => s.tasks)
+  const tasks     = usePipelineStore(s => s.tasks)
 
   const current = employees.find(e => e.id === value)
 
+  // ── Outside-click + escape to close ─────────────────────────────────────────
   useEffect(() => {
+    if (!open) return
     function onClickOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false)
-        setSearch('')
-      }
+      const t = e.target as Node
+      if (triggerRef.current?.contains(t)) return
+      if (panelRef.current?.contains(t))   return
+      setOpen(false); setSearch('')
     }
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') { setOpen(false); setSearch('') } }
     document.addEventListener('mousedown', onClickOutside)
-    return () => document.removeEventListener('mousedown', onClickOutside)
-  }, [])
-
-  // Focus search field after panel opens
-  useEffect(() => {
-    if (open) {
-      setTimeout(() => searchRef.current?.focus(), 50)
-    } else {
-      setSearch('')
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onClickOutside)
+      document.removeEventListener('keydown', onKey)
     }
   }, [open])
 
+  // ── Focus search after open ─────────────────────────────────────────────────
+  useEffect(() => {
+    if (open) {
+      const id = setTimeout(() => searchRef.current?.focus(), 30)
+      return () => clearTimeout(id)
+    }
+    setSearch('')
+    return undefined
+  }, [open])
+
+  // ── Position the portalled panel under the trigger ──────────────────────────
+  useLayoutEffect(() => {
+    if (!open) { setPos(null); return }
+    function update() {
+      if (!triggerRef.current) return
+      const r = triggerRef.current.getBoundingClientRect()
+      const panelWidth = Math.max(r.width, 240)
+      const viewportH  = window.innerHeight
+      // If the popup would overflow the viewport bottom, place it above instead
+      const estPanelH  = 320
+      const placeAbove = r.bottom + estPanelH > viewportH - 12
+      setPos({
+        top:  placeAbove ? Math.max(8, r.top - estPanelH - 4) : r.bottom + 4,
+        left: Math.min(Math.max(8, r.left), window.innerWidth - panelWidth - 8),
+        width: panelWidth,
+      })
+    }
+    update()
+    // Keep position synced when scrolling within nested overflow parents
+    window.addEventListener('scroll', update, true)
+    window.addEventListener('resize', update)
+    return () => {
+      window.removeEventListener('scroll', update, true)
+      window.removeEventListener('resize', update)
+    }
+  }, [open])
+
+  // ── Filter list ─────────────────────────────────────────────────────────────
   const filtered = employees.filter(e => {
     if (!e.active) return false
     if (filterDept && e.department !== filterDept) return false
@@ -52,7 +95,7 @@ export function ArtistDropdown({ value, onChange, filterDept, readOnly = false }
     return true
   })
 
-  // Read-only mode — just show the chip, no dropdown
+  // ── Read-only: just the chip ────────────────────────────────────────────────
   if (readOnly) {
     return current ? (
       <div className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-[#1b253b] bg-[#0d1424]">
@@ -69,10 +112,11 @@ export function ArtistDropdown({ value, onChange, filterDept, readOnly = false }
     )
   }
 
+  // ── Editable: button + portalled panel ──────────────────────────────────────
   return (
-    <div ref={ref} className="relative">
-      {/* Trigger */}
+    <>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen(v => !v)}
         className={`flex items-center gap-1.5 px-2 py-1 rounded-md border transition-colors focus:outline-none ${
@@ -101,10 +145,15 @@ export function ArtistDropdown({ value, onChange, filterDept, readOnly = false }
         )}
       </button>
 
-      {/* Dropdown panel */}
-      {open && (
-        <div className="absolute z-50 mt-1 left-0 w-56 rounded-lg border border-[#1b253b] bg-[#0e1626] shadow-2xl shadow-black/60 overflow-hidden">
-
+      {open && pos && createPortal(
+        <div
+          ref={panelRef}
+          // position: fixed escapes the table's overflow:auto clipping; the
+          // useLayoutEffect above keeps top/left synced with the trigger as
+          // the user scrolls or resizes.
+          style={{ position: 'fixed', top: pos.top, left: pos.left, width: pos.width }}
+          className="z-[100] rounded-lg border border-[#1b253b] bg-[#0e1626] shadow-2xl shadow-black/60 overflow-hidden animate-in fade-in zoom-in-95 duration-100"
+        >
           {/* Search bar */}
           <div className="p-2 border-b border-[#1b253b]">
             <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-[#080d1a] border border-[#1b253b] focus-within:border-indigo-500/60 transition-colors">
@@ -125,8 +174,7 @@ export function ArtistDropdown({ value, onChange, filterDept, readOnly = false }
           </div>
 
           {/* Artist list */}
-          <div className="max-h-52 overflow-y-auto p-1.5 space-y-0.5">
-            {/* Unassign option */}
+          <div className="max-h-64 overflow-y-auto p-1.5 space-y-0.5">
             {value && !search && (
               <button
                 onClick={() => { onChange(null); setOpen(false) }}
@@ -186,8 +234,9 @@ export function ArtistDropdown({ value, onChange, filterDept, readOnly = false }
               })
             )}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
-    </div>
+    </>
   )
 }
