@@ -39,7 +39,19 @@ const CUT_SHOT_COLUMNS: ColumnConfig[] = [
 ]
 
 export const STAGE_CONFIGS: StageConfig[] = [
-  // ── Without Shot Wise (Asset Stages) ─────────────────────────────
+  // ── Asset stages (no shot numbers) ───────────────────────────────
+  // Order per client spec: Audio first (dialogue recorded before animatics),
+  // then Animatics, then Modelling → Unwrapping → Rigging → Texturing.
+  {
+    id: 'audio',
+    slug: 'audio',
+    name: 'Audio',
+    icon: '🎵',
+    workflowType: 'ASSET',
+    subStages: [
+      { id: 'audio-audio', slug: 'audio', name: 'Audio', columns: ASSET_COLUMNS },
+    ],
+  },
   {
     id: 'animatics',
     slug: 'animatics',
@@ -49,16 +61,6 @@ export const STAGE_CONFIGS: StageConfig[] = [
     subStages: [
       { id: 'animatics-animatics',  slug: 'animatics',  name: 'Animatics',  columns: ASSET_COLUMNS },
       { id: 'animatics-cut-shots',  slug: 'cut-shots',  name: 'Cut Shots',  columns: CUT_SHOT_COLUMNS },
-    ],
-  },
-  {
-    id: 'audio',
-    slug: 'audio',
-    name: 'Audio',
-    icon: '🎵',
-    workflowType: 'ASSET',
-    subStages: [
-      { id: 'audio-audio', slug: 'audio', name: 'Audio', columns: ASSET_COLUMNS },
     ],
   },
   {
@@ -87,18 +89,6 @@ export const STAGE_CONFIGS: StageConfig[] = [
     ],
   },
   {
-    id: 'texturing',
-    slug: 'texturing',
-    name: 'Texturing',
-    icon: '🎨',
-    workflowType: 'ASSET',
-    subStages: [
-      { id: 'texturing-character', slug: 'character', name: 'Character', columns: ASSET_COLUMNS },
-      { id: 'texturing-props',     slug: 'props',     name: 'Props',     columns: ASSET_COLUMNS },
-      { id: 'texturing-bg',        slug: 'bg',        name: 'Bg',        columns: ASSET_COLUMNS },
-    ],
-  },
-  {
     id: 'rigging',
     slug: 'rigging',
     name: 'Rigging',
@@ -108,6 +98,18 @@ export const STAGE_CONFIGS: StageConfig[] = [
       { id: 'rigging-character', slug: 'character', name: 'Character', columns: ASSET_COLUMNS },
       { id: 'rigging-props',     slug: 'props',     name: 'Props',     columns: ASSET_COLUMNS },
       { id: 'rigging-bg',        slug: 'bg',        name: 'Bg',        columns: ASSET_COLUMNS },
+    ],
+  },
+  {
+    id: 'texturing',
+    slug: 'texturing',
+    name: 'Texturing',
+    icon: '🎨',
+    workflowType: 'ASSET',
+    subStages: [
+      { id: 'texturing-character', slug: 'character', name: 'Character', columns: ASSET_COLUMNS },
+      { id: 'texturing-props',     slug: 'props',     name: 'Props',     columns: ASSET_COLUMNS },
+      { id: 'texturing-bg',        slug: 'bg',        name: 'Bg',        columns: ASSET_COLUMNS },
     ],
   },
 
