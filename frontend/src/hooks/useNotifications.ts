@@ -66,7 +66,7 @@ export function useNotifications() {
         pushToast({
           kind:  'retake',
           title: `Retake — ${task.itemName || 'task'}`,
-          body:  task.retakeNote ?? `${subStage?.name ?? 'A task'} sent back. Open it to see the lead's notes.`,
+          body:  task.retakeNote ?? `${subStage?.name ?? 'A task'} sent back. Open it to see the manager's notes.`,
           taskId: task.id,
           projectHref,
           ttl: 10_000,
@@ -75,7 +75,7 @@ export function useNotifications() {
         pushToast({
           kind:  'approval',
           title: `Approved — ${task.itemName || 'task'}`,
-          body:  `${subStage?.name ?? 'Task'} approved by the lead. Nice work!`,
+          body:  `${subStage?.name ?? 'Task'} approved. Nice work!`,
           taskId: task.id,
           projectHref,
         })

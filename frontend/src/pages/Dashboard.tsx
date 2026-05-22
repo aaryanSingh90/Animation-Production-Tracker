@@ -405,7 +405,7 @@ export function Dashboard() {
         </div>
       </div>
 
-      {/* ── Retake modal (manager/lead approval action) ──────────────────── */}
+      {/* ── Retake modal (manager approval action) ───────────────────────── */}
       {retakeModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-md bg-[#0c1221] border border-[#1b253b] rounded-xl shadow-2xl shadow-black/60 p-6">
@@ -470,7 +470,7 @@ function KpiStrip({ isManager, inProgress, inReview, retakes, overdue, approved,
     : [
         { label: 'My Assignments', value: total,      hint: `${approved} approved`, color: 'text-indigo-400', bg: 'bg-indigo-500/10', icon: Briefcase },
         { label: 'Active Working', value: inProgress, hint: 'in progress now',      color: 'text-amber-400',  bg: 'bg-amber-500/10',  icon: Clock },
-        { label: 'Submitted',      value: inReview,   hint: 'awaiting lead',        color: 'text-sky-400',    bg: 'bg-sky-500/10',    icon: CheckCircle },
+        { label: 'Submitted',      value: inReview,   hint: 'awaiting review',      color: 'text-sky-400',    bg: 'bg-sky-500/10',    icon: CheckCircle },
         { label: 'Retakes',        value: retakes,    hint: 'need rework',          color: retakes > 0 ? 'text-rose-400' : 'text-slate-500', bg: retakes > 0 ? 'bg-rose-500/10 animate-pulse' : 'bg-slate-500/10', icon: RotateCcw, pulse: retakes > 0 },
         { label: 'Overdue',        value: overdue,    hint: overdue > 0 ? 'past end-date' : 'on schedule', color: overdue > 0 ? 'text-rose-400' : 'text-slate-500', bg: overdue > 0 ? 'bg-rose-500/10' : 'bg-slate-500/10', icon: AlertTriangle },
       ]

@@ -38,7 +38,7 @@ export function isTimerRunning(status: TaskStatus): boolean {
  *   ─ Default status YET_TO_START → 0 ms
  *   ─ Status transitions TO IN_PROGRESS  → timer starts ticking
  *   ─ Status transitions FROM IN_PROGRESS → timer pauses; total accumulates
- *   ─ LEAD_APPROVAL → paused (waiting for lead's review)
+ *   ─ LEAD_APPROVAL → paused (waiting for manager's review)
  *   ─ LEAD_RETAKE   → paused (waiting for artist to acknowledge)
  *   ─ Artist clicks Back to Work → status returns to IN_PROGRESS, timer resumes
  *   ─ FINAL_APPROVAL → frozen at the last accumulated value

@@ -121,7 +121,7 @@ export function MyWorkPage() {
         {retakeCount > 0 && (
           <div className="flex items-center gap-2.5 px-4 py-3 bg-rose-500/10 border border-rose-500/30 rounded-lg text-xs font-bold text-rose-400 uppercase tracking-wider">
             <AlertTriangle className="w-4 h-4 shrink-0 animate-pulse" />
-            {retakeCount} task{retakeCount > 1 ? 's' : ''} need{retakeCount === 1 ? 's' : ''} your attention — lead has sent a retake request
+            {retakeCount} task{retakeCount > 1 ? 's' : ''} need{retakeCount === 1 ? 's' : ''} your attention — manager has sent a retake request
           </div>
         )}
 

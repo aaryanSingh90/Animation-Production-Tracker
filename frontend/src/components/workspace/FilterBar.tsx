@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Search, X, ChevronDown } from 'lucide-react'
 import type { TaskStatus } from '../../types'
 import { STATUS_CONFIG } from '../../types'
@@ -22,6 +22,29 @@ export function FilterBar({ filters, onChange, overdueCount }: Props) {
   const employees    = allEmployees.filter(e => e.active)
   const [artistOpen, setArtistOpen] = useState(false)
   const [statusOpen, setStatusOpen] = useState(false)
+  const artistWrapRef = useRef<HTMLDivElement>(null)
+  const statusWrapRef = useRef<HTMLDivElement>(null)
+
+  // Dismiss the per-button popovers on outside click / Escape so they don't
+  // linger when the user moves on to another control.
+  useEffect(() => {
+    if (!artistOpen && !statusOpen) return
+    function onDown(e: PointerEvent) {
+      const target = e.target as Node | null
+      if (!target) return
+      if (artistOpen && !artistWrapRef.current?.contains(target)) setArtistOpen(false)
+      if (statusOpen && !statusWrapRef.current?.contains(target)) setStatusOpen(false)
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') { setArtistOpen(false); setStatusOpen(false) }
+    }
+    document.addEventListener('pointerdown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [artistOpen, statusOpen])
 
   const hasFilters = filters.search || filters.artistIds.length || filters.statuses.length || filters.overdueOnly
 
@@ -40,7 +63,7 @@ export function FilterBar({ filters, onChange, overdueCount }: Props) {
       </div>
 
       {/* Artist filter */}
-      <div className="relative">
+      <div ref={artistWrapRef} className="relative">
         <button
           onClick={() => { setArtistOpen(v => !v); setStatusOpen(false) }}
           className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-md border transition-colors ${
@@ -87,7 +110,7 @@ export function FilterBar({ filters, onChange, overdueCount }: Props) {
       </div>
 
       {/* Status filter */}
-      <div className="relative">
+      <div ref={statusWrapRef} className="relative">
         <button
           onClick={() => { setStatusOpen(v => !v); setArtistOpen(false) }}
           className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-md border transition-colors ${

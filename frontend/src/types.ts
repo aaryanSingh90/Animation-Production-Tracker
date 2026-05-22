@@ -11,8 +11,8 @@ export type TaskStatus =
 export const STATUS_CONFIG: Record<TaskStatus, { label: string; color: string; bg: string }> = {
   YET_TO_START:   { label: 'Yet to Start',   color: 'text-slate-400',   bg: 'bg-slate-500/10'  },
   IN_PROGRESS:    { label: 'In Progress',    color: 'text-amber-400',   bg: 'bg-amber-500/10'  },
-  LEAD_APPROVAL:  { label: 'Lead Approval',  color: 'text-sky-400',     bg: 'bg-sky-500/10'    },
-  LEAD_RETAKE:    { label: 'Lead Retake',    color: 'text-rose-400',    bg: 'bg-rose-500/10'   },
+  LEAD_APPROVAL:  { label: 'Pending Approval', color: 'text-sky-400',   bg: 'bg-sky-500/10'    },
+  LEAD_RETAKE:    { label: 'Retake',           color: 'text-rose-400',  bg: 'bg-rose-500/10'   },
   DONE:           { label: 'Done',           color: 'text-teal-400',    bg: 'bg-teal-500/10'   },
   FINAL_APPROVAL: { label: 'Final Approval', color: 'text-green-400',   bg: 'bg-green-500/10'  },
 }

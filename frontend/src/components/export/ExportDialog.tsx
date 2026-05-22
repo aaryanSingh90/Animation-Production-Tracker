@@ -4,6 +4,7 @@ import { clsx } from 'clsx'
 import { useClientStore } from '../../store/clientStore'
 import { usePipelineStore } from '../../store/pipelineStore'
 import { useEmployeeStore } from '../../store/employeeStore'
+import { useToastStore } from '../../store/toastStore'
 import { buildAndDownloadExport, type ExportScope } from '../../utils/exportXlsx'
 
 interface Props {
@@ -18,6 +19,7 @@ export function ExportDialog({ open, onClose }: Props) {
   const projects  = useClientStore(s => s.projects)
   const tasks     = usePipelineStore(s => s.tasks)
   const employees = useEmployeeStore(s => s.employees)
+  const pushToast = useToastStore(s => s.push)
 
   const [scopeType, setScopeType] = useState<ScopeType>('studio')
   const [clientId,  setClientId]  = useState<string>(clients[0]?.id ?? '')
@@ -80,11 +82,22 @@ export function ExportDialog({ open, onClose }: Props) {
         includeTeam:          incTeam,
       }, { tasks, clients, projects, employees })
 
+      pushToast({
+        kind: 'approval',
+        title: 'Export ready',
+        body:  `${counts.tasks} task${counts.tasks === 1 ? '' : 's'} written to Excel — check your downloads.`,
+        ttl: 3500,
+      })
       onClose()
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error(err)
-      alert(err instanceof Error ? err.message : 'Export failed.')
+      pushToast({
+        kind: 'error',
+        title: 'Export failed',
+        body:  err instanceof Error ? err.message : 'Something went wrong while generating the workbook.',
+        ttl: 5000,
+      })
     } finally {
       setExporting(false)
     }

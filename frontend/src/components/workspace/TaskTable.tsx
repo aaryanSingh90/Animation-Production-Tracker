@@ -550,7 +550,15 @@ export function TaskTable({ tasks, subStageConfig, selectedIds, onSelect, onRowC
           </span>
         </div>
       )}
-      <div ref={parentRef} className="overflow-auto border border-[#1b253b] bg-[#0c1221]" style={{ maxHeight: 'calc(100vh - 240px)' }}>
+      <div
+        ref={parentRef}
+        className="overflow-auto border border-[#1b253b] bg-[#0c1221] h-full"
+        // h-full fills the workspace's flex-1 parent so the table always takes
+        // available vertical space. minHeight reserves ~5 rows of breathing
+        // room on short tables / small viewports so the data never looks crammed
+        // against the page footer. maxHeight caps growth on very tall screens.
+        style={{ minHeight: 380, maxHeight: 'calc(100vh - 240px)' }}
+      >
         <table className="w-full text-sm border-collapse">
           <thead className="sticky top-0 z-20">
             {table.getHeaderGroups().map(hg => (

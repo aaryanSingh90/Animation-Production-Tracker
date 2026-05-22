@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Filter, X, Search } from 'lucide-react'
 import { clsx } from 'clsx'
 import { STATUS_CONFIG, AUDIO_STATUS_CONFIG, type TaskStatus, type AudioStatus } from '../../types'
@@ -18,35 +19,84 @@ interface Props {
   align?:   'left' | 'right'
 }
 
+const POPUP_W = 256 // matches w-64
+const VIEWPORT_PAD = 8
+
 /**
  * Funnel icon that opens a typed filter popover beside a column header.
- * Renders inline; closes on outside click or Escape.
+ *
+ * The popup is rendered into a React portal at <body> level with fixed
+ * positioning calculated from the funnel's bounding rect. This avoids
+ * the table's `overflow:auto` container from clipping the popup, and
+ * prevents stale ref-contains checks (the popup is always reachable in
+ * the DOM regardless of where the column header lives).
+ *
+ * Closes on outside pointer-down (works for both mouse and touch) or
+ * Escape. Re-positions on scroll/resize so it stays glued to the funnel.
  */
 export function ColumnFilterMenu({ kind, value, onChange, uniqueValues, align = 'left' }: Props) {
   const [open, setOpen] = useState(false)
-  const wrapRef = useRef<HTMLDivElement>(null)
-  const active  = isFilterActive(value)
+  const btnRef    = useRef<HTMLButtonElement>(null)
+  const popupRef  = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
+  const active = isFilterActive(value)
 
+  // ─── Position computation ───────────────────────────────────────────────
+  function recompute() {
+    if (!btnRef.current) return
+    const r = btnRef.current.getBoundingClientRect()
+    const top = r.bottom + 4
+    let left: number
+    if (align === 'right') {
+      left = r.right - POPUP_W
+    } else {
+      left = r.left
+    }
+    // Clamp to viewport so the popup never escapes the screen.
+    const maxLeft = window.innerWidth - POPUP_W - VIEWPORT_PAD
+    left = Math.max(VIEWPORT_PAD, Math.min(left, maxLeft))
+    setPos({ top, left })
+  }
+
+  useLayoutEffect(() => {
+    if (!open) return
+    recompute()
+    // Recompute on scroll / resize so the popup follows the column header.
+    window.addEventListener('scroll', recompute, true)
+    window.addEventListener('resize', recompute)
+    return () => {
+      window.removeEventListener('scroll', recompute, true)
+      window.removeEventListener('resize', recompute)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
+  // ─── Outside dismissal (pointerdown handles both mouse + touch) ─────────
   useEffect(() => {
     if (!open) return
-    function onDocClick(e: MouseEvent) {
-      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false)
+    function onDown(e: Event) {
+      const target = e.target as Node | null
+      if (!target) return
+      if (btnRef.current?.contains(target)) return
+      if (popupRef.current?.contains(target)) return
+      setOpen(false)
     }
     function onKey(e: KeyboardEvent) { if (e.key === 'Escape') setOpen(false) }
-    document.addEventListener('mousedown', onDocClick)
+    document.addEventListener('pointerdown', onDown)
     document.addEventListener('keydown', onKey)
     return () => {
-      document.removeEventListener('mousedown', onDocClick)
+      document.removeEventListener('pointerdown', onDown)
       document.removeEventListener('keydown', onKey)
     }
   }, [open])
 
   return (
-    <div ref={wrapRef} className="relative inline-flex">
+    <>
       <button
+        ref={btnRef}
         onClick={e => { e.stopPropagation(); setOpen(o => !o) }}
         className={clsx(
-          'p-1 rounded transition-colors',
+          'p-1 rounded transition-colors relative',
           active
             ? 'text-indigo-300 bg-indigo-500/15 hover:bg-indigo-500/25'
             : 'text-slate-500 hover:text-slate-200 hover:bg-[#162035]',
@@ -57,13 +107,15 @@ export function ColumnFilterMenu({ kind, value, onChange, uniqueValues, align = 
         {active && <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-indigo-400 ring-1 ring-[#0c1221]" />}
       </button>
 
-      {open && (
+      {open && createPortal(
         <div
+          ref={popupRef}
+          // Stop bubbling so a parent click handler (e.g. the row onClick that
+          // opens the drawer) never fires when the user interacts with the popup.
           onClick={e => e.stopPropagation()}
-          className={clsx(
-            'absolute top-7 z-50 w-64 bg-[#0c1221] border border-[#1b253b] rounded-lg shadow-2xl shadow-black/60 p-3 space-y-2 text-slate-100',
-            align === 'right' ? 'right-0' : 'left-0',
-          )}
+          onPointerDown={e => e.stopPropagation()}
+          style={{ position: 'fixed', top: pos.top, left: pos.left, width: POPUP_W }}
+          className="z-[100] bg-[#0c1221] border border-[#1b253b] rounded-lg shadow-2xl shadow-black/60 p-3 space-y-2 text-slate-100"
         >
           <Body kind={kind} value={value} onChange={onChange} uniqueValues={uniqueValues} />
 
@@ -82,9 +134,10 @@ export function ColumnFilterMenu({ kind, value, onChange, uniqueValues, align = 
               Done
             </button>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
-    </div>
+    </>
   )
 }
 

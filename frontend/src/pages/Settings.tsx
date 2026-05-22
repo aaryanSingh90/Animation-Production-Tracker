@@ -17,9 +17,9 @@ import { ExportDialog } from '../components/export/ExportDialog'
 const STATUS_DESCRIPTIONS: Record<TaskStatus, string> = {
   YET_TO_START:   'Task has not been started yet.',
   IN_PROGRESS:    'Artist is actively working on this task.',
-  DONE:           'Work completed by the artist — ready for lead review.',
-  LEAD_APPROVAL:  'Submitted to lead for approval.',
-  LEAD_RETAKE:    'Lead has requested changes. Task needs rework.',
+  DONE:           'Work completed by the artist — ready for manager review.',
+  LEAD_APPROVAL:  'Submitted to the manager for approval.',
+  LEAD_RETAKE:    'Manager has requested changes. Task needs rework.',
   FINAL_APPROVAL: 'Task fully approved and locked. No further changes.',
 }
 

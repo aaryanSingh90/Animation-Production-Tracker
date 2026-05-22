@@ -90,9 +90,9 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
   }
 
   async function handleSubmitForReview() {
-    await addComment(task!.id, 'Submitted for lead review.', 'note')
+    await addComment(task!.id, 'Submitted for manager review.', 'note')
     await updateTaskStatus(task!.id, 'LEAD_APPROVAL')
-    pushToast({ kind: 'review', title: 'Submitted for review', body: `${task!.itemName} is now waiting for the lead`, ttl: 2500 })
+    pushToast({ kind: 'review', title: 'Submitted for review', body: `${task!.itemName} is now waiting for the manager`, ttl: 2500 })
   }
 
   async function handleBackToWork() {
@@ -180,7 +180,7 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
           <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-3.5 space-y-2.5">
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
-              <span className="text-[10px] font-black text-rose-400 uppercase tracking-wider">Lead Retake Requested</span>
+              <span className="text-[10px] font-black text-rose-400 uppercase tracking-wider">Retake Requested</span>
             </div>
             <p className="text-xs text-rose-300 leading-relaxed border-l-2 border-rose-500/50 pl-2.5">
               {task.retakeNote}
@@ -210,7 +210,7 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
             onClick={handleSubmitForReview}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-black uppercase tracking-wider text-white bg-gradient-to-r from-sky-600 to-sky-500 hover:from-sky-500 hover:to-sky-400 rounded-lg transition-all shadow-lg shadow-sky-950/40"
           >
-            <SubmitIcon className="w-3.5 h-3.5" /> Submit for Lead Review
+            <SubmitIcon className="w-3.5 h-3.5" /> Submit for Review
           </button>
         )}
 
