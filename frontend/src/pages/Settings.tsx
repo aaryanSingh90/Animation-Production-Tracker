@@ -12,8 +12,7 @@ import {
   type TaskStatus, type AudioStatus,
 } from '../types'
 import { StatusPill } from '../components/ui/StatusPill'
-import { formatElapsed, getTaskElapsedMs } from '../utils/timeTracking'
-import * as XLSX from 'xlsx'
+import { ExportDialog } from '../components/export/ExportDialog'
 
 const STATUS_DESCRIPTIONS: Record<TaskStatus, string> = {
   YET_TO_START:   'Task has not been started yet.',
@@ -32,6 +31,7 @@ export function Settings() {
   const employees  = useEmployeeStore(s => s.employees)
   // Used by the "Refresh from server" button; keep reference for future use
   const [refreshState, setRefreshState] = useState<'idle' | 'loading'>('idle')
+  const [exportOpen, setExportOpen] = useState(false)
 
   async function refreshAll() {
     setRefreshState('loading')
@@ -44,82 +44,6 @@ export function Settings() {
     } finally {
       setRefreshState('idle')
     }
-  }
-
-  // ── Export ──────────────────────────────────────────────────────────────────
-  function exportAll() {
-    const wb = XLSX.utils.book_new()
-
-    // Tasks — raw IDs for lossless round-trip
-    const taskData = tasks.map(t => ({
-      ID:             t.id,
-      'Sub Stage ID': t.subStageId,
-      'Project ID':   t.projectId,
-      'Project Name': projects.find(p => p.id === t.projectId)?.name ?? '',
-      'Item Name':    t.itemName,
-      'Shot No':      t.shotNumber  ?? '',
-      'Frame Range':  t.frameRange  ?? '',
-      Seconds:        t.seconds     ?? '',
-      'Artist ID':    t.assignedArtistId ?? '',
-      'Artist Name':  employees.find(e => e.id === t.assignedArtistId)?.name ?? '',
-      Status:         t.status,
-      'Status Label': STATUS_CONFIG[t.status]?.label ?? t.status,
-      'Audio Status': t.audioStatus  ?? '',
-      'Final Output': t.finalOutput  ?? '',
-      'Start Date':   t.startDate    ?? '',
-      'End Date':     t.endDate      ?? '',
-      'Time Used':    formatElapsed(getTaskElapsedMs(t)),
-      Notes:          t.notes        ?? '',
-      'Created At':   t.createdAt,
-    }))
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(taskData), 'Tasks')
-
-    // Clients
-    XLSX.utils.book_append_sheet(
-      wb,
-      XLSX.utils.json_to_sheet(clients.map(c => ({
-        ID:           c.id,
-        Name:         c.name,
-        Email:        c.contactEmail ?? '',
-        Description:  c.description  ?? '',
-        'Created At': c.createdAt,
-      }))),
-      'Clients',
-    )
-
-    // Projects
-    XLSX.utils.book_append_sheet(
-      wb,
-      XLSX.utils.json_to_sheet(projects.map(p => ({
-        ID:            p.id,
-        'Client ID':   p.clientId,
-        'Client Name': clients.find(c => c.id === p.clientId)?.name ?? '',
-        Name:          p.name,
-        Status:        p.status,
-        Description:   p.description ?? '',
-        'Frame Rate':  p.frameRate,
-        'Created At':  p.createdAt,
-      }))),
-      'Projects',
-    )
-
-    // Employees
-    XLSX.utils.book_append_sheet(
-      wb,
-      XLSX.utils.json_to_sheet(employees.map(e => ({
-        ID:             e.id,
-        Name:           e.name,
-        Email:          e.email,
-        Role:           e.role,
-        Department:     e.department,
-        Specialization: e.specialization ?? '',
-        Active:         e.active,
-        'Avatar Color': e.avatarColor ?? '',
-      }))),
-      'Employees',
-    )
-
-    XLSX.writeFile(wb, `pipeline-export-${new Date().toISOString().slice(0, 10)}.xlsx`)
   }
 
   const ALL_STATUSES = Object.keys(STATUS_CONFIG) as TaskStatus[]
@@ -160,17 +84,17 @@ export function Settings() {
           <div>
             <h2 className="text-sm font-black text-white uppercase tracking-wide">Data Export &amp; Sync</h2>
             <p className="text-xs text-slate-400 mt-1">
-              Export a snapshot of the current pipeline as a multi-sheet Excel file, or pull the latest data from the server.
+              Choose what to export — the whole studio, a single client, or one project. Each pipeline stage gets its own sheet for clean review.
             </p>
           </div>
 
           {/* Buttons */}
           <div className="flex gap-3 flex-wrap">
             <button
-              onClick={exportAll}
+              onClick={() => setExportOpen(true)}
               className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg transition-colors shadow-md shadow-indigo-950/50"
             >
-              <Download className="w-3.5 h-3.5" /> Export to Excel
+              <Download className="w-3.5 h-3.5" /> Export…
             </button>
             <button
               onClick={refreshAll}
@@ -191,6 +115,9 @@ export function Settings() {
             </span>
           </div>
         </div>
+
+        {/* Export modal */}
+        <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
 
         {/* ── Status Reference ───────────────────────────────────────────── */}
         <div className="bg-[#0c1221] rounded-xl border border-[#1b253b] p-5 space-y-4">
