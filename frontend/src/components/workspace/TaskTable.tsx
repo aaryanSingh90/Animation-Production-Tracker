@@ -366,7 +366,8 @@ export function TaskTable({ tasks, subStageConfig, selectedIds, onSelect, onRowC
               <input
                 type="datetime-local"
                 value={toDateTimeInputValue(val)}
-                onChange={e => updateTask(task.id, { [col.key]: e.target.value || null })}
+                // Auto-close the calendar after pick
+                onChange={e => { updateTask(task.id, { [col.key]: e.target.value || null }); e.target.blur() }}
                 onClick={e => e.stopPropagation()}
                 className="text-[11px] font-mono border border-transparent rounded px-1 py-0.5 hover:border-slate-700 hover:bg-[#131b2e] focus:border-indigo-500 focus:bg-[#131b2e] focus:outline-none bg-transparent w-full text-slate-300 transition-colors"
               />

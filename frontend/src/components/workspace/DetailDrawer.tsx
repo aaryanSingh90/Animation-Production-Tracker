@@ -318,7 +318,8 @@ export function DetailDrawer({ task, onClose }: Props) {
               <input
                 type="datetime-local"
                 value={toDateTimeInputValue(task.startDate)}
-                onChange={e => updateTask(task.id, { startDate: e.target.value || null })}
+                // Auto-close the calendar after pick
+                onChange={e => { updateTask(task.id, { startDate: e.target.value || null }); e.target.blur() }}
                 className="w-full px-2.5 py-1.5 text-xs border border-[#1b253b] rounded-md bg-[#0a0f1b] text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors font-mono"
               />
             )}
@@ -333,7 +334,8 @@ export function DetailDrawer({ task, onClose }: Props) {
               <input
                 type="datetime-local"
                 value={toDateTimeInputValue(task.endDate)}
-                onChange={e => updateTask(task.id, { endDate: e.target.value || null })}
+                // Auto-close the calendar after pick
+                onChange={e => { updateTask(task.id, { endDate: e.target.value || null }); e.target.blur() }}
                 className="w-full px-2.5 py-1.5 text-xs border border-[#1b253b] rounded-md bg-[#0a0f1b] text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors font-mono"
               />
             )}

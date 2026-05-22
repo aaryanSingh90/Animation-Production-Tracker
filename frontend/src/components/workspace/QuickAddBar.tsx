@@ -90,7 +90,7 @@ export function QuickAddBar({ stageConfig, subStageConfig, projectId }: Props) {
   const isCutShots = subStageConfig.slug === 'cut-shots'
 
   return (
-    <div className="flex items-center gap-2 px-4 py-2 bg-[#0c1221] border-b border-[#1b253b] flex-wrap">
+    <div className="flex items-center gap-2 px-4 py-2 bg-[#0c1221] border-b border-[#1b253b] overflow-x-auto whitespace-nowrap">
       {isShot ? (
         <>
           <input
@@ -98,16 +98,16 @@ export function QuickAddBar({ stageConfig, subStageConfig, projectId }: Props) {
             onChange={e => setName(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="SHOT NO."
-            className={`${inputCls} w-24 font-mono uppercase`}
+            className={`${inputCls} w-24 font-mono uppercase shrink-0`}
           />
           <input
             value={frameRange}
             onChange={e => setFrameRange(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="101-124"
-            className={`${inputCls} w-28 font-mono`}
+            className={`${inputCls} w-24 font-mono shrink-0`}
           />
-          <div className="px-3 py-1.5 text-xs font-black text-indigo-400 w-16 text-center border border-[#1b253b] rounded-md bg-[#080d17] font-mono">
+          <div className="px-2.5 py-1.5 text-xs font-black text-indigo-400 w-14 text-center border border-[#1b253b] rounded-md bg-[#080d17] font-mono shrink-0">
             {seconds > 0 ? `${seconds}s` : '—'}
           </div>
         </>
@@ -117,16 +117,16 @@ export function QuickAddBar({ stageConfig, subStageConfig, projectId }: Props) {
           onChange={e => setName(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={stageConfig.id === 'audio' ? 'AUDIO NAME…' : 'ASSET NAME…'}
-          className={`${inputCls} w-44 uppercase`}
+          className={`${inputCls} w-40 uppercase shrink-0`}
         />
       )}
 
-      <ArtistDropdown value={artist} onChange={setArtist} />
-      <StatusDropdown value={status} onChange={setStatus} compact />
+      <div className="shrink-0"><ArtistDropdown value={artist} onChange={setArtist} /></div>
+      <div className="shrink-0"><StatusDropdown value={status} onChange={setStatus} compact /></div>
 
       {/* Editing: Audio status inline */}
       {isEditing && (
-        <div className="flex items-center gap-1.5 border border-[#1b253b] bg-[#080d17] px-2 py-0.5 rounded-md">
+        <div className="flex items-center gap-1.5 border border-[#1b253b] bg-[#080d17] px-2 py-0.5 rounded-md shrink-0">
           <span className="text-[10px] font-bold text-slate-400 uppercase">Audio:</span>
           <StatusDropdown mode="audio" value={audioStatus} onChange={setAudioStatus} compact />
         </div>
@@ -137,16 +137,18 @@ export function QuickAddBar({ stageConfig, subStageConfig, projectId }: Props) {
           <input
             type="datetime-local"
             value={startDate}
-            onChange={e => setStartDate(e.target.value)}
+            // Auto-close the native date picker once the user picks a value.
+            // Without this, the calendar lingers and they have to click outside.
+            onChange={e => { setStartDate(e.target.value); e.target.blur() }}
             onKeyDown={handleKeyDown}
-            className={`${inputCls} w-44 font-mono text-[11px] text-slate-300`}
+            className={`${inputCls} w-40 font-mono text-[11px] text-slate-300 shrink-0`}
           />
           <input
             type="datetime-local"
             value={endDate}
-            onChange={e => setEndDate(e.target.value)}
+            onChange={e => { setEndDate(e.target.value); e.target.blur() }}
             onKeyDown={handleKeyDown}
-            className={`${inputCls} w-44 font-mono text-[11px] text-slate-300`}
+            className={`${inputCls} w-40 font-mono text-[11px] text-slate-300 shrink-0`}
           />
         </>
       )}
@@ -154,12 +156,12 @@ export function QuickAddBar({ stageConfig, subStageConfig, projectId }: Props) {
       <button
         onClick={submit}
         disabled={submitting}
-        className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold tracking-wider uppercase text-white bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 rounded-md transition-all shadow-md shadow-indigo-950/40 disabled:opacity-40 disabled:cursor-not-allowed"
+        className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold tracking-wider uppercase text-white bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 rounded-md transition-all shadow-md shadow-indigo-950/40 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
       >
         <Plus className="w-3.5 h-3.5" /> {submitting ? 'CREATING…' : 'CREATE'}
       </button>
       {error && (
-        <div className="flex items-center gap-1.5 text-[10px] font-bold text-rose-400 ml-2">
+        <div className="flex items-center gap-1.5 text-[10px] font-bold text-rose-400 ml-2 shrink-0">
           <AlertCircle className="w-3 h-3" /> {error}
         </div>
       )}
