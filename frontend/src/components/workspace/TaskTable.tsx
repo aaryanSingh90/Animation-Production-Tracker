@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useRef, useEffect, createContext, useContext } from 'react'
 import {
   useReactTable,
   getCoreRowModel,
@@ -17,10 +17,44 @@ import { ArtistDropdown } from '../employees/ArtistDropdown'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { DebouncedTextInput } from '../ui/DebouncedTextInput'
 import { ColumnFilterMenu, ActiveFilterBadge } from './ColumnFilterMenu'
-import { applyColumnFilters, countActive, type ColumnFilterMap } from './ColumnFilter'
+import { applyColumnFilters, countActive, type ColumnFilter, type ColumnFilterMap } from './ColumnFilter'
 import { isOverdue, formatSeconds } from '../../utils/calcSeconds'
 import { formatElapsed, getTaskElapsedMs, isTimerRunning, toDateTimeInputValue } from '../../utils/timeTracking'
 import { clsx } from 'clsx'
+
+// ─── Filter context ──────────────────────────────────────────────────────────
+// The column-filter state is held by <TaskTable>, but the popup that edits it
+// is rendered deep inside each header by TanStack's flexRender. flexRender
+// calls the header function — and that function's identity is what React uses
+// to decide whether to remount the child tree. If we put `columnFilters` in
+// the columns memo deps, every keystroke produces a new header function ref,
+// flexRender mounts a "new" component, and the popup gets torn down mid-typing.
+//
+// Solution: keep the header function stable. The popup reads + writes filters
+// through this context instead of through props, so the header closure never
+// captures the live filter map.
+interface ColumnFilterCtx {
+  filters: ColumnFilterMap
+  setFilter: (key: string, next: ColumnFilter | undefined) => void
+  distinctArtistIds: string[]
+}
+const FilterCtx = createContext<ColumnFilterCtx>({
+  filters: {},
+  setFilter: () => {},
+  distinctArtistIds: [],
+})
+
+function HeaderFilter({ filterKey, kind }: { filterKey: string; kind: 'text' | 'status' | 'audio' | 'artist' | 'date' | 'number' }) {
+  const ctx = useContext(FilterCtx)
+  return (
+    <ColumnFilterMenu
+      kind={kind}
+      value={ctx.filters[filterKey]}
+      onChange={next => ctx.setFilter(filterKey, next)}
+      uniqueValues={kind === 'artist' ? ctx.distinctArtistIds : undefined}
+    />
+  )
+}
 
 interface Props {
   tasks: TaskRow[]
@@ -134,7 +168,6 @@ export function TaskTable({ tasks, subStageConfig, selectedIds, onSelect, onRowC
   const canEdit     = !isArtist // managers and leads can edit status/artist inline
 
   const [deleteId, setDeleteId] = useState<string | null>(null)
-  const [minuteTick, setMinuteTick] = useState(() => Date.now())
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
   const [columnFilters, setColumnFilters] = useState<ColumnFilterMap>({})
 
@@ -293,14 +326,7 @@ export function TaskTable({ tasks, subStageConfig, selectedIds, onSelect, onRowC
         header: () => (
           <div className="flex items-center gap-1">
             <span>{col.label}</span>
-            {filterKind && (
-              <ColumnFilterMenu
-                kind={filterKind}
-                value={columnFilters[col.key]}
-                onChange={next => setFilter(col.key, next)}
-                uniqueValues={filterKind === 'artist' ? distinctArtistIds : undefined}
-              />
-            )}
+            {filterKind && <HeaderFilter filterKey={col.key} kind={filterKind} />}
           </div>
         ),
         size: col.width ?? 120,
@@ -388,18 +414,7 @@ export function TaskTable({ tasks, subStageConfig, selectedIds, onSelect, onRowC
             )
           }
           if (col.key === 'timeConsumed') {
-            const elapsed = getTaskElapsedMs(task, minuteTick)
-            // "Active" purely means: is the timer currently ticking? That's just
-            // whether status === IN_PROGRESS — start/end dates are deadlines, not timer anchors.
-            const active = isTimerRunning(task.status)
-            return (
-              <span className={clsx(
-                "font-mono text-xs font-black tracking-wide rounded px-1.5 py-0.5",
-                active ? "text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 animate-pulse" : "text-slate-400"
-              )}>
-                {formatElapsed(elapsed)}
-              </span>
-            )
+            return <TimerCell task={task} />
           }
           if (col.key === 'shotNumber') {
             return <span className="font-mono text-xs font-bold text-slate-200">{task.shotNumber}</span>
@@ -443,7 +458,13 @@ export function TaskTable({ tasks, subStageConfig, selectedIds, onSelect, onRowC
     })
 
     return cols
-  }, [subStageConfig, selectedIds, tasks, allSelected, someSelected, minuteTick, canEdit, isArtist, columnFilters, distinctArtistIds])
+    // NOTE: columnFilters / distinctArtistIds / minuteTick are intentionally NOT
+    // in deps. The filter state is read through <FilterCtx> by <HeaderFilter>
+    // and the live timer is owned by <TimerCell>. Keeping the columns memo
+    // stable across those frequent updates is what lets the filter popup stay
+    // open while the user is typing (flexRender treats a new header function
+    // identity as a new component type and tears down the popup).
+  }, [subStageConfig, selectedIds, tasks, allSelected, someSelected, canEdit, isArtist])
 
   const table = useReactTable({
     data: visibleTasks,
@@ -511,37 +532,21 @@ export function TaskTable({ tasks, subStageConfig, selectedIds, onSelect, onRowC
     ? totalSize - (virtualRows[virtualRows.length - 1]?.end ?? 0)
     : 0
 
-  const hasVisibleActiveRows = useMemo(
-    () =>
-      virtualRows.some(v => {
-        const item = flatListElements[v.index]
-        if (!item || item.type !== 'row') return false
-        const task = item.task
-        return Boolean(task?.startDate) && !task?.endDate && isTimerRunning(task.status)
-      }),
-    [flatListElements, virtualRows],
-  )
+  // Ticking is now done inside <TimerCell> per-row so the columns memo doesn't
+  // rebuild every second (which was unmounting the column-filter popup).
 
-  useEffect(() => {
-    if (!hasVisibleActiveRows) return
-    const syncId = window.setTimeout(() => {
-      setMinuteTick(Date.now())
-    }, 0)
-
-    // Tick every second so the live timer shows seconds ticking up
-    // (only runs when at least one IN_PROGRESS task is visible).
-    const timerId = window.setInterval(() => {
-      setMinuteTick(Date.now())
-    }, 1000)
-
-    return () => {
-      window.clearTimeout(syncId)
-      window.clearInterval(timerId)
-    }
-  }, [hasVisibleActiveRows])
+  // Filter-context value. Changes on every keystroke (which is what we want —
+  // the popup needs to display the latest value) BUT the columns memo doesn't
+  // depend on this, so the table's column structure (and the popup's mount
+  // point) stays stable across keystrokes.
+  const filterCtxValue = useMemo<ColumnFilterCtx>(() => ({
+    filters: columnFilters,
+    setFilter,
+    distinctArtistIds,
+  }), [columnFilters, distinctArtistIds])
 
   return (
-    <>
+    <FilterCtx.Provider value={filterCtxValue}>
       {activeFilterCount > 0 && (
         <div className="flex items-center gap-2 px-4 py-1.5 border-b border-[#1a263e] bg-[#0a0f1b]">
           <ActiveFilterBadge count={activeFilterCount} onClear={() => setColumnFilters({})} />
@@ -678,6 +683,31 @@ export function TaskTable({ tasks, subStageConfig, selectedIds, onSelect, onRowC
                 {paddingBottom > 0 && (
                   <tr><td style={{ height: paddingBottom }} colSpan={columns.length} /></tr>
                 )}
+
+                {/* ── Ghost row buffer ─────────────────────────────────────
+                    Render 5 faint empty slots after the real data so the
+                    table reads as a structured spreadsheet rather than a
+                    void when a stage only has a handful of tasks. The
+                    slots use muted dividers and an em-dash placeholder per
+                    column so the grid keeps its column rhythm. */}
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <tr
+                    key={`ghost-${i}`}
+                    aria-hidden
+                    className="border-b border-[#141d2f]/40 select-none"
+                    style={{ height: 38 }}
+                  >
+                    {table.getAllLeafColumns().map(col => (
+                      <td
+                        key={col.id}
+                        style={{ width: col.getSize() }}
+                        className="px-3 py-1 align-middle border-r border-[#141d2f]/40 last:border-r-0 text-slate-700"
+                      >
+                        <span className="text-xs">—</span>
+                      </td>
+                    ))}
+                  </tr>
+                ))}
               </>
             )}
           </tbody>
@@ -693,6 +723,32 @@ export function TaskTable({ tasks, subStageConfig, selectedIds, onSelect, onRowC
         destructive
         onConfirm={() => { if (deleteId) deleteTask(deleteId); setDeleteId(null) }}
       />
-    </>
+    </FilterCtx.Provider>
+  )
+}
+
+/**
+ * Live timer cell — owns its own 1-second tick so the parent <TaskTable>
+ * doesn't have to re-render the whole table (and rebuild its columns memo)
+ * every second. That rebuild was unmounting the column-filter popup mid-
+ * typing, since TanStack flexRender treats new column instances as a fresh
+ * header tree.
+ */
+function TimerCell({ task }: { task: TaskRow }) {
+  const active = isTimerRunning(task.status)
+  const [tick, setTick] = useState(() => Date.now())
+  useEffect(() => {
+    if (!active) return
+    const id = window.setInterval(() => setTick(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [active])
+  const elapsed = getTaskElapsedMs(task, tick)
+  return (
+    <span className={clsx(
+      "font-mono text-xs font-black tracking-wide rounded px-1.5 py-0.5",
+      active ? "text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 animate-pulse" : "text-slate-400"
+    )}>
+      {formatElapsed(elapsed)}
+    </span>
   )
 }
