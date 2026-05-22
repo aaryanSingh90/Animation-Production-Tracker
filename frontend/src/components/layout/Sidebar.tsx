@@ -9,7 +9,7 @@ const MANAGER_NAV = [
   { to: '/',         icon: LayoutDashboard, label: 'Dashboard',   notifyKey: 'review' as const },
   { to: '/clients',  icon: Briefcase,       label: 'Clients',     notifyKey: null },
   { to: '/team',     icon: Users,           label: 'Team',        notifyKey: null },
-  { to: '/shots',    icon: Grid3X3,         label: 'Shot Matrix', notifyKey: null },
+  { to: '/shots',    icon: Grid3X3,         label: 'Pipeline Matrix', notifyKey: null },
   { to: '/settings', icon: Settings,        label: 'Settings',    notifyKey: null },
 ]
 
