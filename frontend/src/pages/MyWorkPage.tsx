@@ -8,7 +8,7 @@ import { SUB_STAGE_MAP, SUB_STAGE_TO_STAGE_SLUG } from '../config/stageConfigs'
 import { StatusPill } from '../components/ui/StatusPill'
 import { getDeadlineLevel, daysUntil, DEADLINE_BADGE } from '../utils/deadline'
 import type { TaskRow } from '../types'
-import { ChevronRight, AlertTriangle, Clock, CheckCircle, Layers, Users } from 'lucide-react'
+import { ChevronRight, AlertTriangle, Clock, CheckCircle, Layers } from 'lucide-react'
 import { clsx } from 'clsx'
 
 function getInitials(name: string) {

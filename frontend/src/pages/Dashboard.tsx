@@ -54,7 +54,7 @@ export function Dashboard() {
   }, [])
 
   const allTasks    = usePipelineStore(s => s.tasks)
-  const { updateTaskStatus, updateTask, addComment } = usePipelineStore()
+  const { updateTask, addComment } = usePipelineStore()
   const clients     = useClientStore(s => s.clients)
   const projects    = useClientStore(s => s.projects)
   const employees   = useEmployeeStore(s => s.employees)
