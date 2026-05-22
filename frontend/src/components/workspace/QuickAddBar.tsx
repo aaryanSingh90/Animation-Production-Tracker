@@ -137,16 +137,14 @@ export function QuickAddBar({ stageConfig, subStageConfig, projectId }: Props) {
           <input
             type="datetime-local"
             value={startDate}
-            // Auto-close the native date picker once the user picks a value.
-            // Without this, the calendar lingers and they have to click outside.
-            onChange={e => { setStartDate(e.target.value); e.target.blur() }}
+            onChange={e => setStartDate(e.target.value)}
             onKeyDown={handleKeyDown}
             className={`${inputCls} w-40 font-mono text-[11px] text-slate-300 shrink-0`}
           />
           <input
             type="datetime-local"
             value={endDate}
-            onChange={e => { setEndDate(e.target.value); e.target.blur() }}
+            onChange={e => setEndDate(e.target.value)}
             onKeyDown={handleKeyDown}
             className={`${inputCls} w-40 font-mono text-[11px] text-slate-300 shrink-0`}
           />

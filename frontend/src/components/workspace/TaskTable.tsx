@@ -405,13 +405,12 @@ export function TaskTable({ tasks, subStageConfig, selectedIds, onSelect, onRowC
             return <span className="font-mono text-xs font-bold text-slate-200">{task.shotNumber}</span>
           }
           if (col.key === 'itemName') {
+            // Read-only display in the row — editing happens in the side drawer
+            // so accidental clicks don't put the cell into edit mode.
             return (
-              <DebouncedTextInput
-                value={task.itemName}
-                onCommit={v => updateTask(task.id, { itemName: v })}
-                onClick={e => e.stopPropagation()}
-                className="text-xs font-semibold border border-transparent rounded px-1.5 py-0.5 hover:border-slate-700 hover:bg-[#131b2e] focus:border-indigo-500 focus:bg-[#131b2e] focus:outline-none bg-transparent w-full text-slate-100 transition-colors"
-              />
+              <span className="text-xs font-semibold text-slate-100 truncate block">
+                {task.itemName || <span className="text-slate-600 italic">Untitled</span>}
+              </span>
             )
           }
           return <span className="text-xs font-semibold text-slate-300">{String((task as any)[col.key] ?? '—')}</span>

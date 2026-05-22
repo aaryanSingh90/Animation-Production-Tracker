@@ -10,6 +10,7 @@ import { usePipelineStore } from '../store/pipelineStore'
 import { useClientStore }   from '../store/clientStore'
 import { useEmployeeStore } from '../store/employeeStore'
 import { useAuthStore }     from '../store/authStore'
+import { useToastStore }    from '../store/toastStore'
 import { STATUS_CONFIG, type TaskStatus, type TaskRow } from '../types'
 import { isOverdue } from '../utils/calcSeconds'
 import { SUB_STAGE_MAP, SUB_STAGE_TO_STAGE_SLUG, STAGE_CONFIGS } from '../config/stageConfigs'
@@ -59,6 +60,7 @@ export function Dashboard() {
   const projects    = useClientStore(s => s.projects)
   const employees   = useEmployeeStore(s => s.employees)
   const currentUser = useAuthStore(s => s.currentUser)
+  const pushToast   = useToastStore(s => s.push)
 
   const isManager = currentUser?.role === 'MANAGER'
   const isArtist  = !isManager   // two-tier model: anyone who isn't a manager is an artist
@@ -168,15 +170,19 @@ export function Dashboard() {
   const canReview = isManager
 
   async function handleApprove(taskId: string) {
+    const t = allTasks.find(x => x.id === taskId)
     await addComment(taskId, 'Approved.', 'approval')
     await updateTask(taskId, { retakeNote: null, status: 'FINAL_APPROVAL' })
+    pushToast({ kind: 'approval', title: 'Approved', body: t ? `${t.itemName} is now Final Approval` : 'Task approved', ttl: 2500 })
   }
 
   async function handleSendRetake() {
     if (!retakeModal || !retakeNote.trim()) return
     const note = retakeNote.trim()
+    const taskName = retakeModal.taskName
     await addComment(retakeModal.taskId, note, 'retake')
     await updateTask(retakeModal.taskId, { retakeNote: note, status: 'LEAD_RETAKE' })
+    pushToast({ kind: 'retake', title: 'Retake sent', body: `${taskName} — note delivered to artist`, ttl: 2800 })
     setRetakeModal(null)
     setRetakeNote('')
   }

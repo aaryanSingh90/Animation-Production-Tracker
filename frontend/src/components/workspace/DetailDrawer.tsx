@@ -4,6 +4,7 @@ import type { TaskRow, ReviewComment } from '../../types'
 import { ANY_STATUS_CONFIG } from '../../types'
 import { usePipelineStore } from '../../store/pipelineStore'
 import { useAuthStore } from '../../store/authStore'
+import { useToastStore } from '../../store/toastStore'
 import { StatusDropdown } from '../ui/StatusDropdown'
 import { StatusPill } from '../ui/StatusPill'
 import { ArtistDropdown } from '../employees/ArtistDropdown'
@@ -22,9 +23,17 @@ interface Props {
   onClose: () => void
 }
 
-export function DetailDrawer({ task, onClose }: Props) {
+export function DetailDrawer({ task: passedTask, onClose }: Props) {
   const { updateTask, updateTaskStatus, addComment } = usePipelineStore()
   const { currentUser } = useAuthStore()
+  const pushToast = useToastStore(s => s.push)
+
+  // Always read the LIVE version of the task from the store so the drawer reflects
+  // status changes / comments coming in via SSE without becoming stale. Falls
+  // back to the snapshot from props if (briefly) the task hasn't loaded yet.
+  const task = usePipelineStore(s =>
+    passedTask ? (s.tasks.find(t => t.id === passedTask.id) ?? passedTask) : null
+  )
 
   const [minuteTick, setMinuteTick] = useState(() => Date.now())
   const [newComment, setNewComment] = useState('')
@@ -72,35 +81,41 @@ export function DetailDrawer({ task, onClose }: Props) {
   const showReviewPanel  = canReview && task.status === 'LEAD_APPROVAL'
 
   // ── Actions ─────────────────────────────────────────────────────────────────
+  // Every action posts a confirmation toast so the user has time to register
+  // what happened, even when the inline action panel collapses immediately.
   async function handleStartWork() {
     await addComment(task!.id, `${currentUser?.name?.split(' ')[0] ?? 'Artist'} started work on this task.`, 'note')
     await updateTaskStatus(task!.id, 'IN_PROGRESS')
+    pushToast({ kind: 'info', title: 'Work started', body: `${task!.itemName} — timer is running`, ttl: 2500 })
   }
 
   async function handleSubmitForReview() {
     await addComment(task!.id, 'Submitted for lead review.', 'note')
     await updateTaskStatus(task!.id, 'LEAD_APPROVAL')
+    pushToast({ kind: 'review', title: 'Submitted for review', body: `${task!.itemName} is now waiting for the lead`, ttl: 2500 })
   }
 
   async function handleBackToWork() {
-    // Log a system-style note so the lead/manager sees the artist closed the loop.
     const note = task!.status === 'LEAD_RETAKE'
       ? `Resumed work after retake — ${currentUser?.name?.split(' ')[0] ?? 'artist'} is on it.`
       : `Picked up — ${currentUser?.name?.split(' ')[0] ?? 'artist'} started work.`
     await addComment(task!.id, note, 'note')
     await updateTaskStatus(task!.id, 'IN_PROGRESS')
+    pushToast({ kind: 'info', title: 'Back to work', body: `${task!.itemName} — timer resumed`, ttl: 2500 })
   }
 
   async function handleApprove() {
     await addComment(task!.id, 'Approved.', 'approval')
-    // Clearing retakeNote in the same patch as the status change keeps it one round-trip
     await updateTask(task!.id, { retakeNote: null, status: 'FINAL_APPROVAL' })
+    pushToast({ kind: 'approval', title: 'Approved', body: `${task!.itemName} is now Final Approval`, ttl: 2500 })
   }
 
   async function handleRetakeSubmit() {
     if (!retakeReason.trim()) return
-    await addComment(task!.id, retakeReason.trim(), 'retake')
-    await updateTask(task!.id, { retakeNote: retakeReason.trim(), status: 'LEAD_RETAKE' })
+    const note = retakeReason.trim()
+    await addComment(task!.id, note, 'retake')
+    await updateTask(task!.id, { retakeNote: note, status: 'LEAD_RETAKE' })
+    pushToast({ kind: 'retake', title: 'Retake sent', body: `${task!.itemName} — note delivered to artist`, ttl: 2800 })
     setShowRetakeInput(false)
     setRetakeReason('')
   }
@@ -130,12 +145,22 @@ export function DetailDrawer({ task, onClose }: Props) {
     <div className="fixed inset-y-0 right-0 z-40 w-96 bg-[#080d1a]/95 backdrop-blur-md shadow-2xl border-l border-[#1a263e] flex flex-col animate-in slide-in-from-right duration-200 text-slate-100">
 
       {/* Drawer Header */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-[#1a263e] bg-[#050810]/50">
-        <div>
-          <div className="text-sm font-black tracking-wide text-white uppercase">{task.itemName}</div>
+      <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-[#1a263e] bg-[#050810]/50">
+        <div className="flex-1 min-w-0">
+          {/* Editable task name — read-only for artists, debounced commit for managers */}
+          {isArtist ? (
+            <div className="text-sm font-black tracking-wide text-white uppercase truncate">{task.itemName}</div>
+          ) : (
+            <DebouncedTextInput
+              value={task.itemName}
+              onCommit={v => updateTask(task.id, { itemName: v })}
+              placeholder="Untitled task"
+              className="w-full text-sm font-black tracking-wide text-white uppercase bg-transparent border border-transparent hover:border-[#1a263e] focus:border-indigo-500 focus:bg-[#0a0f1b] rounded px-1.5 py-1 -mx-1.5 -my-1 focus:outline-none transition-colors"
+            />
+          )}
           {task.shotNumber && (
             <div className="text-[10px] text-indigo-400 font-mono font-bold mt-1 uppercase">
-              {task.frameRange} · {task.seconds}s frame range
+              {task.frameRange} · {task.seconds != null ? task.seconds.toFixed(1) : '—'}s frame range
             </div>
           )}
         </div>
