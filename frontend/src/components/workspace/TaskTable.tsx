@@ -389,7 +389,9 @@ export function TaskTable({ tasks, subStageConfig, selectedIds, onSelect, onRowC
           }
           if (col.key === 'timeConsumed') {
             const elapsed = getTaskElapsedMs(task, minuteTick)
-            const active = isTimerRunning(task.status) && task.startDate && !task.endDate
+            // "Active" purely means: is the timer currently ticking? That's just
+            // whether status === IN_PROGRESS — start/end dates are deadlines, not timer anchors.
+            const active = isTimerRunning(task.status)
             return (
               <span className={clsx(
                 "font-mono text-xs font-black tracking-wide rounded px-1.5 py-0.5",
@@ -527,9 +529,11 @@ export function TaskTable({ tasks, subStageConfig, selectedIds, onSelect, onRowC
       setMinuteTick(Date.now())
     }, 0)
 
+    // Tick every second so the live timer shows seconds ticking up
+    // (only runs when at least one IN_PROGRESS task is visible).
     const timerId = window.setInterval(() => {
       setMinuteTick(Date.now())
-    }, 60_000)
+    }, 1000)
 
     return () => {
       window.clearTimeout(syncId)

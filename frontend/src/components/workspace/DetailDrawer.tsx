@@ -35,7 +35,7 @@ export function DetailDrawer({ task, onClose }: Props) {
   const [showRetakeInput, setShowRetakeInput] = useState(false)
   const [retakeReason, setRetakeReason] = useState('')
 
-  const isActiveTimer = Boolean(task?.startDate) && !task?.endDate && isTimerRunning(task?.status ?? 'YET_TO_START')
+  const isActiveTimer = isTimerRunning(task?.status ?? 'YET_TO_START')
 
   useEffect(() => {
     if (!task) return
@@ -50,7 +50,8 @@ export function DetailDrawer({ task, onClose }: Props) {
 
   useEffect(() => {
     if (!isActiveTimer) return
-    const timerId = window.setInterval(() => { setMinuteTick(Date.now()) }, 60_000)
+    // Tick every second so the live timer in the drawer shows seconds.
+    const timerId = window.setInterval(() => { setMinuteTick(Date.now()) }, 1000)
     return () => window.clearInterval(timerId)
   }, [isActiveTimer, task?.id])
 
