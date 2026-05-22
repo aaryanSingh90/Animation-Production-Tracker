@@ -3,13 +3,24 @@ import { z } from 'zod'
 import { prisma } from '../lib/prisma.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 import { broadcast } from '../lib/sse.js'
+import { zodMsg } from '../lib/zodMsg.js'
 
 export const tasksRouter = Router()
 
 const TASK_STATUS = ['YET_TO_START','IN_PROGRESS','LEAD_APPROVAL','LEAD_RETAKE','DONE','FINAL_APPROVAL'] as const
 const AUDIO_STATUS = ['YET_TO_START','IN_PROGRESS','RECEIVED','FINAL_APPROVAL','RETAKE','DONE_INHOUSE','WIP_INHOUSE','APPROVED_INHOUSE'] as const
 
-const isoDate = z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).nullable().optional()
+// Accepts any string the browser's <input type="datetime-local"> can produce:
+//   "2026-05-22"                 (date only)
+//   "2026-05-22T12:43"           (datetime-local)
+//   "2026-05-22T12:43:00"        (with seconds)
+//   "2026-05-22T12:43:00.000Z"   (full ISO 8601)
+// Anything else Date.parse can understand also passes.
+const isoDate = z.string()
+  .refine(s => !s || !Number.isNaN(new Date(s).getTime()), 'Invalid date format')
+  .nullable()
+  .optional()
+
 
 const createSchema = z.object({
   projectId:        z.string(),
@@ -58,7 +69,7 @@ tasksRouter.get('/:id', requireAuth, async (req, res) => {
 // POST /api/tasks — MANAGER + LEAD
 tasksRouter.post('/', requireAuth, requireRole('MANAGER','LEAD'), async (req, res) => {
   const parsed = createSchema.safeParse(req.body)
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() })
+  if (!parsed.success) return res.status(400).json({ error: zodMsg(parsed.error) })
   const task = await prisma.task.create({
     data: {
       ...parsed.data,
@@ -74,7 +85,7 @@ tasksRouter.post('/', requireAuth, requireRole('MANAGER','LEAD'), async (req, re
 // PATCH /api/tasks/:id — any authenticated user (status transitions enforced below)
 tasksRouter.patch('/:id', requireAuth, async (req, res) => {
   const parsed = updateSchema.safeParse(req.body)
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() })
+  if (!parsed.success) return res.status(400).json({ error: zodMsg(parsed.error) })
   const existing = await prisma.task.findUnique({ where: { id: req.params.id } })
   if (!existing) return res.status(404).json({ error: 'Not found' })
 
@@ -148,7 +159,7 @@ const commentSchema = z.object({
 
 tasksRouter.post('/:id/comments', requireAuth, async (req, res) => {
   const parsed = commentSchema.safeParse(req.body)
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() })
+  if (!parsed.success) return res.status(400).json({ error: zodMsg(parsed.error) })
   const author = await prisma.employee.findUnique({ where: { id: req.user!.sub } })
   if (!author) return res.status(401).json({ error: 'User no longer exists' })
   const comment = await prisma.reviewComment.create({

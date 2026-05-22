@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { prisma } from '../lib/prisma.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 import { broadcast } from '../lib/sse.js'
+import { zodMsg } from '../lib/zodMsg.js'
 
 export const clientsRouter = Router()
 
@@ -27,7 +28,7 @@ clientsRouter.get('/:id', requireAuth, async (req, res) => {
 // MANAGER + LEAD can create/update/delete
 clientsRouter.post('/', requireAuth, requireRole('MANAGER', 'LEAD'), async (req, res) => {
   const parsed = upsertSchema.safeParse(req.body)
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() })
+  if (!parsed.success) return res.status(400).json({ error: zodMsg(parsed.error) })
   const client = await prisma.client.create({ data: parsed.data })
   broadcast({ type: 'client.created', client })
   res.status(201).json({ client })
@@ -35,7 +36,7 @@ clientsRouter.post('/', requireAuth, requireRole('MANAGER', 'LEAD'), async (req,
 
 clientsRouter.patch('/:id', requireAuth, requireRole('MANAGER', 'LEAD'), async (req, res) => {
   const parsed = upsertSchema.partial().safeParse(req.body)
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() })
+  if (!parsed.success) return res.status(400).json({ error: zodMsg(parsed.error) })
   const client = await prisma.client.update({ where: { id: req.params.id }, data: parsed.data })
   broadcast({ type: 'client.updated', client })
   res.json({ client })

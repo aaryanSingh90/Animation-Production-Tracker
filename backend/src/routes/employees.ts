@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { prisma } from '../lib/prisma.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 import { broadcast } from '../lib/sse.js'
+import { zodMsg } from '../lib/zodMsg.js'
 
 export const employeesRouter = Router()
 
@@ -46,7 +47,7 @@ employeesRouter.get('/:id', requireAuth, async (req, res) => {
 employeesRouter.post('/', requireAuth, requireRole('MANAGER'), async (req, res) => {
   const parsed = createSchema.safeParse(req.body)
   if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.flatten() })
+    return res.status(400).json({ error: zodMsg(parsed.error) })
   }
   const data = parsed.data
   const exists = await prisma.employee.findUnique({ where: { email: data.email.toLowerCase() } })
@@ -72,7 +73,7 @@ employeesRouter.post('/', requireAuth, requireRole('MANAGER'), async (req, res) 
 employeesRouter.patch('/:id', requireAuth, async (req, res) => {
   const parsed = updateSchema.safeParse(req.body)
   if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.flatten() })
+    return res.status(400).json({ error: zodMsg(parsed.error) })
   }
   const isSelf    = req.user!.sub === req.params.id
   const isManager = req.user!.role === 'MANAGER'

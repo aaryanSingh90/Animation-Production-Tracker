@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { prisma } from '../lib/prisma.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 import { broadcast } from '../lib/sse.js'
+import { zodMsg } from '../lib/zodMsg.js'
 
 export const projectsRouter = Router()
 
@@ -35,7 +36,7 @@ projectsRouter.get('/:id', requireAuth, async (req, res) => {
 
 projectsRouter.post('/', requireAuth, requireRole('MANAGER','LEAD'), async (req, res) => {
   const parsed = createSchema.safeParse(req.body)
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() })
+  if (!parsed.success) return res.status(400).json({ error: zodMsg(parsed.error) })
   const project = await prisma.project.create({
     data: { ...parsed.data, frameRate: 24 },
   })
@@ -45,7 +46,7 @@ projectsRouter.post('/', requireAuth, requireRole('MANAGER','LEAD'), async (req,
 
 projectsRouter.patch('/:id', requireAuth, requireRole('MANAGER','LEAD'), async (req, res) => {
   const parsed = updateSchema.safeParse(req.body)
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() })
+  if (!parsed.success) return res.status(400).json({ error: zodMsg(parsed.error) })
   const project = await prisma.project.update({ where: { id: req.params.id }, data: parsed.data })
   broadcast({ type: 'project.updated', project })
   res.json({ project })
