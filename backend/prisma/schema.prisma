@@ -1,0 +1,196 @@
+// ShotHub data model — mirrors src/types.ts on the frontend.
+//
+// Run after editing:
+//   npx prisma migrate dev --name <descriptor>
+//   npx prisma generate
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ──────────────────────────────────────────────────────────────────
+
+enum EmployeeRole {
+  MANAGER
+  LEAD
+  ARTIST
+}
+
+enum EmployeeDepartment {
+  Animation
+  Rigging
+  Lighting
+  FX
+  Compositing
+  Modelling
+  Texturing
+  Audio
+  Editing
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+}
+
+enum TaskStatus {
+  YET_TO_START
+  IN_PROGRESS
+  LEAD_APPROVAL
+  LEAD_RETAKE
+  DONE
+  FINAL_APPROVAL
+}
+
+enum AudioStatus {
+  YET_TO_START
+  IN_PROGRESS
+  RECEIVED
+  FINAL_APPROVAL
+  RETAKE
+  DONE_INHOUSE
+  WIP_INHOUSE
+  APPROVED_INHOUSE
+}
+
+enum CommentType {
+  note
+  retake
+  approval
+}
+
+// ─── Models ─────────────────────────────────────────────────────────────────
+
+model Employee {
+  id             String             @id @default(cuid())
+  name           String
+  email          String             @unique
+  passwordHash   String
+  role           EmployeeRole
+  department     EmployeeDepartment
+  specialization String?
+  active         Boolean            @default(true)
+  avatarColor    String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  // Relations
+  assignedTasks  Task[]            @relation("AssignedArtist")
+  statusChanges  StatusChange[]
+  comments       ReviewComment[]
+
+  @@index([email])
+  @@index([department])
+  @@index([active])
+}
+
+model Client {
+  id           String    @id @default(cuid())
+  name         String
+  description  String?
+  contactEmail String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  projects     Project[]
+
+  @@index([name])
+}
+
+model Project {
+  id          String         @id @default(cuid())
+  name        String
+  description String?
+  status      ProjectStatus  @default(ACTIVE)
+  frameRate   Int            @default(24)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  client      Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId    String
+
+  tasks       Task[]
+
+  @@index([clientId])
+  @@index([status])
+}
+
+model Task {
+  id           String        @id @default(cuid())
+  subStageId   String        // e.g. "modelling-character" — references stageConfigs on frontend
+  itemName     String        @default("")
+  shotNumber   String?
+  frameRange   String?
+  seconds      Float?
+  status       TaskStatus    @default(YET_TO_START)
+  startDate    DateTime?
+  endDate      DateTime?
+  timeConsumed Float?
+  audioStatus  AudioStatus?
+  finalOutput  String?
+  notes        String?
+  thumbnail    String?
+  retakeNote   String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  // Relations
+  project           Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId         String
+  assignedArtist    Employee?      @relation("AssignedArtist", fields: [assignedArtistId], references: [id], onDelete: SetNull)
+  assignedArtistId  String?
+
+  statusHistory     StatusChange[]
+  comments          ReviewComment[]
+
+  @@index([projectId])
+  @@index([subStageId])
+  @@index([assignedArtistId])
+  @@index([status])
+  @@index([shotNumber])
+}
+
+model StatusChange {
+  id              String      @id @default(cuid())
+  from            TaskStatus
+  to              TaskStatus
+  changedAt       DateTime    @default(now())
+
+  task            Task        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId          String
+  changedBy       Employee?   @relation(fields: [changedByUserId], references: [id], onDelete: SetNull)
+  changedByUserId String?
+
+  @@index([taskId])
+  @@index([changedAt])
+}
+
+model ReviewComment {
+  id          String       @id @default(cuid())
+  message     String
+  type        CommentType  @default(note)
+  authorName  String       // captured at write time so display survives author deletion
+  avatarColor String
+  createdAt   DateTime     @default(now())
+
+  task        Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId      String
+  author      Employee?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  authorId    String?
+
+  @@index([taskId])
+  @@index([createdAt])
+}
+
+// Generic key/value store for app settings (replaces frontend's settings table).
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
