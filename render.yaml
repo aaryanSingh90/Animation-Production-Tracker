@@ -1,0 +1,44 @@
+# Render deploy config for ShotHub v2.
+# This file ONLY describes the service — secret values (DATABASE_URL,
+# JWT_SECRET, CORS_ORIGIN, etc.) are NOT committed here. They're set in
+# Render's dashboard under "Environment" — that's what `sync: false` means.
+#
+# Render will read this file automatically on import.
+
+services:
+  - type: web
+    name: animation-production-tracker-api
+    env: node
+    rootDir: backend
+    plan: starter
+    region: oregon
+
+    # Build: install deps, generate Prisma client, compile TypeScript.
+    # Migrations + seed run on every deploy (idempotent — upserts only).
+    buildCommand: npm install && npx prisma generate && npm run build && npx prisma migrate deploy && npm run db:seed
+
+    # Start: serve the compiled app.
+    startCommand: npm start
+
+    # The Express app exposes `/health` for Render's checker.
+    healthCheckPath: /health
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      # Secrets — set these in Render's dashboard, not in the repo.
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      # Seed defaults — optional, only used by `npm run db:seed` on build
+      - key: SEED_ADMIN_EMAIL
+        sync: false
+      - key: SEED_ADMIN_PASSWORD
+        sync: false
+      - key: SEED_DEFAULT_PASSWORD
+        sync: false
