@@ -61,20 +61,13 @@ export function Dashboard() {
   const currentUser = useAuthStore(s => s.currentUser)
 
   const isManager = currentUser?.role === 'MANAGER'
-  const isLead    = currentUser?.role === 'LEAD'
-  const isArtist  = currentUser?.role === 'ARTIST'
+  const isArtist  = !isManager   // two-tier model: anyone who isn't a manager is an artist
 
-  // Visible task set per role
+  // Managers see everything, artists see their own assigned tasks.
   const tasks = useMemo<TaskRow[]>(() => {
     if (isManager) return allTasks
-    if (isLead) {
-      const myProjects = new Set(
-        allTasks.filter(t => t.assignedArtistId === currentUser?.id).map(t => t.projectId)
-      )
-      return allTasks.filter(t => myProjects.has(t.projectId))
-    }
     return allTasks.filter(t => t.assignedArtistId === currentUser?.id)
-  }, [allTasks, currentUser, isManager, isLead])
+  }, [allTasks, currentUser, isManager])
 
   // ── Metrics ──────────────────────────────────────────────────────────────
   const approved   = tasks.filter(t => t.status === 'FINAL_APPROVAL').length
@@ -100,12 +93,13 @@ export function Dashboard() {
   , [tasks])
   const todaySeconds = todayApprovals.reduce((acc, t) => acc + (t.seconds ?? 0), 0)
 
-  // ── Action queue tabs (manager+lead vs artist) ───────────────────────────
+  // ── Action queue tabs ───────────────────────────────────────────────────
+  // Manager: every submission across the studio.
+  // Artist:  their own submissions, awaiting the manager's review.
   const reviewQueue = useMemo(() => {
     if (isManager) return allTasks.filter(t => t.status === 'LEAD_APPROVAL')
-    if (isLead)    return tasks.filter(t => t.status === 'LEAD_APPROVAL' && t.assignedArtistId !== currentUser?.id)
-    return tasks.filter(t => t.status === 'LEAD_APPROVAL')   // artist's own submitted
-  }, [tasks, allTasks, isManager, isLead, currentUser])
+    return tasks.filter(t => t.status === 'LEAD_APPROVAL')
+  }, [tasks, allTasks, isManager])
 
   const activeQueue = useMemo(() => tasks.filter(t => t.status === 'IN_PROGRESS'), [tasks])
   const retakeQueue = useMemo(() => tasks.filter(t => t.status === 'LEAD_RETAKE'), [tasks])
@@ -165,13 +159,13 @@ export function Dashboard() {
 
   // ── Tab state ────────────────────────────────────────────────────────────
   type Tab = 'review' | 'active' | 'retakes' | 'activity'
-  const defaultTab: Tab = isArtist ? 'active' : 'review'
+  const defaultTab: Tab = isManager ? 'review' : 'active'
   const [tab, setTab] = useState<Tab>(defaultTab)
 
-  // ── Retake modal state (manager+lead approval action) ────────────────────
+  // ── Retake modal state (manager approval action) ─────────────────────────
   const [retakeModal, setRetakeModal] = useState<RetakeModalState | null>(null)
   const [retakeNote, setRetakeNote]   = useState('')
-  const canReview = isManager || isLead
+  const canReview = isManager
 
   async function handleApprove(taskId: string) {
     await addComment(taskId, 'Approved.', 'approval')
@@ -199,16 +193,12 @@ export function Dashboard() {
               <Activity className="w-5 h-5 text-indigo-400" />
               {isManager
                 ? 'Production Control'
-                : isLead
-                  ? `Lead Desk · ${currentUser?.name?.split(' ')[0]}`
-                  : `Artist Desk · ${currentUser?.name?.split(' ')[0]}`}
+                : `Artist Desk · ${currentUser?.name?.split(' ')[0]}`}
             </h1>
             <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mt-1">
               {isManager
                 ? 'Global studio pipeline · live'
-                : isLead
-                  ? 'Team supervision & approval queue'
-                  : 'Your active assignments'}
+                : 'Your active assignments'}
             </p>
           </div>
           <div className="text-right">

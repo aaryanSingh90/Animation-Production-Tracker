@@ -4,19 +4,13 @@ import { clsx } from 'clsx'
 import { useAuthStore } from '../../store/authStore'
 import { usePipelineStore } from '../../store/pipelineStore'
 
+// Two-tier nav: managers see studio-wide tools, artists see their own work.
 const MANAGER_NAV = [
   { to: '/',         icon: LayoutDashboard, label: 'Dashboard',   notifyKey: 'review' as const },
   { to: '/clients',  icon: Briefcase,       label: 'Clients',     notifyKey: null },
   { to: '/team',     icon: Users,           label: 'Team',        notifyKey: null },
   { to: '/shots',    icon: Grid3X3,         label: 'Shot Matrix', notifyKey: null },
   { to: '/settings', icon: Settings,        label: 'Settings',    notifyKey: null },
-]
-
-const LEAD_NAV = [
-  { to: '/',        icon: LayoutDashboard, label: 'Dashboard',   notifyKey: 'review' as const },
-  { to: '/my-work', icon: ListChecks,      label: 'My Work',     notifyKey: 'retake' as const },
-  { to: '/clients', icon: Briefcase,       label: 'Projects',    notifyKey: null },
-  { to: '/shots',   icon: Grid3X3,         label: 'Shot Matrix', notifyKey: null },
 ]
 
 const ARTIST_NAV = [
@@ -29,36 +23,23 @@ export function Sidebar() {
   const logout = useAuthStore(s => s.logout)
   const allTasks = usePipelineStore(s => s.tasks)
 
-  const role = currentUser?.role
-  const isManager = role === 'MANAGER'
-  const isLead    = role === 'LEAD'
-  const isArtist  = role === 'ARTIST'
-  const navItems  = isManager ? MANAGER_NAV : isLead ? LEAD_NAV : ARTIST_NAV
+  const isManager = currentUser?.role === 'MANAGER'
+  const navItems  = isManager ? MANAGER_NAV : ARTIST_NAV
   const initials  = currentUser?.name.split(' ').map(n => n[0]).join('') ?? '?'
 
-  // Notification counts
-  const myTasks = isArtist
-    ? allTasks.filter(t => t.assignedArtistId === currentUser?.id)
-    : isLead
-      ? allTasks.filter(t => {
-          const leadProjects = new Set(
-            allTasks.filter(x => x.assignedArtistId === currentUser?.id).map(x => x.projectId)
-          )
-          return leadProjects.has(t.projectId)
-        })
-      : allTasks
-
-  // Artist: tasks they need to redo. Lead: team tasks currently in retake.
-  const retakeCount = (isArtist || isLead)
-    ? myTasks.filter(t => t.status === 'LEAD_RETAKE').length
+  // Notification counts:
+  //   Artist  → tasks they own that have come back as retakes
+  //   Manager → tasks anywhere in the studio waiting for approval
+  const myRetakes = !isManager
+    ? allTasks.filter(t => t.assignedArtistId === currentUser?.id && t.status === 'LEAD_RETAKE').length
     : 0
-  const reviewCount = (isManager || isLead)
-    ? myTasks.filter(t => t.status === 'LEAD_APPROVAL').length
+  const pendingReview = isManager
+    ? allTasks.filter(t => t.status === 'LEAD_APPROVAL').length
     : 0
 
   function getBadge(key: 'retake' | 'review' | null): number {
-    if (key === 'retake') return retakeCount
-    if (key === 'review') return reviewCount
+    if (key === 'retake') return myRetakes
+    if (key === 'review') return pendingReview
     return 0
   }
 
@@ -118,11 +99,11 @@ export function Sidebar() {
       <div className="px-4 pb-3">
         <div className={clsx(
           'text-[10px] font-bold tracking-wider uppercase px-2.5 py-1 rounded-md text-center border',
-          isManager ? 'bg-[#101b35] text-indigo-400 border-indigo-500/20'
-          : isLead  ? 'bg-[#0f1a2e] text-sky-400 border-sky-500/20'
-                    : 'bg-[#16122d] text-violet-400 border-violet-500/20'
+          isManager
+            ? 'bg-[#101b35] text-indigo-400 border-indigo-500/20'
+            : 'bg-[#16122d] text-violet-400 border-violet-500/20',
         )}>
-          {isManager ? 'Manager' : isLead ? 'Lead' : 'Artist'}
+          {isManager ? 'Manager' : 'Artist'}
         </div>
       </div>
 

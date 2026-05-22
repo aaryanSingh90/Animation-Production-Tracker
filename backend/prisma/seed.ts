@@ -30,7 +30,7 @@ const ROSTER: RosterEntry[] = [
   // Animation (10)
   { name: 'Sneha',         email: 'sneha@studio.local',         role: 'ARTIST', department: 'Animation',   color: c(0) },
   { name: 'Himanshu',      email: 'himanshu@studio.local',      role: 'ARTIST', department: 'Animation',   color: c(1) },
-  { name: 'Anand',         email: 'anand@studio.local',         role: 'LEAD',   department: 'Animation',   color: c(2) },
+  { name: 'Anand',         email: 'anand@studio.local',         role: 'ARTIST', department: 'Animation',   color: c(2) },
   { name: 'Abhishek',      email: 'abhishek@studio.local',      role: 'ARTIST', department: 'Animation',   color: c(3) },
   { name: 'Sandeep Singh', email: 'sandeep.singh@studio.local', role: 'ARTIST', department: 'Animation',   color: c(4) },
   { name: 'Sanjan',        email: 'sanjan@studio.local',        role: 'ARTIST', department: 'Animation',   color: c(5) },
@@ -47,26 +47,26 @@ const ROSTER: RosterEntry[] = [
   // Modelling (3)
   { name: 'Akash',         email: 'akash@studio.local',         role: 'ARTIST', department: 'Modelling',   color: c(5) },
   { name: 'Anjali',        email: 'anjali@studio.local',        role: 'ARTIST', department: 'Modelling',   color: c(6) },
-  { name: 'Jaivir',        email: 'jaivir@studio.local',        role: 'LEAD',   department: 'Modelling',   color: c(7) },
+  { name: 'Jaivir',        email: 'jaivir@studio.local',        role: 'ARTIST', department: 'Modelling',   color: c(7) },
 
   // Lighting (4)
-  { name: 'Mukul',         email: 'mukul@studio.local',         role: 'LEAD',   department: 'Lighting',    color: c(0) },
+  { name: 'Mukul',         email: 'mukul@studio.local',         role: 'ARTIST', department: 'Lighting',    color: c(0) },
   { name: 'Chandra',       email: 'chandra@studio.local',       role: 'ARTIST', department: 'Lighting',    color: c(1) },
   { name: 'Sandeep',       email: 'sandeep@studio.local',       role: 'ARTIST', department: 'Lighting',    color: c(2) },
   { name: 'Mohit',         email: 'mohit@studio.local',         role: 'ARTIST', department: 'Lighting',    color: c(3) },
 
   // Editing (1)
-  { name: 'Palash',        email: 'palash@studio.local',        role: 'LEAD',   department: 'Editing',     color: c(4) },
+  { name: 'Palash',        email: 'palash@studio.local',        role: 'ARTIST', department: 'Editing',     color: c(4) },
 
   // Rigging (2)
-  { name: 'Rashid',        email: 'rashid@studio.local',        role: 'LEAD',   department: 'Rigging',     color: c(5) },
+  { name: 'Rashid',        email: 'rashid@studio.local',        role: 'ARTIST', department: 'Rigging',     color: c(5) },
   { name: 'Aashi',         email: 'aashi@studio.local',         role: 'ARTIST', department: 'Rigging',     color: c(6) },
 
   // Compositing (1)
-  { name: 'Ajay',          email: 'ajay@studio.local',          role: 'LEAD',   department: 'Compositing', color: c(7) },
+  { name: 'Ajay',          email: 'ajay@studio.local',          role: 'ARTIST', department: 'Compositing', color: c(7) },
 
   // FX (1)
-  { name: 'Sourav',        email: 'sourav@studio.local',        role: 'LEAD',   department: 'FX',          color: c(0) },
+  { name: 'Sourav',        email: 'sourav@studio.local',        role: 'ARTIST', department: 'FX',          color: c(0) },
 ]
 
 async function main() {

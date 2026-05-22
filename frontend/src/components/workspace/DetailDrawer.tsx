@@ -62,10 +62,9 @@ export function DetailDrawer({ task, onClose }: Props) {
 
   // ── Role-aware flags ────────────────────────────────────────────────────────
   const isMyTask      = currentUser?.id === task.assignedArtistId
-  const isArtist      = currentUser?.role === 'ARTIST'
-  const isLead        = currentUser?.role === 'LEAD'
   const isManager     = currentUser?.role === 'MANAGER'
-  const canReview     = isManager || isLead  // who sees approve/retake buttons
+  const isArtist      = !isManager              // two-tier model: anyone not a manager
+  const canReview     = isManager               // only managers approve / send retakes
 
   const showStartBtn     = isArtist && isMyTask && task.status === 'YET_TO_START'
   const showSubmitBtn    = isArtist && isMyTask && task.status === 'IN_PROGRESS'

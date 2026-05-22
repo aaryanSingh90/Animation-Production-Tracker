@@ -35,20 +35,14 @@ export function MyWorkPage() {
   const clients     = useClientStore(s => s.clients)
   const employees   = useEmployeeStore(s => s.employees)
 
-  const isArtist = currentUser?.role === 'ARTIST'
-  const isLead   = currentUser?.role === 'LEAD'
+  const isManager = currentUser?.role === 'MANAGER'
+  const isArtist  = !isManager
 
-  // Artists: only their tasks. Leads: all tasks in projects they participate in.
+  // Managers see everything; artists see only their own assigned tasks.
   const myTasks = useMemo(() => {
-    if (isArtist) return allTasks.filter(t => t.assignedArtistId === currentUser?.id)
-    if (isLead) {
-      const myProjectIds = new Set(
-        allTasks.filter(t => t.assignedArtistId === currentUser?.id).map(t => t.projectId)
-      )
-      return allTasks.filter(t => myProjectIds.has(t.projectId))
-    }
-    return allTasks
-  }, [allTasks, currentUser, isArtist, isLead])
+    if (isManager) return allTasks
+    return allTasks.filter(t => t.assignedArtistId === currentUser?.id)
+  }, [allTasks, currentUser, isManager])
 
   const grouped = useMemo<ProjectGroup[]>(() => {
     const byProject: Record<string, ProjectGroup> = {}

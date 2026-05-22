@@ -26,10 +26,11 @@ export function WorkspaceView({ projectId, stageConfig, subStageSlug, clientId }
   const allStoreTasks = usePipelineStore(s => s.tasks)
   const currentUser    = useAuthStore(s => s.currentUser)
   const isManager      = currentUser?.role === 'MANAGER'
-  const isLead         = currentUser?.role === 'LEAD'
-  const isArtist       = currentUser?.role === 'ARTIST'
-  const canSeeAllTasks = isManager || isLead
-  const canAddTasks    = isManager || isLead
+  const isArtist       = !isManager
+  // Two-tier model: only managers see all tasks / can add tasks. Everyone else
+  // sees only their own rows in this pipeline stage.
+  const canSeeAllTasks = isManager
+  const canAddTasks    = isManager
 
   const subStageConfig = stageConfig.subStages.find(ss => ss.slug === subStageSlug)
     ?? stageConfig.subStages[0]

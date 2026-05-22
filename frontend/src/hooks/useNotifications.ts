@@ -54,7 +54,7 @@ export function useNotifications() {
       if (event.type === 'task.created' && prev !== undefined) return
 
       const isMine    = task.assignedArtistId === currentUser.id
-      const canReview = currentUser.role === 'MANAGER' || currentUser.role === 'LEAD'
+      const canReview = currentUser.role === 'MANAGER'
       const project   = projects.find(p => p.id === task.projectId)
       const subStage  = SUB_STAGE_MAP[task.subStageId]
       const stageSlug = SUB_STAGE_TO_STAGE_SLUG[task.subStageId]

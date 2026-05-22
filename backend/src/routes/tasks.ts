@@ -66,8 +66,8 @@ tasksRouter.get('/:id', requireAuth, async (req, res) => {
   res.json({ task })
 })
 
-// POST /api/tasks — MANAGER + LEAD
-tasksRouter.post('/', requireAuth, requireRole('MANAGER','LEAD'), async (req, res) => {
+// POST /api/tasks — managers only
+tasksRouter.post('/', requireAuth, requireRole('MANAGER'), async (req, res) => {
   const parsed = createSchema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error: zodMsg(parsed.error) })
   const task = await prisma.task.create({
@@ -143,8 +143,8 @@ tasksRouter.patch('/:id', requireAuth, async (req, res) => {
   res.json({ task })
 })
 
-// DELETE /api/tasks/:id — MANAGER + LEAD
-tasksRouter.delete('/:id', requireAuth, requireRole('MANAGER','LEAD'), async (req, res) => {
+// DELETE /api/tasks/:id — managers only
+tasksRouter.delete('/:id', requireAuth, requireRole('MANAGER'), async (req, res) => {
   await prisma.task.delete({ where: { id: req.params.id } })
   broadcast({ type: 'task.deleted', taskId: req.params.id })
   res.json({ ok: true })

@@ -25,8 +25,8 @@ clientsRouter.get('/:id', requireAuth, async (req, res) => {
   res.json({ client })
 })
 
-// MANAGER + LEAD can create/update/delete
-clientsRouter.post('/', requireAuth, requireRole('MANAGER', 'LEAD'), async (req, res) => {
+// Only managers create / update / delete clients
+clientsRouter.post('/', requireAuth, requireRole('MANAGER'), async (req, res) => {
   const parsed = upsertSchema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error: zodMsg(parsed.error) })
   const client = await prisma.client.create({ data: parsed.data })
@@ -34,7 +34,7 @@ clientsRouter.post('/', requireAuth, requireRole('MANAGER', 'LEAD'), async (req,
   res.status(201).json({ client })
 })
 
-clientsRouter.patch('/:id', requireAuth, requireRole('MANAGER', 'LEAD'), async (req, res) => {
+clientsRouter.patch('/:id', requireAuth, requireRole('MANAGER'), async (req, res) => {
   const parsed = upsertSchema.partial().safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error: zodMsg(parsed.error) })
   const client = await prisma.client.update({ where: { id: req.params.id }, data: parsed.data })

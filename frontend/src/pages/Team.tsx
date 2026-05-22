@@ -9,7 +9,9 @@ import { clsx } from 'clsx'
 const DEPT_OPTIONS: EmployeeDepartment[] = [
   'Animation', 'Rigging', 'Lighting', 'FX', 'Compositing', 'Modelling', 'Texturing', 'Audio', 'Editing',
 ]
-const ROLE_OPTIONS: EmployeeRole[] = ['MANAGER', 'LEAD', 'ARTIST']
+// Two-tier role model: only MANAGER + ARTIST. LEAD is kept in the enum for
+// backwards compat with legacy data but is no longer assignable from the UI.
+const ROLE_OPTIONS: EmployeeRole[] = ['MANAGER', 'ARTIST']
 
 const AVATAR_COLORS = [
   '#6366f1', '#ec4899', '#f59e0b', '#10b981', '#3b82f6',

@@ -34,7 +34,7 @@ projectsRouter.get('/:id', requireAuth, async (req, res) => {
   res.json({ project })
 })
 
-projectsRouter.post('/', requireAuth, requireRole('MANAGER','LEAD'), async (req, res) => {
+projectsRouter.post('/', requireAuth, requireRole('MANAGER'), async (req, res) => {
   const parsed = createSchema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error: zodMsg(parsed.error) })
   const project = await prisma.project.create({
@@ -44,7 +44,7 @@ projectsRouter.post('/', requireAuth, requireRole('MANAGER','LEAD'), async (req,
   res.status(201).json({ project })
 })
 
-projectsRouter.patch('/:id', requireAuth, requireRole('MANAGER','LEAD'), async (req, res) => {
+projectsRouter.patch('/:id', requireAuth, requireRole('MANAGER'), async (req, res) => {
   const parsed = updateSchema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error: zodMsg(parsed.error) })
   const project = await prisma.project.update({ where: { id: req.params.id }, data: parsed.data })
