@@ -18,7 +18,7 @@ import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { DebouncedTextInput } from '../ui/DebouncedTextInput'
 import { ColumnFilterMenu, ActiveFilterBadge } from './ColumnFilterMenu'
 import { applyColumnFilters, countActive, type ColumnFilterMap } from './ColumnFilter'
-import { isOverdue } from '../../utils/calcSeconds'
+import { isOverdue, formatSeconds } from '../../utils/calcSeconds'
 import { formatElapsed, getTaskElapsedMs, isTimerRunning, toDateTimeInputValue } from '../../utils/timeTracking'
 import { clsx } from 'clsx'
 
@@ -374,7 +374,7 @@ export function TaskTable({ tasks, subStageConfig, selectedIds, onSelect, onRowC
             )
           }
           if (col.key === 'seconds') {
-            return <span className="font-mono text-xs text-indigo-400 font-bold">{task.seconds ?? '—'}s</span>
+            return <span className="font-mono text-xs text-indigo-400 font-bold">{formatSeconds(task.seconds)}</span>
           }
           if (col.key === 'frameRange') {
             return (

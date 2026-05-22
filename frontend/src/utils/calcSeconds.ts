@@ -1,7 +1,17 @@
 export function calcSeconds(frameRange: string): number {
   const parts = frameRange.split('-').map(s => parseInt(s.trim(), 10))
   if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1])) return 0
-  return Math.round((parts[1] - parts[0] + 1) / 24)
+  // Keep exact decimals — display layer formats to 1 decimal place.
+  // e.g. 101-124 (24 frames @ 24fps) → 1.0
+  //      101-135 (35 frames @ 24fps) → 1.458… (shown as 1.5)
+  //      101-148 (48 frames @ 24fps) → 2.0
+  return (parts[1] - parts[0] + 1) / 24
+}
+
+/** Format a frame-count-derived seconds value to one decimal. e.g. 1.46 → "1.5s" */
+export function formatSeconds(n: number | null | undefined): string {
+  if (n == null) return '—'
+  return `${n.toFixed(1)}s`
 }
 
 export function workingDaysBetween(start: string, end: string): number {

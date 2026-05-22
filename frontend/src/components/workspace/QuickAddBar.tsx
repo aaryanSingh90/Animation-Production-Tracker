@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Plus, AlertCircle } from 'lucide-react'
 import type { AudioStatus, StageConfig, SubStageConfig, TaskStatus } from '../../types'
-import { calcSeconds } from '../../utils/calcSeconds'
+import { calcSeconds, formatSeconds } from '../../utils/calcSeconds'
 import { getCurrentDateTimeLocal } from '../../utils/timeTracking'
 import { usePipelineStore } from '../../store/pipelineStore'
 import { ArtistDropdown } from '../employees/ArtistDropdown'
@@ -108,7 +108,7 @@ export function QuickAddBar({ stageConfig, subStageConfig, projectId }: Props) {
             className={`${inputCls} w-24 font-mono shrink-0`}
           />
           <div className="px-2.5 py-1.5 text-xs font-black text-indigo-400 w-14 text-center border border-[#1b253b] rounded-md bg-[#080d17] font-mono shrink-0">
-            {seconds > 0 ? `${seconds}s` : '—'}
+            {seconds > 0 ? formatSeconds(seconds) : '—'}
           </div>
         </>
       ) : (
