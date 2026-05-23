@@ -37,6 +37,12 @@ export function buildAndDownloadExport(opts: ExportOptions, data: ExportData) {
   const scoped = scopeData(opts.scope, data)
   const wb = XLSX.utils.book_new()
 
+  // The Rhymes Overview is always the first sheet — it's the at-a-glance
+  // master view the client's existing Excel template (`IP 2 Arvind ji.xlsx`)
+  // uses: one row per project, one column per stage status + deadline.
+  appendRhymesOverview(wb, scoped)
+  appendCharacterSheet(wb, scoped)
+
   if (opts.includeSummary !== false) {
     appendSummary(wb, scoped)
   }
@@ -89,6 +95,173 @@ function scopeData(scope: ExportScope, data: ExportData): ScopedData {
 }
 
 // ─── Sheet builders ─────────────────────────────────────────────────────────
+
+/**
+ * "Rhymes Overview" — matches the existing Excel template the studio has been
+ * using internally (one row per rhyme/project, one column per pipeline-stage
+ * status + deadline + responsible artist). This is the at-a-glance view the
+ * production manager uses for daily standups.
+ *
+ * Column names intentionally mirror the client's source file so the team can
+ * keep using the same vocabulary they're used to ("Audio Recevied", etc.).
+ */
+function appendRhymesOverview(wb: XLSX.WorkBook, d: ScopedData) {
+  const rows = d.projects.map((project, idx) => {
+    const projectTasks = d.tasks.filter(t => t.projectId === project.id)
+    const tasksAt      = (subStageId: string) => projectTasks.filter(t => t.subStageId === subStageId)
+
+    // Helper: roll up a list of tasks into a single status word.
+    function statusOf(list: TaskRow[]): string {
+      if (list.length === 0) return ''
+      if (list.every(t => t.status === 'FINAL_APPROVAL' || t.status === 'DONE')) return 'Done'
+      if (list.some(t => t.status === 'LEAD_RETAKE'))   return 'Retake'
+      if (list.some(t => t.status === 'LEAD_APPROVAL')) return 'In Review'
+      if (list.some(t => t.status === 'IN_PROGRESS'))   return 'WIP'
+      return 'Yet to Start'
+    }
+    // Helper: latest end-date in a list, formatted dd-MM-yyyy to match template.
+    function deadlineOf(list: TaskRow[]): string {
+      const dates = list.map(t => t.endDate).filter((x): x is string => !!x)
+      if (dates.length === 0) return ''
+      const max = dates.sort().slice(-1)[0]
+      return formatDateOnly(max)
+    }
+    // Helper: most-assigned artist across a list of tasks.
+    function artistOf(list: TaskRow[]): string {
+      const counts: Record<string, number> = {}
+      for (const t of list) {
+        if (!t.assignedArtistId) continue
+        counts[t.assignedArtistId] = (counts[t.assignedArtistId] ?? 0) + 1
+      }
+      const topId = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0]
+      return d.employees.find(e => e.id === topId)?.name ?? ''
+    }
+
+    const audio       = tasksAt('audio-audio')
+    const animatics   = tasksAt('animatics-animatics')
+    const chModel     = tasksAt('modelling-character')
+    const blendshapes = tasksAt('modelling-character-blendshapes')
+    const bgModel     = tasksAt('modelling-bg')
+    const rigging     = projectTasks.filter(t => t.subStageId.startsWith('rigging-'))
+    const texturing   = projectTasks.filter(t => t.subStageId.startsWith('texturing-'))
+    const animation   = tasksAt('animation-animation')
+    const lighting    = tasksAt('lighting-lighting')
+    const compositing = tasksAt('compositing-compositing')
+    const editing     = tasksAt('editing-editing')
+
+    // Audio "Received" = any audio task that's gone past YET_TO_START.
+    const audioReceived = audio.length === 0
+      ? ''
+      : audio.some(t => t.status !== 'YET_TO_START') ? 'Received' : ''
+
+    // Thumbnail = "Yes" if any task on this project carries a thumbnail.
+    const hasThumbnail = projectTasks.some(t => t.thumbnail)
+
+    // Editing in/out — start / end of editing tasks.
+    const editingStart = editing.map(t => t.startDate).filter((x): x is string => !!x).sort()[0]
+    const editingEnd   = editing.map(t => t.endDate).filter((x): x is string => !!x).sort().slice(-1)[0]
+
+    return {
+      'Sr No.':              idx + 1,
+      'Rhymes Name':         project.name,
+      'Audio Recevied':      audioReceived,
+      'Priority':            '',
+      'Animatics Staus':     statusOf(animatics),
+      'Artist Name':         artistOf(animatics),
+      'Ch Modelling Status': statusOf(chModel),
+      'Ch Modelling Deadline': deadlineOf(chModel),
+      'Blendshapes Status':  statusOf(blendshapes),
+      'Blendshapes Deadline': deadlineOf(blendshapes),
+      'Bg Modelling Status': statusOf(bgModel),
+      'Bg Modelling Deadline': deadlineOf(bgModel),
+      'Rigging Status':      statusOf(rigging),
+      'Rigging Deadline':    deadlineOf(rigging),
+      'Texturing Status':    statusOf(texturing),
+      'Anim Status':         statusOf(animation),
+      'Lighting Status':     statusOf(lighting),
+      'Lighting Artist':     artistOf(lighting),
+      'Render Status':       statusOf(lighting),     // proxy until we add a Render stage
+      'Comping':             statusOf(compositing),
+      'Comp Out Date':       deadlineOf(compositing),
+      'Thumbnail':           hasThumbnail ? 'Yes' : '',
+      'Editing In':          editingStart ? formatDateOnly(editingStart) : '',
+      'Editing Out':         editingEnd   ? formatDateOnly(editingEnd)   : '',
+    }
+  })
+
+  const ws = XLSX.utils.json_to_sheet(rows)
+  ws['!cols'] = autoCols(rows)
+  // Freeze the header row + the first two id columns so users can scroll
+  // horizontally without losing the project name.
+  ws['!freeze'] = { xSplit: 2, ySplit: 1 }
+  XLSX.utils.book_append_sheet(wb, ws, 'Rhymes Overview')
+}
+
+/**
+ * Character Sheet — one row per character/asset across the scope. Tracks the
+ * character's progress through Modelling → Blendshapes → Texturing → Rigging
+ * (the four character-pipeline sub-stages) and shows the latest deadline at
+ * each step. Mirrors the "Character Sheet" tab in the client's template.
+ */
+function appendCharacterSheet(wb: XLSX.WorkBook, d: ScopedData) {
+  // Group character-pipeline tasks by character name (per project so the same
+  // name across two rhymes shows up as two rows).
+  type Key = string
+  const groups: Record<Key, { name: string; project: string; tasks: TaskRow[] }> = {}
+  for (const t of d.tasks) {
+    if (
+      t.subStageId !== 'modelling-character' &&
+      t.subStageId !== 'modelling-character-blendshapes' &&
+      t.subStageId !== 'texturing-character' &&
+      t.subStageId !== 'rigging-character'
+    ) continue
+    const project = d.projects.find(p => p.id === t.projectId)
+    if (!project) continue
+    const key = `${project.id}::${t.itemName.trim().toLowerCase()}`
+    if (!groups[key]) groups[key] = { name: t.itemName, project: project.name, tasks: [] }
+    groups[key].tasks.push(t)
+  }
+
+  function status(tasks: TaskRow[]): string {
+    if (tasks.length === 0) return ''
+    if (tasks.every(t => t.status === 'FINAL_APPROVAL' || t.status === 'DONE')) return 'Done'
+    if (tasks.some(t => t.status === 'LEAD_RETAKE')) return 'Retake'
+    if (tasks.some(t => t.status === 'IN_PROGRESS')) return 'WIP'
+    return ''
+  }
+  function deadline(tasks: TaskRow[]): string {
+    const dates = tasks.map(t => t.endDate).filter((x): x is string => !!x).sort()
+    return dates.length ? formatDateOnly(dates.slice(-1)[0]) : ''
+  }
+
+  const rows = Object.values(groups)
+    .sort((a, b) => a.project.localeCompare(b.project) || a.name.localeCompare(b.name))
+    .map((g, idx) => {
+      const modelling   = g.tasks.filter(t => t.subStageId === 'modelling-character')
+      const blendshapes = g.tasks.filter(t => t.subStageId === 'modelling-character-blendshapes')
+      const texturing   = g.tasks.filter(t => t.subStageId === 'texturing-character')
+      const rigging     = g.tasks.filter(t => t.subStageId === 'rigging-character')
+      return {
+        'S No.':          idx + 1,
+        'Character Names': g.name,
+        'Project':        g.project,
+        'Refrence':       g.tasks.some(t => t.thumbnail) ? 'Done' : '',
+        'Modelling':      status(modelling),
+        'Blendshapes':    status(blendshapes),
+        'Blendshapes Deadline': deadline(blendshapes),
+        'Texturing':      status(texturing),
+        'Texturing Deadline': deadline(texturing),
+        'Rigging':        status(rigging),
+        'Rigging Deadline': deadline(rigging),
+      }
+    })
+
+  if (rows.length === 0) return       // nothing to write
+  const ws = XLSX.utils.json_to_sheet(rows)
+  ws['!cols'] = autoCols(rows)
+  ws['!freeze'] = { xSplit: 3, ySplit: 1 }
+  XLSX.utils.book_append_sheet(wb, ws, 'Character Sheet')
+}
 
 function appendSummary(wb: XLSX.WorkBook, d: ScopedData) {
   const rows: Record<string, unknown>[] = []
@@ -268,6 +441,15 @@ function formatDateTime(d: string | null | undefined): string {
   // ISO-ish but human-readable: 2026-05-22 14:30
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())}`
+}
+
+/** Day-precision date in dd-MM-yyyy form to match the client's template style. */
+function formatDateOnly(d: string | null | undefined): string {
+  if (!d) return ''
+  const dt = new Date(d)
+  if (Number.isNaN(dt.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(dt.getDate())}-${pad(dt.getMonth() + 1)}-${dt.getFullYear()}`
 }
 
 /** Auto-size columns based on the widest cell in each. */
