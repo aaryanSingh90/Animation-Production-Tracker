@@ -81,3 +81,26 @@ body {
   border: 1px solid var(--border-color);
 }
 
+/* Used on horizontally-scrolling nav strips (PipelineNav, sub-stage tabs) so
+   the row scrolls cleanly without exposing the platform scrollbar. */
+.scrollbar-none {
+  scrollbar-width: none;            /* Firefox */
+  -ms-overflow-style: none;          /* IE 10+ */
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;                     /* Chromium, Safari, Edge */
+}
+
+/* Visually hidden but accessible — used for icon-only buttons with aria-label */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+

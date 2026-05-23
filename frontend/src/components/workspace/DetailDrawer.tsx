@@ -142,7 +142,7 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
   }
 
   return (
-    <div className="fixed inset-y-0 right-0 z-40 w-96 bg-[#080d1a]/95 backdrop-blur-md shadow-2xl border-l border-[#1a263e] flex flex-col animate-in slide-in-from-right duration-200 text-slate-100">
+    <div className="fixed inset-y-0 right-0 z-40 w-full sm:w-[420px] lg:w-96 max-w-full bg-[#080d1a]/95 backdrop-blur-md shadow-2xl border-l border-[#1a263e] flex flex-col animate-in slide-in-from-right duration-200 text-slate-100">
 
       {/* Drawer Header */}
       <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-[#1a263e] bg-[#050810]/50">
@@ -159,14 +159,28 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
             />
           )}
           {task.shotNumber && (
-            <div className="text-[10px] text-indigo-400 font-mono font-bold mt-1 uppercase">
-              {task.frameRange} · {task.seconds != null ? task.seconds.toFixed(1) : '—'}s frame range
+            <div className="text-[10px] text-indigo-400 font-mono font-bold mt-1 uppercase flex items-center gap-1.5 flex-wrap">
+              <span>Shot {task.shotNumber}</span>
+              {task.frameRange && (
+                <>
+                  <span className="text-slate-700">·</span>
+                  <span>Frames {task.frameRange}</span>
+                </>
+              )}
+              {task.seconds != null && (
+                <>
+                  <span className="text-slate-700">·</span>
+                  <span>{task.seconds.toFixed(1)}s</span>
+                </>
+              )}
             </div>
           )}
         </div>
         <button
           onClick={onClose}
-          className="p-1.5 rounded-md hover:bg-[#131b2e] text-slate-400 hover:text-white transition-colors border border-transparent hover:border-[#1a263e]"
+          aria-label="Close task details"
+          title="Close"
+          className="p-1.5 rounded-md hover:bg-[#131b2e] text-slate-400 hover:text-white transition-colors border border-transparent hover:border-[#1a263e] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
         >
           <X className="w-4 h-4" />
         </button>

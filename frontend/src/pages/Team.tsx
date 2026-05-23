@@ -288,8 +288,8 @@ export function Team() {
         </div>
 
         {/* Table */}
-        <div className="bg-[#0c1221] rounded-xl border border-[#1b253b] overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="bg-[#0c1221] rounded-xl border border-[#1b253b] overflow-x-auto">
+          <table className="w-full text-sm min-w-[920px]">
             <thead>
               <tr className="bg-[#111929] border-b border-[#1b253b]">
                 <th className="px-4 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-wider">Employee</th>
@@ -398,17 +398,19 @@ export function Team() {
                             <div className="flex items-center gap-1">
                               <button
                                 onClick={() => startEdit(emp)}
-                                className="p-1.5 rounded-md hover:bg-[#1b2a40] text-slate-600 hover:text-slate-300 transition-colors"
+                                className="p-1.5 rounded-md hover:bg-[#1b2a40] text-slate-600 hover:text-slate-300 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
                                 title="Edit"
+                                aria-label={`Edit ${emp.name}`}
                               >
                                 <Pencil className="w-3.5 h-3.5" />
                               </button>
                               <button
                                 onClick={() => deactivateEmployee(emp.id)}
-                                className={`p-1.5 rounded-md hover:bg-[#1b2a40] transition-colors ${
+                                className={`p-1.5 rounded-md hover:bg-[#1b2a40] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40 ${
                                   emp.active ? 'text-slate-600 hover:text-amber-400' : 'text-slate-800 cursor-not-allowed'
                                 }`}
                                 title={emp.active ? 'Deactivate' : 'Already inactive'}
+                                aria-label={emp.active ? `Deactivate ${emp.name}` : `${emp.name} is already inactive`}
                                 disabled={!emp.active}
                               >
                                 <Power className="w-3.5 h-3.5" />

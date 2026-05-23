@@ -179,7 +179,9 @@ export function ClientDetail() {
                   {isManager && (
                     <button
                       onClick={() => setDeleteId(proj.id)}
-                      className="p-1 rounded hover:bg-rose-500/15 text-slate-700 hover:text-rose-400 transition-colors"
+                      aria-label={`Delete project ${proj.name}`}
+                      title="Delete project"
+                      className="p-1 rounded hover:bg-rose-500/15 text-slate-700 hover:text-rose-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/40"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>

@@ -136,8 +136,8 @@ export function Clients() {
             <p className="text-xs font-bold text-slate-600 uppercase tracking-wider">No clients yet. Create your first client.</p>
           </div>
         ) : (
-          <div className="bg-[#0c1221] rounded-xl border border-[#1b253b] overflow-hidden">
-            <table className="w-full text-sm">
+          <div className="bg-[#0c1221] rounded-xl border border-[#1b253b] overflow-x-auto">
+            <table className="w-full text-sm min-w-[640px]">
               <thead>
                 <tr className="bg-[#111929] border-b border-[#1b253b]">
                   <th className="px-4 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-wider">Client</th>
@@ -184,7 +184,9 @@ export function Clients() {
                         <td className="px-4 py-3">
                           <button
                             onClick={() => setDeleteId(client.id)}
-                            className="p-1.5 rounded hover:bg-rose-500/15 text-slate-700 hover:text-rose-400 transition-colors"
+                            aria-label={`Delete ${client.name}`}
+                            title="Delete client"
+                            className="p-1.5 rounded hover:bg-rose-500/15 text-slate-700 hover:text-rose-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/40"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>

@@ -128,7 +128,8 @@ export function Sidebar() {
           <button
             onClick={logout}
             title="Sign out"
-            className="p-1.5 rounded-md text-slate-500 hover:text-slate-100 hover:bg-[#131b2e] transition-colors border border-transparent hover:border-[#1a263e]"
+            aria-label="Sign out"
+            className="p-1.5 rounded-md text-slate-500 hover:text-slate-100 hover:bg-[#131b2e] transition-colors border border-transparent hover:border-[#1a263e] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
           >
             <LogOut className="w-3.5 h-3.5" />
           </button>

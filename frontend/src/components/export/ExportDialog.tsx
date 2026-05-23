@@ -125,7 +125,9 @@ export function ExportDialog({ open, onClose }: Props) {
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-md text-slate-500 hover:text-slate-200 hover:bg-[#131b2e] transition-colors"
+            aria-label="Close export dialog"
+            title="Close"
+            className="p-1.5 rounded-md text-slate-500 hover:text-slate-200 hover:bg-[#131b2e] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
           >
             <X className="w-4 h-4" />
           </button>

@@ -65,7 +65,7 @@ export function WorkspaceView({ projectId, stageConfig, subStageSlug, clientId }
   const filteredTasks = applyFilters(allTasks, filters)
 
   return (
-    <div className={clsx('flex flex-col min-h-0 bg-[#0b0f19]', drawerTask ? 'mr-96' : '')}>
+    <div className={clsx('flex flex-col min-h-0 bg-[#0b0f19] transition-[margin] duration-200', drawerTask ? 'lg:mr-96' : '')}>
 
       {/* Sub-stage tabs */}
       {stageConfig.subStages.length > 1 && (
