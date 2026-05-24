@@ -1,32 +1,63 @@
 /**
  * Lightweight fetch wrapper for the ShotHub API.
  *
- * - Attaches `Authorization: Bearer <jwt>` automatically when a token is set.
- * - Throws `ApiError` for any non-2xx response so callers can `try/catch`.
- * - Listens for 401 globally and clears the token + dispatches a logout event.
+ * Auth model (post Phase-1 hardening):
+ *   • Primary: HttpOnly cookie `shothub_token` set by the backend on login,
+ *     sent automatically by the browser via `credentials: 'include'`.
+ *     We never see or store this token in JS, so an XSS bug can't exfiltrate it.
+ *
+ *   • Fallback: in-memory + localStorage token (back-compat for during the
+ *     migration window — older browser sessions still have a token in
+ *     localStorage from the previous version of the app). Once everyone has
+ *     re-logged in we can delete the localStorage branch.
+ *
+ * Behaviour:
+ *   - Listens for 401 globally → clears the legacy token + dispatches a
+ *     logout event so the router can boot the user to /login.
+ *   - 403 with `code: 'PASSWORD_CHANGE_REQUIRED'` → dispatches a special
+ *     event so the router can redirect to /account (change-password screen).
+ *   - Throws `ApiError` for any non-2xx response.
  */
 
 export const API_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:4000').replace(/\/$/, '')
 
 const TOKEN_KEY = 'shothub:jwt'
 
-let inMemoryToken: string | null = localStorage.getItem(TOKEN_KEY)
+// Legacy in-memory token — only used as a back-compat fallback during the
+// cookie migration. New logins set the cookie + return token in the response
+// body; we cache it here so the very first request after login still has it
+// in case the cookie hasn't been written yet (rare, but happens on Safari).
+let inMemoryToken: string | null = (() => {
+  try { return localStorage.getItem(TOKEN_KEY) } catch { return null }
+})()
 
 export function getToken(): string | null { return inMemoryToken }
 
 export function setToken(token: string | null) {
   inMemoryToken = token
-  if (token) localStorage.setItem(TOKEN_KEY, token)
-  else        localStorage.removeItem(TOKEN_KEY)
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token)
+    else        localStorage.removeItem(TOKEN_KEY)
+  } catch { /* SSR / private mode — ignore */ }
+}
+
+/** Clear every trace of an auth session from this browser. */
+export function clearSession() {
+  setToken(null)
+  // We don't manually clear the cookie — the /logout endpoint does that with
+  // a server Set-Cookie expire. Calling this without hitting /logout leaves
+  // the cookie until it expires (1h), which is fine for our threat model.
 }
 
 export class ApiError extends Error {
   status: number
   body:   unknown
-  constructor(status: number, message: string, body?: unknown) {
+  code?:  string
+  constructor(status: number, message: string, body?: unknown, code?: string) {
     super(message)
     this.status = status
     this.body   = body
+    this.code   = code
   }
 }
 
@@ -49,6 +80,8 @@ async function request<T>(path: string, opts: RequestOpts = {}): Promise<T> {
   const finalHeaders: Record<string, string> = {
     Accept: 'application/json',
     ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+    // Authorization header is back-compat only — the cookie is the primary
+    // mechanism now. If both are present the backend prefers the cookie.
     ...(inMemoryToken ? { Authorization: `Bearer ${inMemoryToken}` } : {}),
     ...(headers as Record<string, string> | undefined),
   }
@@ -57,8 +90,12 @@ async function request<T>(path: string, opts: RequestOpts = {}): Promise<T> {
     ...rest,
     headers: finalHeaders,
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    // CRITICAL: include credentials so the browser sends the HttpOnly cookie
+    // on cross-origin requests (Vercel frontend → Render backend).
+    credentials: 'include',
   })
 
+  // 401 → not authenticated. Clear local state + boot to /login.
   if (res.status === 401) {
     setToken(null)
     window.dispatchEvent(new CustomEvent('shothub:unauthorized'))
@@ -70,7 +107,17 @@ async function request<T>(path: string, opts: RequestOpts = {}): Promise<T> {
     const msg = (bodyJson && typeof bodyJson === 'object' && 'error' in bodyJson)
       ? String((bodyJson as { error: unknown }).error)
       : res.statusText
-    throw new ApiError(res.status, msg, bodyJson)
+    const code = (bodyJson && typeof bodyJson === 'object' && 'code' in bodyJson)
+      ? String((bodyJson as { code: unknown }).code)
+      : undefined
+
+    // 403 + PASSWORD_CHANGE_REQUIRED → force the user to the change-password
+    // screen. Layout listens for this and navigates.
+    if (res.status === 403 && code === 'PASSWORD_CHANGE_REQUIRED') {
+      window.dispatchEvent(new CustomEvent('shothub:password-change-required'))
+    }
+
+    throw new ApiError(res.status, msg, bodyJson, code)
   }
 
   // 204 No Content

@@ -80,6 +80,24 @@ model Employee {
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
 
+  // ── Auth hardening (Phase 1) ─────────────────────────────────────────
+  // mustChangePassword — true for every new account until they pick their own
+  // password. Login returns a flag the frontend uses to redirect to
+  // /change-password. Users with this flag can't access protected APIs.
+  mustChangePassword  Boolean        @default(false)
+
+  // Account lockout — after 5 wrong passwords within 1h, lockedUntil is set
+  // to now+1h. Login returns 423 Locked until the time passes. Resets to 0
+  // on the first successful login.
+  failedLoginAttempts Int            @default(0)
+  lastFailedLoginAt   DateTime?
+  lockedUntil         DateTime?
+
+  // tokenVersion — every issued JWT embeds this number. Bumping it invalidates
+  // every token issued for this user. Used on password change, deactivation,
+  // and admin "log everyone out" actions.
+  tokenVersion        Int            @default(0)
+
   // Relations
   assignedTasks  Task[]            @relation("AssignedArtist")
   statusChanges  StatusChange[]
@@ -88,6 +106,7 @@ model Employee {
   @@index([email])
   @@index([department])
   @@index([active])
+  @@index([lockedUntil])
 }
 
 model Client {

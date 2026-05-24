@@ -22,9 +22,20 @@ export interface JwtPayload {
   sub:   string         // employee id
   email: string
   role:  EmployeeRole
+  // tokenVersion: lets us invalidate every issued token for a user by bumping
+  // Employee.tokenVersion in the DB. Set on password change, deactivation,
+  // or an admin "log everyone out" action.
+  tv:    number
 }
 
-const TOKEN_TTL = '7d'
+// Access tokens are short-lived (1h). The cookie is refreshed silently by
+// the frontend every ~50 minutes via /api/auth/refresh as long as the user
+// is still active. Net effect: a stolen cookie expires in ≤1h, but genuine
+// users never see a session interruption.
+const TOKEN_TTL = '1h'
+
+export const ACCESS_TOKEN_MAX_AGE_SECONDS = 60 * 60
+export const COOKIE_NAME = 'shothub_token'
 
 export function signToken(payload: JwtPayload): string {
   return jwt.sign(payload, SECRET as string, { expiresIn: TOKEN_TTL })

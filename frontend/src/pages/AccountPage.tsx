@@ -4,8 +4,27 @@ import { useAuthStore } from '../store/authStore'
 import { Auth } from '../api/endpoints'
 import { ApiError } from '../api/client'
 
+const MIN_PW_LEN = 10
+
+/**
+ * Mirrors the backend STRONG_PASSWORD schema — checked client-side too so the
+ * user gets immediate feedback. Backend is the source of truth; this is just
+ * a fast-fail.
+ */
+function validatePassword(pw: string): string | null {
+  if (pw.length < MIN_PW_LEN) return `Password must be at least ${MIN_PW_LEN} characters.`
+  if (!/[a-zA-Z]/.test(pw))   return 'Password must contain at least one letter.'
+  if (!/[0-9]/.test(pw))      return 'Password must contain at least one digit.'
+  if (/^(password|studio|admin|qwerty|12345)/i.test(pw)) {
+    return 'That password is too common. Pick something unique.'
+  }
+  return null
+}
+
 export function AccountPage() {
-  const currentUser = useAuthStore(s => s.currentUser)
+  const currentUser              = useAuthStore(s => s.currentUser)
+  const mustChangePassword       = useAuthStore(s => s.mustChangePassword)
+  const acknowledgePasswordChange = useAuthStore(s => s.acknowledgePasswordChange)
 
   const [currentPw, setCurrentPw] = useState('')
   const [newPw, setNewPw]         = useState('')
@@ -20,10 +39,9 @@ export function AccountPage() {
     setError(null)
     setSuccess(false)
 
-    if (newPw.length < 6) {
-      setError('New password must be at least 6 characters.')
-      return
-    }
+    const policyError = validatePassword(newPw)
+    if (policyError) { setError(policyError); return }
+
     if (newPw !== confirmPw) {
       setError('New passwords do not match.')
       return
@@ -38,6 +56,8 @@ export function AccountPage() {
       await Auth.changePassword(currentPw, newPw)
       setSuccess(true)
       setCurrentPw(''); setNewPw(''); setConfirmPw('')
+      // Clear the force-change lock so the user can navigate the app again.
+      if (mustChangePassword) acknowledgePasswordChange()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to change password.')
     } finally {

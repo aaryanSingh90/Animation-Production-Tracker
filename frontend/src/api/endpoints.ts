@@ -7,10 +7,22 @@ import type { Client, Employee, Project, TaskRow } from '../types'
 
 // ─── Auth ───────────────────────────────────────────────────────────────────
 
-export interface LoginResponse { token: string; user: Employee }
+export interface LoginResponse {
+  /** Legacy field — the real session is the HttpOnly cookie. Kept for SSE which can't read cookies. */
+  token: string
+  user:  Employee
+  /** Set when the admin issued the temp password and the user must change it. */
+  mustChangePassword?: boolean
+}
+export interface MeResponse {
+  user: Employee
+  mustChangePassword?: boolean
+}
 export const Auth = {
   login:          (email: string, password: string) => api.post<LoginResponse>('/api/auth/login',   { email, password }),
-  me:             ()                                => api.get<{ user: Employee }>('/api/auth/me'),
+  me:             ()                                => api.get<MeResponse>('/api/auth/me'),
+  refresh:        ()                                => api.post<{ ok: true; mustChangePassword?: boolean }>('/api/auth/refresh'),
+  logout:         ()                                => api.post<{ ok: true }>('/api/auth/logout'),
   changePassword: (currentPassword: string, newPassword: string) =>
     api.post<{ ok: true }>('/api/auth/change-password', { currentPassword, newPassword }),
 }

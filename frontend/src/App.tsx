@@ -23,11 +23,25 @@ function ManagerOnly({ children }: { children: React.ReactNode }) {
 
 
 function AppInner() {
-  const ready = useInitializeApp()
-  const currentUser = useAuthStore(s => s.currentUser)
+  const ready              = useInitializeApp()
+  const currentUser        = useAuthStore(s => s.currentUser)
+  const mustChangePassword = useAuthStore(s => s.mustChangePassword)
 
   if (!ready) return <LoadingScreen />
   if (!currentUser) return <LoginPage />
+
+  // Force-change-password: signed in but the admin handed out a temp password.
+  // Lock the entire app down to /account until they pick their own.
+  if (mustChangePassword) {
+    return (
+      <Routes>
+        <Route element={<Layout />}>
+          <Route path="/account" element={<AccountPage />} />
+          <Route path="*"        element={<Navigate to="/account" replace />} />
+        </Route>
+      </Routes>
+    )
+  }
 
   return (
     <Routes>

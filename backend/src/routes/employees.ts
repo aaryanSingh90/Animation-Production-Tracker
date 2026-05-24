@@ -62,6 +62,11 @@ employeesRouter.post('/', requireAuth, requireRole('MANAGER'), async (req, res) 
       department:     data.department,
       specialization: data.specialization,
       avatarColor:    data.avatarColor,
+      // New accounts MUST change the temp password on first login. The login
+      // route returns `mustChangePassword: true` and the frontend redirects
+      // to the change-password screen; the strict auth middleware blocks
+      // every other endpoint until the flag clears.
+      mustChangePassword: true,
     },
   })
   const safe = stripHash(emp)
@@ -89,6 +94,24 @@ employeesRouter.patch('/:id', requireAuth, async (req, res) => {
   if (data.password) {
     update.passwordHash = await bcrypt.hash(data.password, 10)
     delete (update as { password?: string }).password
+    // When a manager resets someone else's password, force them to change it
+    // on first login so the manager never knows it. Bump tokenVersion to
+    // invalidate every existing session for that user.
+    if (isManager && !isSelf) {
+      update.mustChangePassword = true
+      update.tokenVersion        = { increment: 1 }
+      update.failedLoginAttempts = 0
+      update.lockedUntil         = null
+    } else {
+      // Self-change → clear the force-change flag; bump tokenVersion to log
+      // out every OTHER browser this user is signed in on.
+      update.mustChangePassword = false
+      update.tokenVersion        = { increment: 1 }
+    }
+  }
+  // Deactivating an account also bumps tokenVersion so existing sessions die.
+  if (data.active === false) {
+    update.tokenVersion = { increment: 1 }
   }
   if (data.email) update.email = data.email.toLowerCase()
   const emp = await prisma.employee.update({
