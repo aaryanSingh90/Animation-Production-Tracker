@@ -161,8 +161,28 @@ function ProceduralThumbnail({ subStageId }: { subStageId: string; itemName?: st
   )
 }
 
+/** Soft-link thumbnail lookup: if a task has no thumbnail, check whether the
+ *  corresponding Cut Shots row (same project + shot number) has one.
+ *  This keeps thumbnails stored once (in Cut Shots) but visible everywhere. */
+function resolveThumb(task: TaskRow, allTasks: TaskRow[]): string | null {
+  if (task.thumbnail) return task.thumbnail
+  if (!task.shotNumber) return null
+  const linked = allTasks.find(
+    t => t.subStageId === 'animatics-cut-shots' &&
+         t.shotNumber  === task.shotNumber &&
+         t.projectId   === task.projectId
+  )
+  return linked?.thumbnail ?? null
+}
+
 export function TaskTable({ tasks, subStageConfig, selectedIds, onSelect, onRowClick }: Props) {
   const { updateTask, updateTaskStatus, deleteTask } = usePipelineStore()
+  // Read all store tasks for the thumbnail soft-link. Use a ref so the columns
+  // memo (which controls filter-popup stability) doesn't need it as a dep.
+  const allStoreTasks    = usePipelineStore(s => s.tasks)
+  const allStoreTasksRef = useRef<TaskRow[]>([])
+  allStoreTasksRef.current = allStoreTasks
+
   const currentUser = useAuthStore(s => s.currentUser)
   const isArtist    = currentUser?.role !== 'MANAGER'  // two-tier: anyone who isn't a manager is restricted
   const canEdit     = !isArtist // managers can edit status/artist inline
@@ -276,14 +296,16 @@ export function TaskTable({ tasks, subStageConfig, selectedIds, onSelect, onRowC
       header: 'Thumbnail',
       size: 70,
       cell: ({ row }) => {
-        const task = row.original
+        const task  = row.original
+        // Soft-link: use cut-shots thumbnail if this row has none
+        const thumb = resolveThumb(task, allStoreTasksRef.current)
         return (
           <div
             onClick={e => e.stopPropagation()}
             className="relative group w-12 h-7 bg-slate-950/80 border border-[#202e49] rounded overflow-hidden flex items-center justify-center cursor-pointer shadow-inner"
           >
-            {task.thumbnail ? (
-              <img src={task.thumbnail} className="w-full h-full object-cover" alt="" />
+            {thumb ? (
+              <img src={thumb} className="w-full h-full object-cover" alt="" />
             ) : (
               <ProceduralThumbnail subStageId={task.subStageId} itemName={task.itemName} />
             )}
