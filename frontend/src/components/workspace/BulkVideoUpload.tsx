@@ -11,21 +11,6 @@ const ANIMATION_SUB_STAGE_ID = 'animation-animation'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/**
- * Parse a shot number out of a video filename.
- * Tries trailing numbers first (most common: shot_001.mp4, SC-042.mp4),
- * then any number in the name, then falls back to the bare filename.
- */
-function parseShotNumber(filename: string): string {
-  const base = filename.replace(/\.[^.]+$/, '').trim()
-  // trailing number: shot_001, SC-42, ep1_s003, etc.
-  const trailing = base.match(/(\d+)\s*$/)
-  if (trailing) return trailing[1].padStart(3, '0')
-  // any number: 042_rough, v2_scene, etc.
-  const anywhere = base.match(/(\d+)/)
-  if (anywhere) return anywhere[1].padStart(3, '0')
-  return base
-}
 
 /**
  * Load a video file, seek to near the start, and return:
@@ -114,7 +99,13 @@ export function BulkVideoUpload({ projectId, subStageConfig }: Props) {
     const next: VideoItem[] = []
     const failed: string[]  = []
 
-    for (const file of list) {
+    // Sequential shot numbers continuing from however many items already exist
+    // e.g. first batch → 001, 002, 003 …
+    //      second batch of 2 more → 004, 005
+    const seqOffset = items.length
+
+    for (let i = 0; i < list.length; i++) {
+      const file = list[i]
       try {
         const { duration, thumbnail } = await extractVideoMeta(file)
         const totalFrames = Math.max(1, Math.round(duration * 24))
@@ -122,7 +113,7 @@ export function BulkVideoUpload({ projectId, subStageConfig }: Props) {
         next.push({
           uid:        `${Date.now()}-${Math.random()}`,
           file,
-          shotNumber: parseShotNumber(file.name),
+          shotNumber: String(seqOffset + next.length + 1).padStart(3, '0'),
           frameRange: `${startFrame}-${startFrame + totalFrames - 1}`,
           seconds:    Math.round(duration * 10) / 10,
           thumbnail,
@@ -135,7 +126,7 @@ export function BulkVideoUpload({ projectId, subStageConfig }: Props) {
     setItems(prev => [...prev, ...next])
     if (failed.length) setError(`Skipped (unreadable): ${failed.join(', ')}`)
     setProcessing(false)
-  }, [])
+  }, [items.length])
 
   // ── Drag & drop ────────────────────────────────────────────────────────────
 
