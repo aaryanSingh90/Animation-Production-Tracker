@@ -16,9 +16,10 @@ export function useInitializeApp() {
   const restoreSession = useAuthStore(s => s.restoreSession)
   const currentUser    = useAuthStore(s => s.currentUser)
 
-  const initEmployees = useEmployeeStore(s => s.initialize)
-  const initClients   = useClientStore(s => s.initialize)
-  const initPipeline  = usePipelineStore(s => s.initialize)
+  const initEmployees  = useEmployeeStore(s => s.initialize)
+  const initClients    = useClientStore(s => s.initialize)
+  const initForArtist  = usePipelineStore(s => s.initForArtist)
+  const initForManager = usePipelineStore(s => s.initForManager)
 
   // 1. Restore session on mount
   useEffect(() => {
@@ -32,7 +33,10 @@ export function useInitializeApp() {
       sseDisconnect()
       return
     }
-    Promise.all([initEmployees(), initClients(), initPipeline()]).catch(console.error)
+    const pipelineInit = currentUser.role === 'MANAGER'
+      ? initForManager()               // managers: load tasks on demand, nothing fetched now
+      : initForArtist(currentUser.id)  // artists/leads/freelance: load only their tasks
+    Promise.all([initEmployees(), initClients(), pipelineInit]).catch(console.error)
     sseConnect()
     const unsubscribe = sseSubscribe(event => {
       switch (event.type) {
@@ -59,7 +63,7 @@ export function useInitializeApp() {
       unsubscribe()
       sseDisconnect()
     }
-  }, [currentUser, initEmployees, initClients, initPipeline])
+  }, [currentUser, initEmployees, initClients, initForArtist, initForManager])
 
   return ready
 }

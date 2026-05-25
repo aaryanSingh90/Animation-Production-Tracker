@@ -23,14 +23,18 @@ const updateSchema = z.object({
   status:      z.enum(['ACTIVE','ON_HOLD','COMPLETED','ARCHIVED']).optional(),
 })
 
-// GET /api/projects (?clientId=… &includeArchived=true)
+// GET /api/projects (?clientId=… &includeArchived=true &search=text)
 //   By default ARCHIVED projects are excluded — keeps the payload small.
 //   Pass includeArchived=true to load the archive section on demand.
+//   Pass search=text to filter by project name (case-insensitive, partial match).
 //   Managers — all matching projects.
 //   Artists  — only projects they have tasks in.
 projectsRouter.get('/', requireAuth, async (req, res) => {
   const clientFilter     = typeof req.query.clientId === 'string' ? { clientId: req.query.clientId } : {}
   const includeArchived  = req.query.includeArchived === 'true'
+  const searchTerm       = typeof req.query.search === 'string' && req.query.search.trim()
+    ? req.query.search.trim()
+    : null
 
   // When NOT including archived: only return ARCHIVED rows when explicitly
   // requested; otherwise exclude them entirely.
@@ -38,17 +42,21 @@ projectsRouter.get('/', requireAuth, async (req, res) => {
     ? { status: 'ARCHIVED' as const }           // archived-only view
     : { status: { not: 'ARCHIVED' as const } }  // normal view: hide archived
 
+  const searchFilter = searchTerm
+    ? { name: { contains: searchTerm, mode: 'insensitive' as const } }
+    : {}
+
   if (req.user!.role !== 'MANAGER') {
     const ownedProjectIds = await artistOwnedProjectIds(req.user!.sub)
     const projects = await prisma.project.findMany({
-      where:   { ...clientFilter, ...archivedFilter, id: { in: ownedProjectIds } },
+      where:   { ...clientFilter, ...archivedFilter, ...searchFilter, id: { in: ownedProjectIds } },
       orderBy: { name: 'asc' },
     })
     return res.json({ projects })
   }
 
   const projects = await prisma.project.findMany({
-    where:   { ...clientFilter, ...archivedFilter },
+    where:   { ...clientFilter, ...archivedFilter, ...searchFilter },
     orderBy: { name: 'asc' },
   })
   res.json({ projects })

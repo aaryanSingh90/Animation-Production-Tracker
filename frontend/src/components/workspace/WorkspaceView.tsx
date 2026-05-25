@@ -23,8 +23,9 @@ interface Props {
 export function WorkspaceView({ projectId, stageConfig, subStageSlug, clientId }: Props) {
   const navigate    = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const allStoreTasks = usePipelineStore(s => s.tasks)
-  const currentUser    = useAuthStore(s => s.currentUser)
+  const allStoreTasks    = usePipelineStore(s => s.tasks)
+  const loadForSubStage  = usePipelineStore(s => s.loadForSubStage)
+  const currentUser      = useAuthStore(s => s.currentUser)
   const isManager      = currentUser?.role === 'MANAGER'
   const isArtist       = !isManager
   // Two-tier model: only managers see all tasks / can add tasks. Everyone else
@@ -40,6 +41,13 @@ export function WorkspaceView({ projectId, stageConfig, subStageSlug, clientId }
          t.projectId  === projectId &&
          (canSeeAllTasks || t.assignedArtistId === currentUser?.id)
   )
+
+  // Load tasks for this sub-stage on demand (managers) — artists already have their tasks
+  useEffect(() => {
+    if (isManager) {
+      loadForSubStage(projectId, subStageConfig.id)
+    }
+  }, [projectId, subStageConfig.id, isManager, loadForSubStage])
 
   const [filters, setFilters]       = useState<FilterState>(DEFAULT_FILTERS)
   const [selectedIds, setSelectedIds] = useState<string[]>([])

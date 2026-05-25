@@ -3,12 +3,29 @@ import type { TaskRow, TaskStatus } from '../types'
 import { Tasks, type TaskCreate, type TaskPatch } from '../api/endpoints'
 
 interface PipelineState {
-  tasks:       TaskRow[]
-  initialized: boolean
-  loading:     boolean
+  tasks:            TaskRow[]
+  /** "projectId:subStageId" keys that have already been fetched */
+  loadedSubStages:  Record<string, true>
+  initialized:      boolean
+  loading:          boolean
 
-  initialize: () => Promise<void>
-  refresh:    () => Promise<void>
+  /**
+   * Called at startup for ARTIST / FREELANCE / LEAD users.
+   * Loads only tasks assigned to them — keeps the payload small.
+   */
+  initForArtist: (userId: string) => Promise<void>
+
+  /**
+   * Called at startup for MANAGERs.
+   * Managers load tasks on demand per sub-stage — nothing fetched here.
+   */
+  initForManager: () => void
+
+  /**
+   * Load tasks for one sub-stage. Safe to call on every navigation —
+   * deduplicates based on loadedSubStages so the API is only hit once.
+   */
+  loadForSubStage: (projectId: string, subStageId: string) => Promise<void>
 
   addTask:          (data: TaskCreate)                                       => Promise<TaskRow>
   updateTask:       (id: string, patch: TaskPatch)                           => Promise<TaskRow>
@@ -16,16 +33,15 @@ interface PipelineState {
   deleteTask:       (id: string)                                             => Promise<void>
   addComment:       (id: string, message: string, type?: 'note' | 'retake' | 'approval') => Promise<TaskRow>
 
-  bulkUpdateStatus: (ids: string[], status: TaskStatus)                      => Promise<void>
-  bulkUpdateArtist: (ids: string[], artistId: string | null)                 => Promise<void>
-  bulkDeleteTasks:  (ids: string[])                                          => Promise<void>
+  bulkUpdateStatus: (ids: string[], status: TaskStatus)  => Promise<void>
+  bulkUpdateArtist: (ids: string[], artistId: string | null) => Promise<void>
+  bulkDeleteTasks:  (ids: string[])                      => Promise<void>
 
   // Pure-derived helpers
   getTasksBySubStage: (subStageId: string, projectId: string) => TaskRow[]
   getTasksByProject:  (projectId: string)                     => TaskRow[]
   getTasksByArtist:   (artistId: string)                      => TaskRow[]
 
-  // Apply an SSE-pushed update without re-fetching
   applyServerEvent: (event:
     | { type: 'task.created'; task: TaskRow }
     | { type: 'task.updated'; task: TaskRow }
@@ -42,26 +58,58 @@ function upsert(tasks: TaskRow[], next: TaskRow): TaskRow[] {
 }
 
 export const usePipelineStore = create<PipelineState>()((set, get) => ({
-  tasks:       [],
-  initialized: false,
-  loading:     false,
+  tasks:           [],
+  loadedSubStages: {},
+  initialized:     false,
+  loading:         false,
 
-  initialize: async () => {
+  // ── Initialisation ──────────────────────────────────────────────────────────
+
+  initForArtist: async (userId) => {
     if (get().initialized) return
-    await get().refresh()
+    set({ loading: true })
+    try {
+      // Only load this artist's tasks — bounded dataset regardless of project count
+      const { tasks } = await Tasks.list({ assignedArtistId: userId })
+      set({ tasks, loading: false, initialized: true })
+    } catch (err) {
+      console.error('[tasks] initForArtist failed', err)
+      set({ loading: false, initialized: true })
+    }
+  },
+
+  initForManager: () => {
+    // Managers load tasks on demand per sub-stage — nothing to fetch here
     set({ initialized: true })
   },
 
-  refresh: async () => {
+  // ── On-demand per sub-stage loading ────────────────────────────────────────
+
+  loadForSubStage: async (projectId, subStageId) => {
+    const key = `${projectId}:${subStageId}`
+    if (get().loadedSubStages[key]) return   // already loaded
+
     set({ loading: true })
     try {
-      const { tasks } = await Tasks.list()
-      set({ tasks, loading: false })
+      const { tasks: fresh } = await Tasks.list({ projectId, subStageId })
+      set(s => {
+        // Replace any stale rows for this sub-stage, keep everything else
+        const rest = s.tasks.filter(
+          t => !(t.projectId === projectId && t.subStageId === subStageId)
+        )
+        return {
+          tasks:           [...rest, ...fresh],
+          loadedSubStages: { ...s.loadedSubStages, [key]: true },
+          loading:         false,
+        }
+      })
     } catch (err) {
-      console.error('[tasks] refresh failed', err)
+      console.error('[tasks] loadForSubStage failed', err)
       set({ loading: false })
     }
   },
+
+  // ── Mutations ───────────────────────────────────────────────────────────────
 
   addTask: async (data) => {
     const { task } = await Tasks.create(data)
@@ -105,7 +153,9 @@ export const usePipelineStore = create<PipelineState>()((set, get) => ({
   },
 
   bulkUpdateArtist: async (ids, artistId) => {
-    const results = await Promise.allSettled(ids.map(id => Tasks.update(id, { assignedArtistId: artistId })))
+    const results = await Promise.allSettled(
+      ids.map(id => Tasks.update(id, { assignedArtistId: artistId }))
+    )
     const ok = results
       .filter((r): r is PromiseFulfilledResult<{ task: TaskRow }> => r.status === 'fulfilled')
       .map(r => r.value.task)
@@ -121,18 +171,31 @@ export const usePipelineStore = create<PipelineState>()((set, get) => ({
     set(s => ({ tasks: s.tasks.filter(t => !ids.includes(t.id)) }))
   },
 
+  // ── Derived helpers ─────────────────────────────────────────────────────────
+
   getTasksBySubStage: (subStageId, projectId) =>
     get().tasks.filter(t => t.subStageId === subStageId && t.projectId === projectId),
-  getTasksByProject: (projectId) =>
+  getTasksByProject:  (projectId) =>
     get().tasks.filter(t => t.projectId === projectId),
-  getTasksByArtist: (artistId) =>
+  getTasksByArtist:   (artistId) =>
     get().tasks.filter(t => t.assignedArtistId === artistId),
+
+  // ── SSE ─────────────────────────────────────────────────────────────────────
 
   applyServerEvent: (event) => {
     if (event.type === 'task.deleted') {
       set(s => ({ tasks: s.tasks.filter(t => t.id !== event.taskId) }))
     } else {
-      set(s => ({ tasks: upsert(s.tasks, event.task) }))
+      // Only merge into store if this sub-stage was already loaded —
+      // prevents tasks from unloaded sub-stages leaking in via SSE
+      const { task } = event
+      const key = `${task.projectId}:${task.subStageId}`
+      const isLoaded = !!get().loadedSubStages[key]
+      // Artists always accept SSE for their own tasks (already in store)
+      const isOwn = get().tasks.some(t => t.id === task.id)
+      if (isLoaded || isOwn) {
+        set(s => ({ tasks: upsert(s.tasks, task) }))
+      }
     }
   },
 }))
