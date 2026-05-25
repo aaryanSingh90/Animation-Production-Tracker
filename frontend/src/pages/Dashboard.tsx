@@ -169,22 +169,37 @@ export function Dashboard() {
   const [retakeNote, setRetakeNote]   = useState('')
   const canReview = isManager
 
+  // In-flight guard. A second click while the first call is still pending
+  // used to create two identical comments back-to-back; this short-circuits it.
+  const [actionPending, setActionPending] = useState(false)
+
   async function handleApprove(taskId: string) {
-    const t = allTasks.find(x => x.id === taskId)
-    await addComment(taskId, 'Approved.', 'approval')
-    await updateTask(taskId, { retakeNote: null, status: 'FINAL_APPROVAL' })
-    pushToast({ kind: 'approval', title: 'Approved', body: t ? `${t.itemName} is now Final Approval` : 'Task approved', ttl: 2500 })
+    if (actionPending) return
+    setActionPending(true)
+    try {
+      const t = allTasks.find(x => x.id === taskId)
+      await addComment(taskId, 'Approved.', 'approval')
+      await updateTask(taskId, { retakeNote: null, status: 'FINAL_APPROVAL' })
+      pushToast({ kind: 'approval', title: 'Approved', body: t ? `${t.itemName} is now Final Approval` : 'Task approved', ttl: 2500 })
+    } finally {
+      setActionPending(false)
+    }
   }
 
   async function handleSendRetake() {
-    if (!retakeModal || !retakeNote.trim()) return
+    if (!retakeModal || !retakeNote.trim() || actionPending) return
     const note = retakeNote.trim()
     const taskName = retakeModal.taskName
-    await addComment(retakeModal.taskId, note, 'retake')
-    await updateTask(retakeModal.taskId, { retakeNote: note, status: 'LEAD_RETAKE' })
-    pushToast({ kind: 'retake', title: 'Retake sent', body: `${taskName} — note delivered to artist`, ttl: 2800 })
-    setRetakeModal(null)
-    setRetakeNote('')
+    setActionPending(true)
+    try {
+      await addComment(retakeModal.taskId, note, 'retake')
+      await updateTask(retakeModal.taskId, { retakeNote: note, status: 'LEAD_RETAKE' })
+      pushToast({ kind: 'retake', title: 'Retake sent', body: `${taskName} — note delivered to artist`, ttl: 2800 })
+      setRetakeModal(null)
+      setRetakeNote('')
+    } finally {
+      setActionPending(false)
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -437,10 +452,10 @@ export function Dashboard() {
               </button>
               <button
                 onClick={handleSendRetake}
-                disabled={!retakeNote.trim()}
+                disabled={!retakeNote.trim() || actionPending}
                 className="px-4 py-2 text-xs font-bold uppercase tracking-wider text-white bg-rose-600 hover:bg-rose-500 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                Send Retake
+                {actionPending ? 'Sending…' : 'Send Retake'}
               </button>
             </div>
           </div>

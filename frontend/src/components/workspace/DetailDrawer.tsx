@@ -44,6 +44,18 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
   const [showRetakeInput, setShowRetakeInput] = useState(false)
   const [retakeReason, setRetakeReason] = useState('')
 
+  // Single in-flight guard covering every action button (Start, Submit,
+  // Approve, Send Retake, Post Note). Prevents double-submit when the user
+  // double-clicks or hits Enter twice — a fast double-fire used to create
+  // two identical comments / two status changes back-to-back.
+  const [actionPending, setActionPending] = useState(false)
+  async function run<T>(fn: () => Promise<T>): Promise<T | undefined> {
+    if (actionPending) return undefined
+    setActionPending(true)
+    try { return await fn() }
+    finally { setActionPending(false) }
+  }
+
   const isActiveTimer = isTimerRunning(task?.status ?? 'YET_TO_START')
 
   useEffect(() => {
@@ -86,16 +98,24 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
   // ── Actions ─────────────────────────────────────────────────────────────────
   // Every action posts a confirmation toast so the user has time to register
   // what happened, even when the inline action panel collapses immediately.
-  async function handleStartWork() {
-    await addComment(task!.id, `${currentUser?.name?.split(' ')[0] ?? 'Artist'} started work on this task.`, 'note')
-    await updateTaskStatus(task!.id, 'IN_PROGRESS')
-    pushToast({ kind: 'info', title: 'Work started', body: `${task!.itemName} — timer is running`, ttl: 2500 })
+  // Each handler runs through `run()` — a single in-flight guard that
+  // short-circuits a second click while the first is still pending. Stops
+  // duplicate comments / duplicate status transitions from a double-click
+  // or fast Enter-Enter.
+  function handleStartWork() {
+    void run(async () => {
+      await addComment(task!.id, `${currentUser?.name?.split(' ')[0] ?? 'Artist'} started work on this task.`, 'note')
+      await updateTaskStatus(task!.id, 'IN_PROGRESS')
+      pushToast({ kind: 'info', title: 'Work started', body: `${task!.itemName} — timer is running`, ttl: 2500 })
+    })
   }
 
-  async function handleSubmitForReview() {
-    await addComment(task!.id, 'Submitted for manager review.', 'note')
-    await updateTaskStatus(task!.id, 'LEAD_APPROVAL')
-    pushToast({ kind: 'review', title: 'Submitted for review', body: `${task!.itemName} is now waiting for the manager`, ttl: 2500 })
+  function handleSubmitForReview() {
+    void run(async () => {
+      await addComment(task!.id, 'Submitted for manager review.', 'note')
+      await updateTaskStatus(task!.id, 'LEAD_APPROVAL')
+      pushToast({ kind: 'review', title: 'Submitted for review', body: `${task!.itemName} is now waiting for the manager`, ttl: 2500 })
+    })
   }
 
   // (`handleBackToWork` removed — LEAD_RETAKE now auto-resumes the timer via
@@ -103,26 +123,33 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
   // retake banner stays informational + the Submit button below it sends the
   // fix back for review.)
 
-  async function handleApprove() {
-    await addComment(task!.id, 'Approved.', 'approval')
-    await updateTask(task!.id, { retakeNote: null, status: 'FINAL_APPROVAL' })
-    pushToast({ kind: 'approval', title: 'Approved', body: `${task!.itemName} is now Final Approval`, ttl: 2500 })
+  function handleApprove() {
+    void run(async () => {
+      await addComment(task!.id, 'Approved.', 'approval')
+      await updateTask(task!.id, { retakeNote: null, status: 'FINAL_APPROVAL' })
+      pushToast({ kind: 'approval', title: 'Approved', body: `${task!.itemName} is now Final Approval`, ttl: 2500 })
+    })
   }
 
-  async function handleRetakeSubmit() {
+  function handleRetakeSubmit() {
     if (!retakeReason.trim()) return
     const note = retakeReason.trim()
-    await addComment(task!.id, note, 'retake')
-    await updateTask(task!.id, { retakeNote: note, status: 'LEAD_RETAKE' })
-    pushToast({ kind: 'retake', title: 'Retake sent', body: `${task!.itemName} — note delivered to artist`, ttl: 2800 })
-    setShowRetakeInput(false)
-    setRetakeReason('')
+    void run(async () => {
+      await addComment(task!.id, note, 'retake')
+      await updateTask(task!.id, { retakeNote: note, status: 'LEAD_RETAKE' })
+      pushToast({ kind: 'retake', title: 'Retake sent', body: `${task!.itemName} — note delivered to artist`, ttl: 2800 })
+      setShowRetakeInput(false)
+      setRetakeReason('')
+    })
   }
 
-  async function handlePostComment() {
+  function handlePostComment() {
     if (!newComment.trim()) return
-    await addComment(task!.id, newComment.trim(), 'note')
-    setNewComment('')
+    const msg = newComment.trim()
+    void run(async () => {
+      await addComment(task!.id, msg, 'note')
+      setNewComment('')
+    })
   }
 
   function handleSaveThumbnailUrl() {
@@ -212,9 +239,10 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
         {showStartBtn && (
           <button
             onClick={handleStartWork}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-black uppercase tracking-wider text-white bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 rounded-lg transition-all shadow-lg shadow-amber-950/40"
+            disabled={actionPending}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-black uppercase tracking-wider text-white bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 rounded-lg transition-all shadow-lg shadow-amber-950/40 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Play className="w-3.5 h-3.5" /> Start Work
+            <Play className="w-3.5 h-3.5" /> {actionPending ? 'Starting…' : 'Start Work'}
           </button>
         )}
 
@@ -222,9 +250,10 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
         {showSubmitBtn && (
           <button
             onClick={handleSubmitForReview}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-black uppercase tracking-wider text-white bg-gradient-to-r from-sky-600 to-sky-500 hover:from-sky-500 hover:to-sky-400 rounded-lg transition-all shadow-lg shadow-sky-950/40"
+            disabled={actionPending}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-black uppercase tracking-wider text-white bg-gradient-to-r from-sky-600 to-sky-500 hover:from-sky-500 hover:to-sky-400 rounded-lg transition-all shadow-lg shadow-sky-950/40 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <SubmitIcon className="w-3.5 h-3.5" /> Submit for Review
+            <SubmitIcon className="w-3.5 h-3.5" /> {actionPending ? 'Submitting…' : 'Submit for Review'}
           </button>
         )}
 
@@ -240,13 +269,15 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
               <div className="flex gap-2">
                 <button
                   onClick={handleApprove}
-                  className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-white bg-emerald-600/80 hover:bg-emerald-600 rounded-md transition-all"
+                  disabled={actionPending}
+                  className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-white bg-emerald-600/80 hover:bg-emerald-600 rounded-md transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <CheckCircle className="w-3 h-3" /> Approve
+                  <CheckCircle className="w-3 h-3" /> {actionPending ? 'Approving…' : 'Approve'}
                 </button>
                 <button
                   onClick={() => setShowRetakeInput(true)}
-                  className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-white bg-rose-600/70 hover:bg-rose-600 rounded-md transition-all"
+                  disabled={actionPending}
+                  className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-white bg-rose-600/70 hover:bg-rose-600 rounded-md transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <RotateCcw className="w-3 h-3" /> Request Retake
                 </button>
@@ -264,10 +295,10 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
                 <div className="flex gap-2">
                   <button
                     onClick={handleRetakeSubmit}
-                    disabled={!retakeReason.trim()}
-                    className="flex-1 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-white bg-rose-600/80 hover:bg-rose-600 disabled:opacity-40 rounded-md transition-all"
+                    disabled={!retakeReason.trim() || actionPending}
+                    className="flex-1 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-white bg-rose-600/80 hover:bg-rose-600 disabled:opacity-40 disabled:cursor-not-allowed rounded-md transition-all"
                   >
-                    Send Retake
+                    {actionPending ? 'Sending…' : 'Send Retake'}
                   </button>
                   <button
                     onClick={() => { setShowRetakeInput(false); setRetakeReason('') }}
@@ -450,7 +481,8 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
               </span>
               <button
                 onClick={handlePostComment}
-                className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-black uppercase text-white bg-indigo-600 hover:bg-indigo-500 rounded transition-all shadow shadow-indigo-950"
+                disabled={actionPending || !newComment.trim()}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-black uppercase text-white bg-indigo-600 hover:bg-indigo-500 rounded transition-all shadow shadow-indigo-950 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Send className="w-3 h-3" /> Post Note
               </button>
