@@ -76,7 +76,10 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
   const canReview     = isManager               // only managers approve / send retakes
 
   const showStartBtn     = isArtist && isMyTask && task.status === 'YET_TO_START'
-  const showSubmitBtn    = isArtist && isMyTask && task.status === 'IN_PROGRESS'
+  // Submit shows on both IN_PROGRESS and LEAD_RETAKE — when a retake lands,
+  // the timer auto-resumes and the artist can ship the fix the moment they're
+  // done. No more "Back to Work" button in between.
+  const showSubmitBtn    = isArtist && isMyTask && (task.status === 'IN_PROGRESS' || task.status === 'LEAD_RETAKE')
   const showRetakeBanner = isMyTask && task.status === 'LEAD_RETAKE'
   const showReviewPanel  = canReview && task.status === 'LEAD_APPROVAL'
 
@@ -95,14 +98,10 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
     pushToast({ kind: 'review', title: 'Submitted for review', body: `${task!.itemName} is now waiting for the manager`, ttl: 2500 })
   }
 
-  async function handleBackToWork() {
-    const note = task!.status === 'LEAD_RETAKE'
-      ? `Resumed work after retake — ${currentUser?.name?.split(' ')[0] ?? 'artist'} is on it.`
-      : `Picked up — ${currentUser?.name?.split(' ')[0] ?? 'artist'} started work.`
-    await addComment(task!.id, note, 'note')
-    await updateTaskStatus(task!.id, 'IN_PROGRESS')
-    pushToast({ kind: 'info', title: 'Back to work', body: `${task!.itemName} — timer resumed`, ttl: 2500 })
-  }
+  // (`handleBackToWork` removed — LEAD_RETAKE now auto-resumes the timer via
+  // isTimerRunning(), so the artist never needs to click "Back to Work". The
+  // retake banner stays informational + the Submit button below it sends the
+  // fix back for review.)
 
   async function handleApprove() {
     await addComment(task!.id, 'Approved.', 'approval')
@@ -191,21 +190,21 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
       <div className="flex-1 overflow-y-auto p-5 space-y-5">
 
         {/* ── Retake Alert (Artist sees this) ───────────────────────────────── */}
+        {/* Timer is already ticking on LEAD_RETAKE — no "Back to Work" button
+            needed. The artist reads the note, fixes the issue, then hits the
+            "Submit for Review" button below this banner. */}
         {showRetakeBanner && task.retakeNote && (
           <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-3.5 space-y-2.5">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
-              <span className="text-[10px] font-black text-rose-400 uppercase tracking-wider">Retake Requested</span>
+            <div className="flex items-center gap-2 justify-between">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0 animate-pulse" />
+                <span className="text-[10px] font-black text-rose-400 uppercase tracking-wider">Retake — Timer Running</span>
+              </div>
+              <span className="text-[9px] font-bold text-rose-300/80 uppercase tracking-wider">Submit when fixed ↓</span>
             </div>
             <p className="text-xs text-rose-300 leading-relaxed border-l-2 border-rose-500/50 pl-2.5">
               {task.retakeNote}
             </p>
-            <button
-              onClick={handleBackToWork}
-              className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-[10px] font-black uppercase tracking-wider text-white bg-rose-600/80 hover:bg-rose-600 rounded-md transition-all"
-            >
-              <RotateCcw className="w-3 h-3" /> Back to Work
-            </button>
           </div>
         )}
 

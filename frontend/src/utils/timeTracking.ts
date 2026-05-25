@@ -25,23 +25,30 @@ export function toDateTimeInputValue(value: string | null | undefined): string {
   return parsed ? getCurrentDateTimeLocal(parsed) : ''
 }
 
-/** Active work — timer accumulates ms while in this state. */
+/**
+ * Active work — timer accumulates milliseconds while the task is in any of
+ * these states.
+ *
+ * Both IN_PROGRESS and LEAD_RETAKE count: when a manager sends a retake the
+ * artist is back in active work immediately, no extra click needed. Time
+ * spent fixing a retake is part of the project's real cost — we want it
+ * tracked, not paused.
+ */
 export function isTimerRunning(status: TaskStatus): boolean {
-  return status === 'IN_PROGRESS'
+  return status === 'IN_PROGRESS' || status === 'LEAD_RETAKE'
 }
 
 /**
- * Time consumed = total milliseconds the task has spent in IN_PROGRESS,
- * derived from the statusHistory entries.
+ * Time consumed = total milliseconds the task has spent in a "running" state
+ * (IN_PROGRESS or LEAD_RETAKE), derived from the statusHistory entries.
  *
  * Workflow this implements:
  *   ─ Default status YET_TO_START → 0 ms
- *   ─ Status transitions TO IN_PROGRESS  → timer starts ticking
- *   ─ Status transitions FROM IN_PROGRESS → timer pauses; total accumulates
+ *   ─ Status transitions TO IN_PROGRESS / LEAD_RETAKE → timer starts ticking
+ *   ─ Status transitions to a non-running state → timer pauses; total accumulates
  *   ─ LEAD_APPROVAL → paused (waiting for manager's review)
- *   ─ LEAD_RETAKE   → paused (waiting for artist to acknowledge)
- *   ─ Artist clicks Back to Work → status returns to IN_PROGRESS, timer resumes
- *   ─ FINAL_APPROVAL → frozen at the last accumulated value
+ *   ─ LEAD_RETAKE   → RUNNING (artist is fixing it; time spent fixing counts)
+ *   ─ FINAL_APPROVAL / DONE → frozen at the last accumulated value
  *
  * startDate / endDate are kept as DEADLINES (set by the manager) and are
  * deliberately NOT used to compute consumed time — they answer a different
@@ -60,7 +67,7 @@ export function getTaskElapsedMs(
   // - history empty → task was created at its current status, never moved
   // - history has entries → history[0].from is the original state at creation
   const initialStatus: TaskStatus = history.length > 0 ? history[0].from : task.status
-  if (initialStatus === 'IN_PROGRESS') {
+  if (isTimerRunning(initialStatus)) {
     const createdAt = parseTaskDate(task.createdAt)
     if (createdAt) activeStart = createdAt.getTime()
   }
@@ -69,19 +76,24 @@ export function getTaskElapsedMs(
     const t = parseTaskDate(change.changedAt)?.getTime()
     if (t === undefined) continue
 
-    // Close an open session when we leave IN_PROGRESS
-    if (activeStart !== null && change.from === 'IN_PROGRESS') {
+    const fromRunning = isTimerRunning(change.from)
+    const toRunning   = isTimerRunning(change.to)
+
+    // Close an open session when we leave a running state for a paused one.
+    if (activeStart !== null && fromRunning && !toRunning) {
       total += Math.max(0, t - activeStart)
       activeStart = null
     }
-    // Open a session when we enter IN_PROGRESS
-    if (change.to === 'IN_PROGRESS') {
+    // Open a session when we enter a running state from a paused one.
+    if (!fromRunning && toRunning) {
       activeStart = t
     }
+    // Transitions between two running states (IN_PROGRESS ↔ LEAD_RETAKE) keep
+    // the timer ticking — no close/open. The activeStart stays as is.
   }
 
-  // If still active right now, count time since the last session opened
-  if (task.status === 'IN_PROGRESS' && activeStart !== null) {
+  // If still in a running state right now, count time since the last session opened.
+  if (isTimerRunning(task.status) && activeStart !== null) {
     total += Math.max(0, nowMs - activeStart)
   }
 
