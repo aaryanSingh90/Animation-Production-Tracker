@@ -51,7 +51,10 @@ export const useEmployeeStore = create<EmployeeState>()((set, get) => ({
 
   addEmployee: async (data) => {
     const { employee } = await Employees.create(data)
-    set(s => ({ employees: [...s.employees, employee] }))
+    // upsert (not append) — the SSE `employee.created` broadcast may have
+    // already inserted this row by the time the POST response lands. Without
+    // dedup we'd render the same employee twice in Team.
+    set(s => ({ employees: upsertEmp(s.employees, employee) }))
     return employee
   },
 

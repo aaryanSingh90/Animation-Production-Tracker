@@ -70,7 +70,10 @@ export const useClientStore = create<ClientState>()((set, get) => ({
 
   addClient: async (data) => {
     const { client } = await Clients.create(data)
-    set(s => ({ clients: [...s.clients, client] }))
+    // upsert (not append) — the SSE broadcast for `client.created` may have
+    // already inserted this row by the time the POST response lands. Without
+    // dedup we'd render the same client twice.
+    set(s => ({ clients: upsertById(s.clients, client) }))
     return client
   },
 
@@ -90,7 +93,8 @@ export const useClientStore = create<ClientState>()((set, get) => ({
 
   addProject: async (data) => {
     const { project } = await Projects.create(data)
-    set(s => ({ projects: [...s.projects, project] }))
+    // upsert (not append) — same SSE race as addClient.
+    set(s => ({ projects: upsertById(s.projects, project) }))
     return project
   },
 
