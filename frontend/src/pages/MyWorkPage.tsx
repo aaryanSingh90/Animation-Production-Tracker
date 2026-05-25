@@ -4,7 +4,7 @@ import { useAuthStore } from '../store/authStore'
 import { usePipelineStore } from '../store/pipelineStore'
 import { useClientStore } from '../store/clientStore'
 import { useEmployeeStore } from '../store/employeeStore'
-import { SUB_STAGE_MAP, SUB_STAGE_TO_STAGE_SLUG } from '../config/stageConfigs'
+import { SUB_STAGE_MAP, SUB_STAGE_TO_STAGE_SLUG, STAGE_MAP } from '../config/stageConfigs'
 import { StatusPill } from '../components/ui/StatusPill'
 import { getDeadlineLevel, daysUntil, DEADLINE_BADGE } from '../utils/deadline'
 import type { TaskRow } from '../types'
@@ -154,16 +154,27 @@ export function MyWorkPage() {
               {/* Stage groups */}
               <div className="divide-y divide-[#111929]">
                 {pg.stageGroups.map(sg => {
-                  const subStage  = SUB_STAGE_MAP[sg.subStageId]
-                  const stageSlug = SUB_STAGE_TO_STAGE_SLUG[sg.subStageId]
+                  const subStage   = SUB_STAGE_MAP[sg.subStageId]
+                  const stageSlug  = SUB_STAGE_TO_STAGE_SLUG[sg.subStageId]
+                  const parentStage = stageSlug ? STAGE_MAP[stageSlug] : undefined
                   if (!subStage || !stageSlug) return null
+
+                  // Show parent stage name with sub-stage so the artist can tell
+                  // "Modelling · Character" apart from "Unwrapping · Character",
+                  // "Rigging · Character", etc. — they're different stages of work
+                  // on the same asset. If parent and sub-stage names are identical
+                  // (e.g. Audio / Audio), show just one.
+                  const headerLabel = parentStage && parentStage.name.toLowerCase() !== subStage.name.toLowerCase()
+                    ? `${parentStage.name} · ${subStage.name}`
+                    : subStage.name
 
                   return (
                     <div key={sg.subStageId}>
                       {/* Stage header row */}
                       <div className="px-5 py-2 bg-[#0a0f1b] flex items-center justify-between">
-                        <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">
-                          {subStage.name}
+                        <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest flex items-center gap-1.5">
+                          {parentStage?.icon && <span>{parentStage.icon}</span>}
+                          <span>{headerLabel}</span>
                         </span>
                         <Link
                           to={`/clients/${pg.clientId}/projects/${pg.projectId}/pipeline/${stageSlug}/${subStage.slug}`}

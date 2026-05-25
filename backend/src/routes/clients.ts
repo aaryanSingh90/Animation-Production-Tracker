@@ -13,8 +13,20 @@ const upsertSchema = z.object({
   contactEmail: z.string().email().optional().or(z.literal('')),
 })
 
-// All authenticated users can read clients (filtering happens per-task on frontend)
-clientsRouter.get('/', requireAuth, async (_req, res) => {
+// GET /api/clients
+//   Managers — every client in the studio.
+//   Artists  — only clients with a project containing a task assigned to them.
+// Source of truth is the API; the frontend used to filter locally which left
+// a hole an artist could exploit by typing a client URL directly.
+clientsRouter.get('/', requireAuth, async (req, res) => {
+  if (req.user!.role === 'ARTIST') {
+    const ownedClientIds = await artistOwnedClientIds(req.user!.sub)
+    const clients = await prisma.client.findMany({
+      where:   { id: { in: ownedClientIds } },
+      orderBy: { name: 'asc' },
+    })
+    return res.json({ clients })
+  }
   const clients = await prisma.client.findMany({ orderBy: { name: 'asc' } })
   res.json({ clients })
 })
@@ -22,8 +34,29 @@ clientsRouter.get('/', requireAuth, async (_req, res) => {
 clientsRouter.get('/:id', requireAuth, async (req, res) => {
   const client = await prisma.client.findUnique({ where: { id: req.params.id } })
   if (!client) return res.status(404).json({ error: 'Not found' })
+
+  // Ownership check — artists can only open clients they have tasks under.
+  if (req.user!.role === 'ARTIST') {
+    const ownedClientIds = await artistOwnedClientIds(req.user!.sub)
+    if (!ownedClientIds.includes(client.id)) {
+      return res.status(403).json({ error: 'No access to this client.', code: 'NO_ACCESS' })
+    }
+  }
+
   res.json({ client })
 })
+
+// ─── Internal helper ────────────────────────────────────────────────────────
+/** Distinct client IDs whose projects contain at least one task assigned to
+ *  this artist. Used by GET / and GET /:id ownership checks. */
+async function artistOwnedClientIds(employeeId: string): Promise<string[]> {
+  const projects = await prisma.task.findMany({
+    where:  { assignedArtistId: employeeId },
+    select: { project: { select: { clientId: true } } },
+    distinct: ['projectId'],
+  })
+  return [...new Set(projects.map(p => p.project.clientId))]
+}
 
 // Only managers create / update / delete clients
 clientsRouter.post('/', requireAuth, requireRole('MANAGER'), async (req, res) => {

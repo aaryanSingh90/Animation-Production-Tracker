@@ -22,17 +22,51 @@ const updateSchema = z.object({
 })
 
 // GET /api/projects (?clientId=…)
+//   Managers — all projects (optionally filtered by clientId).
+//   Artists  — only projects they have tasks in.
 projectsRouter.get('/', requireAuth, async (req, res) => {
-  const where = typeof req.query.clientId === 'string' ? { clientId: req.query.clientId } : {}
-  const projects = await prisma.project.findMany({ where, orderBy: { name: 'asc' } })
+  const clientFilter = typeof req.query.clientId === 'string'
+    ? { clientId: req.query.clientId }
+    : {}
+
+  if (req.user!.role === 'ARTIST') {
+    const ownedProjectIds = await artistOwnedProjectIds(req.user!.sub)
+    const projects = await prisma.project.findMany({
+      where:   { ...clientFilter, id: { in: ownedProjectIds } },
+      orderBy: { name: 'asc' },
+    })
+    return res.json({ projects })
+  }
+
+  const projects = await prisma.project.findMany({ where: clientFilter, orderBy: { name: 'asc' } })
   res.json({ projects })
 })
 
 projectsRouter.get('/:id', requireAuth, async (req, res) => {
   const project = await prisma.project.findUnique({ where: { id: req.params.id } })
   if (!project) return res.status(404).json({ error: 'Not found' })
+
+  // Ownership check — artists can only open projects they have tasks in.
+  if (req.user!.role === 'ARTIST') {
+    const ownedProjectIds = await artistOwnedProjectIds(req.user!.sub)
+    if (!ownedProjectIds.includes(project.id)) {
+      return res.status(403).json({ error: 'No access to this project.', code: 'NO_ACCESS' })
+    }
+  }
+
   res.json({ project })
 })
+
+// ─── Internal helper ────────────────────────────────────────────────────────
+/** Distinct project IDs the artist has at least one task in. */
+async function artistOwnedProjectIds(employeeId: string): Promise<string[]> {
+  const rows = await prisma.task.findMany({
+    where:    { assignedArtistId: employeeId },
+    select:   { projectId: true },
+    distinct: ['projectId'],
+  })
+  return rows.map(r => r.projectId)
+}
 
 projectsRouter.post('/', requireAuth, requireRole('MANAGER'), async (req, res) => {
   const parsed = createSchema.safeParse(req.body)

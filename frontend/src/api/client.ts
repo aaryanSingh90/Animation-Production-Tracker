@@ -101,6 +101,20 @@ async function request<T>(path: string, opts: RequestOpts = {}): Promise<T> {
     window.dispatchEvent(new CustomEvent('shothub:unauthorized'))
   }
 
+  // 403 with code=NO_ACCESS → artist tried to open a client/project they have
+  // no tasks in. Surface as a custom event so the router can show the
+  // /access-denied page rather than letting the page crash on undefined data.
+  if (res.status === 403) {
+    let peek: unknown = undefined
+    try { peek = await res.clone().json() } catch { /* ignore */ }
+    const code = (peek && typeof peek === 'object' && 'code' in peek)
+      ? String((peek as { code: unknown }).code)
+      : undefined
+    if (code === 'NO_ACCESS') {
+      window.dispatchEvent(new CustomEvent('shothub:no-access'))
+    }
+  }
+
   if (!res.ok) {
     let bodyJson: unknown = undefined
     try { bodyJson = await res.json() } catch { /* ignore */ }
