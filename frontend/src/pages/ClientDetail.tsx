@@ -1,12 +1,26 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { Plus, ArrowLeft, Trash2, Briefcase, AlertCircle } from 'lucide-react'
+import {
+  Plus, ArrowLeft, Trash2, Briefcase, AlertCircle,
+  LayoutGrid, LayoutList, GripVertical,
+} from 'lucide-react'
+import {
+  DndContext, closestCenter, PointerSensor, useSensor, useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext, useSortable,
+  horizontalListSortingStrategy, verticalListSortingStrategy,
+  arrayMove,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { useClientStore } from '../store/clientStore'
 import { usePipelineStore } from '../store/pipelineStore'
 import { useAuthStore } from '../store/authStore'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { ApiError } from '../api/client'
 import { format } from 'date-fns'
+import type { Project } from '../types'
 
 const STATUS_BADGES: Record<string, string> = {
   ACTIVE:    'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
@@ -15,6 +29,146 @@ const STATUS_BADGES: Record<string, string> = {
 }
 
 const inputCls = 'px-3 py-2 text-xs bg-[#0d1424] border border-[#1b253b] rounded-lg text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-500 transition-colors'
+
+// ── Sortable grid card ────────────────────────────────────────────────────────
+
+function GridCard({
+  proj, clientId, isManager, onDelete,
+}: {
+  proj: Project; clientId: string; isManager: boolean; onDelete: (id: string) => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: proj.id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="bg-[#0c1221] rounded-xl border border-[#1b253b] p-5 hover:border-indigo-500/40 transition-all group relative"
+    >
+      {/* Drag handle — top-left, visible on hover */}
+      {isManager && (
+        <button
+          {...attributes}
+          {...listeners}
+          className="absolute top-3 left-3 p-1 rounded text-slate-700 hover:text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing focus:outline-none"
+          aria-label="Drag to reorder"
+          tabIndex={-1}
+        >
+          <GripVertical className="w-3.5 h-3.5" />
+        </button>
+      )}
+
+      <div className="flex items-start justify-between mb-3">
+        <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded border ${STATUS_BADGES[proj.status] ?? STATUS_BADGES.COMPLETED}`}>
+          {proj.status.replace('_', ' ')}
+        </span>
+        {isManager && (
+          <button
+            onClick={() => onDelete(proj.id)}
+            aria-label={`Delete project ${proj.name}`}
+            title="Delete project"
+            className="p-1 rounded hover:bg-rose-500/15 text-slate-700 hover:text-rose-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/40"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+
+      <Link to={`/clients/${clientId}/projects/${proj.id}`}>
+        <h3 className="text-sm font-bold text-slate-100 hover:text-indigo-400 transition-colors mb-1 uppercase tracking-wide">
+          {proj.name}
+        </h3>
+      </Link>
+      {proj.description && (
+        <p className="text-xs text-slate-500 mb-3 line-clamp-2">{proj.description}</p>
+      )}
+      <div className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">
+        Created {format(new Date(proj.createdAt), 'MMM d, yyyy')}
+      </div>
+    </div>
+  )
+}
+
+// ── Sortable list row ─────────────────────────────────────────────────────────
+
+function ListRow({
+  proj, clientId, isManager, onDelete,
+}: {
+  proj: Project; clientId: string; isManager: boolean; onDelete: (id: string) => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: proj.id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="flex items-center gap-4 px-4 py-3 bg-[#0c1221] border border-[#1b253b] rounded-xl hover:border-indigo-500/30 transition-all group"
+    >
+      {/* Drag handle */}
+      {isManager && (
+        <button
+          {...attributes}
+          {...listeners}
+          className="text-slate-700 hover:text-slate-400 cursor-grab active:cursor-grabbing shrink-0 focus:outline-none"
+          aria-label="Drag to reorder"
+          tabIndex={-1}
+        >
+          <GripVertical className="w-4 h-4" />
+        </button>
+      )}
+
+      {/* Status */}
+      <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded border shrink-0 ${STATUS_BADGES[proj.status] ?? STATUS_BADGES.COMPLETED}`}>
+        {proj.status.replace('_', ' ')}
+      </span>
+
+      {/* Name + description */}
+      <div className="flex-1 min-w-0">
+        <Link to={`/clients/${clientId}/projects/${proj.id}`}>
+          <span className="text-sm font-bold text-slate-100 hover:text-indigo-400 transition-colors uppercase tracking-wide truncate block">
+            {proj.name}
+          </span>
+        </Link>
+        {proj.description && (
+          <span className="text-[11px] text-slate-500 truncate block">{proj.description}</span>
+        )}
+      </div>
+
+      {/* Date */}
+      <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider shrink-0">
+        {format(new Date(proj.createdAt), 'MMM d, yyyy')}
+      </span>
+
+      {/* Delete */}
+      {isManager && (
+        <button
+          onClick={() => onDelete(proj.id)}
+          aria-label={`Delete project ${proj.name}`}
+          title="Delete project"
+          className="p-1 rounded hover:bg-rose-500/15 text-slate-700 hover:text-rose-400 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/40"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 
 export function ClientDetail() {
   const { clientId } = useParams<{ clientId: string }>()
@@ -32,6 +186,44 @@ export function ClientDetail() {
   const clientProjects = isManager
     ? allClientProjects
     : allClientProjects.filter(p => myProjectIds!.has(p.id))
+
+  // ── view mode (grid | list) — persisted per browser ──
+  const viewKey = `shothub:client-view`
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
+    try { return (localStorage.getItem(viewKey) as 'grid' | 'list') ?? 'grid' } catch { return 'grid' }
+  })
+  useEffect(() => {
+    try { localStorage.setItem(viewKey, viewMode) } catch { /* ignore */ }
+  }, [viewMode])
+
+  // ── project order — persisted per client ──
+  const orderKey = `shothub:project-order:${clientId}`
+  const [orderedIds, setOrderedIds] = useState<string[]>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(orderKey) ?? '[]') as string[]
+      return saved.length ? saved : []
+    } catch { return [] }
+  })
+
+  // Merge saved order with live projects: unknown IDs appended at the end
+  const sortedProjects = (() => {
+    const known = orderedIds.filter(id => clientProjects.some(p => p.id === id))
+    const unseen = clientProjects.filter(p => !known.includes(p.id)).map(p => p.id)
+    const finalOrder = [...known, ...unseen]
+    return finalOrder.map(id => clientProjects.find(p => p.id === id)!).filter(Boolean)
+  })()
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = sortedProjects.findIndex(p => p.id === active.id)
+    const newIndex = sortedProjects.findIndex(p => p.id === over.id)
+    const next = arrayMove(sortedProjects, oldIndex, newIndex).map(p => p.id)
+    setOrderedIds(next)
+    try { localStorage.setItem(orderKey, JSON.stringify(next)) } catch { /* ignore */ }
+  }
 
   const [showForm, setShowForm] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
@@ -72,6 +264,7 @@ export function ClientDetail() {
     setError(null)
     try {
       await deleteProject(id)
+      setOrderedIds(ids => ids.filter(i => i !== id))
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to delete project.')
     }
@@ -96,14 +289,37 @@ export function ClientDetail() {
               {client.description && <p className="text-xs text-slate-400 font-medium mt-1">{client.description}</p>}
               {client.contactEmail && <p className="text-[10px] text-slate-500 mt-1">{client.contactEmail}</p>}
             </div>
-            {isManager && (
-              <button
-                onClick={() => setShowForm(v => !v)}
-                className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg transition-colors shadow-md shadow-indigo-950/50"
-              >
-                <Plus className="w-3.5 h-3.5" /> New Project
-              </button>
-            )}
+
+            <div className="flex items-center gap-2">
+              {/* View toggle — manager only */}
+              {isManager && clientProjects.length > 0 && (
+                <div className="flex items-center bg-[#0d1424] border border-[#1b253b] rounded-lg p-0.5">
+                  <button
+                    onClick={() => setViewMode('grid')}
+                    className={`p-1.5 rounded-md transition-colors ${viewMode === 'grid' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+                    title="Grid view"
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setViewMode('list')}
+                    className={`p-1.5 rounded-md transition-colors ${viewMode === 'list' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+                    title="List view"
+                  >
+                    <LayoutList className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
+              {isManager && (
+                <button
+                  onClick={() => setShowForm(v => !v)}
+                  className="flex items-center gap-2 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg transition-colors shadow-md shadow-indigo-950/50"
+                >
+                  <Plus className="w-3.5 h-3.5" /> New Project
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -157,7 +373,7 @@ export function ClientDetail() {
           </div>
         )}
 
-        {/* Projects grid */}
+        {/* Projects */}
         {clientProjects.length === 0 ? (
           <div className="text-center py-20">
             <Briefcase className="w-10 h-10 mx-auto mb-3 text-slate-700" />
@@ -166,39 +382,42 @@ export function ClientDetail() {
             </p>
           </div>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {clientProjects.map(proj => (
-              <div
-                key={proj.id}
-                className="bg-[#0c1221] rounded-xl border border-[#1b253b] p-5 hover:border-indigo-500/40 transition-all"
-              >
-                <div className="flex items-start justify-between mb-3">
-                  <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded border ${STATUS_BADGES[proj.status] ?? STATUS_BADGES.COMPLETED}`}>
-                    {proj.status.replace('_', ' ')}
-                  </span>
-                  {isManager && (
-                    <button
-                      onClick={() => setDeleteId(proj.id)}
-                      aria-label={`Delete project ${proj.name}`}
-                      title="Delete project"
-                      className="p-1 rounded hover:bg-rose-500/15 text-slate-700 hover:text-rose-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/40"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext
+              items={sortedProjects.map(p => p.id)}
+              strategy={viewMode === 'grid' ? horizontalListSortingStrategy : verticalListSortingStrategy}
+            >
+              {viewMode === 'grid' ? (
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {sortedProjects.map(proj => (
+                    <GridCard
+                      key={proj.id}
+                      proj={proj}
+                      clientId={clientId!}
+                      isManager={isManager}
+                      onDelete={setDeleteId}
+                    />
+                  ))}
                 </div>
-                <Link to={`/clients/${clientId}/projects/${proj.id}`}>
-                  <h3 className="text-sm font-bold text-slate-100 hover:text-indigo-400 transition-colors mb-1 uppercase tracking-wide">{proj.name}</h3>
-                </Link>
-                {proj.description && (
-                  <p className="text-xs text-slate-500 mb-3 line-clamp-2">{proj.description}</p>
-                )}
-                <div className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">
-                  Created {format(new Date(proj.createdAt), 'MMM d, yyyy')}
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {sortedProjects.map(proj => (
+                    <ListRow
+                      key={proj.id}
+                      proj={proj}
+                      clientId={clientId!}
+                      isManager={isManager}
+                      onDelete={setDeleteId}
+                    />
+                  ))}
                 </div>
-              </div>
-            ))}
-          </div>
+              )}
+            </SortableContext>
+          </DndContext>
         )}
 
         <ConfirmDialog
