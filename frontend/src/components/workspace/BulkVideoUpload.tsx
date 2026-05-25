@@ -118,11 +118,12 @@ export function BulkVideoUpload({ projectId, subStageConfig }: Props) {
       try {
         const { duration, thumbnail } = await extractVideoMeta(file)
         const totalFrames = Math.max(1, Math.round(duration * 24))
+        const startFrame  = 101
         next.push({
           uid:        `${Date.now()}-${Math.random()}`,
           file,
           shotNumber: parseShotNumber(file.name),
-          frameRange: `1-${totalFrames}`,
+          frameRange: `${startFrame}-${startFrame + totalFrames - 1}`,
           seconds:    Math.round(duration * 10) / 10,
           thumbnail,
         })
