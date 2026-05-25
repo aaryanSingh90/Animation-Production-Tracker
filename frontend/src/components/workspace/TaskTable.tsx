@@ -164,8 +164,8 @@ function ProceduralThumbnail({ subStageId }: { subStageId: string; itemName?: st
 export function TaskTable({ tasks, subStageConfig, selectedIds, onSelect, onRowClick }: Props) {
   const { updateTask, updateTaskStatus, deleteTask } = usePipelineStore()
   const currentUser = useAuthStore(s => s.currentUser)
-  const isArtist    = currentUser?.role === 'ARTIST'
-  const canEdit     = !isArtist // managers and leads can edit status/artist inline
+  const isArtist    = currentUser?.role !== 'MANAGER'  // two-tier: anyone who isn't a manager is restricted
+  const canEdit     = !isArtist // managers can edit status/artist inline
 
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})

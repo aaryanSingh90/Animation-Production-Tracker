@@ -68,7 +68,7 @@ export interface Project {
 
 // ─── Employee ─────────────────────────────────────────────────────────────────
 
-export type EmployeeRole = 'MANAGER' | 'ARTIST' | 'LEAD'
+export type EmployeeRole = 'MANAGER' | 'ARTIST' | 'LEAD' | 'FREELANCE'
 export type EmployeeDepartment =
   | 'Animation' | 'Rigging' | 'Lighting' | 'FX'
   | 'Compositing' | 'Modelling' | 'Texturing' | 'Audio' | 'Editing'

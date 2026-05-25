@@ -9,9 +9,10 @@ import { clsx } from 'clsx'
 const DEPT_OPTIONS: EmployeeDepartment[] = [
   'Animation', 'Rigging', 'Lighting', 'FX', 'Compositing', 'Modelling', 'Texturing', 'Audio', 'Editing',
 ]
-// Two-tier role model: only MANAGER + ARTIST. LEAD is kept in the enum for
-// backwards compat with legacy data but is no longer assignable from the UI.
-const ROLE_OPTIONS: EmployeeRole[] = ['MANAGER', 'ARTIST']
+// Two-tier role model: MANAGER + ARTIST + FREELANCE assignable from UI.
+// LEAD is kept in the enum for backwards compat with legacy data but is no
+// longer assignable.
+const ROLE_OPTIONS: EmployeeRole[] = ['MANAGER', 'ARTIST', 'FREELANCE']
 
 const AVATAR_COLORS = [
   '#6366f1', '#ec4899', '#f59e0b', '#10b981', '#3b82f6',
@@ -39,10 +40,101 @@ function getInitials(name: string) {
 }
 
 const ROLE_STYLE: Record<EmployeeRole, string> = {
-  MANAGER: 'bg-violet-500/15 text-violet-400 border-violet-500/30',
-  LEAD:    'bg-sky-500/15    text-sky-400    border-sky-500/30',
-  ARTIST:  'bg-slate-500/15  text-slate-300  border-slate-600/30',
+  MANAGER:   'bg-violet-500/15  text-violet-400  border-violet-500/30',
+  LEAD:      'bg-sky-500/15     text-sky-400     border-sky-500/30',
+  ARTIST:    'bg-slate-500/15   text-slate-300   border-slate-600/30',
+  FREELANCE: 'bg-orange-500/15  text-orange-400  border-orange-500/30',
 }
+
+// ── FormRow lives outside Team so React never remounts it on parent re-renders ─
+
+const inputCls = 'px-3 py-2 text-xs bg-[#0d1424] border border-[#1b253b] rounded-lg text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-500 transition-colors'
+
+interface FormRowProps {
+  form:      EmployeeForm
+  setForm:   React.Dispatch<React.SetStateAction<EmployeeForm>>
+  editId:    string | null
+  saving:    boolean
+  formError: string | null
+  onSave:    () => void
+  onCancel:  () => void
+}
+
+function FormRow({ form, setForm, editId, saving, formError, onSave, onCancel }: FormRowProps) {
+  return (
+    <div className="bg-[#0d1424] border border-indigo-500/30 rounded-xl p-4 mb-4 space-y-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <input
+          placeholder="Full name *"
+          value={form.name}
+          onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+          className={inputCls}
+        />
+        <input
+          placeholder="Email"
+          value={form.email}
+          onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+          className={inputCls}
+        />
+        <select
+          value={form.role}
+          onChange={e => setForm(f => ({ ...f, role: e.target.value as EmployeeRole }))}
+          className={`${inputCls} cursor-pointer`}
+        >
+          {ROLE_OPTIONS.map(r => <option key={r} className="bg-[#0d1424]">{r}</option>)}
+        </select>
+        <select
+          value={form.department}
+          onChange={e => setForm(f => ({ ...f, department: e.target.value as EmployeeDepartment }))}
+          className={`${inputCls} cursor-pointer`}
+        >
+          {DEPT_OPTIONS.map(d => <option key={d} className="bg-[#0d1424]">{d}</option>)}
+        </select>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <input
+          placeholder={editId ? 'New password (leave blank to keep current)' : 'Password *'}
+          type="password"
+          value={form.password}
+          onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+          className={inputCls}
+        />
+        <input
+          placeholder="Specialization (optional)"
+          value={form.specialization}
+          onChange={e => setForm(f => ({ ...f, specialization: e.target.value }))}
+          className={inputCls}
+        />
+      </div>
+      <p className="text-[10px] text-slate-500 font-medium">
+        Login is by <span className="text-indigo-400">email</span> +{' '}
+        <span className="text-amber-400">password</span>. Default is <span className="font-mono text-amber-400">studio123</span> — change it before handing the account over.
+      </p>
+      {formError && (
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-rose-500/10 border border-rose-500/30 rounded-md text-[11px] font-bold text-rose-400">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {formError}
+        </div>
+      )}
+      <div className="flex gap-2">
+        <button
+          onClick={onSave}
+          disabled={saving}
+          className="px-4 py-2 text-xs font-bold uppercase tracking-wider text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button
+          onClick={onCancel}
+          className="px-4 py-2 text-xs font-bold uppercase tracking-wider text-slate-400 hover:text-slate-200 border border-[#1b253b] rounded-lg transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export function Team() {
   const { employees, addEmployee, updateEmployee, deactivateEmployee } = useEmployeeStore()
@@ -68,7 +160,7 @@ export function Team() {
   function startEdit(emp: Employee) {
     setEditId(emp.id)
     setForm({
-      name: emp.name, email: emp.email, password: '',   // blank = leave unchanged
+      name: emp.name, email: emp.email, password: '',
       role: emp.role,
       department: emp.department, specialization: emp.specialization ?? '',
       active: emp.active, avatarColor: emp.avatarColor ?? AVATAR_COLORS[0],
@@ -146,82 +238,6 @@ export function Team() {
     }
   }
 
-  const inputCls = 'px-3 py-2 text-xs bg-[#0d1424] border border-[#1b253b] rounded-lg text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-500 transition-colors'
-
-  function FormRow({ onSave, onCancel }: { onSave: () => void; onCancel: () => void }) {
-    return (
-      <div className="bg-[#0d1424] border border-indigo-500/30 rounded-xl p-4 mb-4 space-y-3">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <input
-            placeholder="Full name *"
-            value={form.name}
-            onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-            className={inputCls}
-          />
-          <input
-            placeholder="Email"
-            value={form.email}
-            onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-            className={inputCls}
-          />
-          <select
-            value={form.role}
-            onChange={e => setForm(f => ({ ...f, role: e.target.value as EmployeeRole }))}
-            className={`${inputCls} cursor-pointer`}
-          >
-            {ROLE_OPTIONS.map(r => <option key={r} className="bg-[#0d1424]">{r}</option>)}
-          </select>
-          <select
-            value={form.department}
-            onChange={e => setForm(f => ({ ...f, department: e.target.value as EmployeeDepartment }))}
-            className={`${inputCls} cursor-pointer`}
-          >
-            {DEPT_OPTIONS.map(d => <option key={d} className="bg-[#0d1424]">{d}</option>)}
-          </select>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <input
-            placeholder={editId ? 'New password (leave blank to keep current)' : 'Password *'}
-            type="password"
-            value={form.password}
-            onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-            className={inputCls}
-          />
-          <input
-            placeholder="Specialization (optional)"
-            value={form.specialization}
-            onChange={e => setForm(f => ({ ...f, specialization: e.target.value }))}
-            className={inputCls}
-          />
-        </div>
-        <p className="text-[10px] text-slate-500 font-medium">
-          Login is by <span className="text-indigo-400">email</span> +{' '}
-          <span className="text-amber-400">password</span>. Default is <span className="font-mono text-amber-400">studio123</span> — change it before handing the account over.
-        </p>
-        {formError && (
-          <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-rose-500/10 border border-rose-500/30 rounded-md text-[11px] font-bold text-rose-400">
-            <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {formError}
-          </div>
-        )}
-        <div className="flex gap-2">
-          <button
-            onClick={onSave}
-            disabled={saving}
-            className="px-4 py-2 text-xs font-bold uppercase tracking-wider text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-          <button
-            onClick={onCancel}
-            className="px-4 py-2 text-xs font-bold uppercase tracking-wider text-slate-400 hover:text-slate-200 border border-[#1b253b] rounded-lg transition-colors"
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
-    )
-  }
-
   const selectCls = `flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider bg-[#0d1424] border border-[#1b253b] rounded-md text-slate-400 hover:border-slate-600 hover:text-slate-300 focus:outline-none focus:border-indigo-500 transition-colors cursor-pointer appearance-none`
 
   return (
@@ -247,7 +263,17 @@ export function Team() {
         </div>
 
         {/* Add form */}
-        {showForm && <FormRow onSave={saveNew} onCancel={() => { setShowForm(false); setFormError(null) }} />}
+        {showForm && (
+          <FormRow
+            form={form}
+            setForm={setForm}
+            editId={editId}
+            saving={saving}
+            formError={formError}
+            onSave={saveNew}
+            onCancel={() => { setShowForm(false); setFormError(null) }}
+          />
+        )}
 
         {/* Filters */}
         <div className="flex gap-2 mb-4 flex-wrap">
@@ -325,7 +351,15 @@ export function Team() {
                     >
                       {editId === emp.id ? (
                         <td colSpan={7} className="p-4">
-                          <FormRow onSave={saveEdit} onCancel={() => { setEditId(null); setFormError(null) }} />
+                          <FormRow
+                            form={form}
+                            setForm={setForm}
+                            editId={editId}
+                            saving={saving}
+                            formError={formError}
+                            onSave={saveEdit}
+                            onCancel={() => { setEditId(null); setFormError(null) }}
+                          />
                         </td>
                       ) : (
                         <>
@@ -347,7 +381,7 @@ export function Team() {
 
                           {/* Role */}
                           <td className="px-4 py-3">
-                            <span className={`text-[10px] px-2 py-0.5 rounded border font-black uppercase tracking-wider ${ROLE_STYLE[emp.role]}`}>
+                            <span className={`text-[10px] px-2 py-0.5 rounded border font-black uppercase tracking-wider ${ROLE_STYLE[emp.role] ?? ROLE_STYLE.ARTIST}`}>
                               {emp.role}
                             </span>
                           </td>

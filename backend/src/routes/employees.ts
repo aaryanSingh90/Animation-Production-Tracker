@@ -9,7 +9,7 @@ import { zodMsg } from '../lib/zodMsg.js'
 export const employeesRouter = Router()
 
 const DEPT_VALUES = ['Animation','Rigging','Lighting','FX','Compositing','Modelling','Texturing','Audio','Editing'] as const
-const ROLE_VALUES = ['MANAGER','LEAD','ARTIST'] as const
+const ROLE_VALUES = ['MANAGER','LEAD','ARTIST','FREELANCE'] as const
 
 const createSchema = z.object({
   name:           z.string().min(1),

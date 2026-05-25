@@ -19,6 +19,7 @@ enum EmployeeRole {
   MANAGER
   LEAD
   ARTIST
+  FREELANCE
 }
 
 enum EmployeeDepartment {
