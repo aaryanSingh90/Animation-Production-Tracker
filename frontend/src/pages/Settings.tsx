@@ -36,10 +36,11 @@ export function Settings() {
   async function refreshAll() {
     setRefreshState('loading')
     try {
+      // Tasks are loaded on-demand per sub-stage and kept fresh via SSE —
+      // no global pipeline refresh needed.
       await Promise.all([
         useEmployeeStore.getState().refresh(),
         useClientStore.getState().refresh(),
-        usePipelineStore.getState().refresh(),
       ])
     } finally {
       setRefreshState('idle')
