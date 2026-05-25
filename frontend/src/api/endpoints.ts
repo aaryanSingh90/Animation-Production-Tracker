@@ -68,6 +68,7 @@ export interface ProjectUpsert {
   clientId?:   string
   name:        string
   description?: string
+  folderName?:  string | null
   status?:     Project['status']
 }
 

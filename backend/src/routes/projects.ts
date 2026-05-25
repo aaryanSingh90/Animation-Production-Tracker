@@ -11,6 +11,7 @@ const createSchema = z.object({
   clientId:    z.string().min(1),
   name:        z.string().min(1),
   description: z.string().optional(),
+  folderName:  z.string().min(1).optional().nullable(),
   status:      z.enum(['ACTIVE','ON_HOLD','COMPLETED']).default('ACTIVE'),
   frameRate:   z.literal(24).optional(),
 })
@@ -18,6 +19,7 @@ const createSchema = z.object({
 const updateSchema = z.object({
   name:        z.string().min(1).optional(),
   description: z.string().optional(),
+  folderName:  z.string().min(1).optional().nullable(),
   status:      z.enum(['ACTIVE','ON_HOLD','COMPLETED']).optional(),
 })
 

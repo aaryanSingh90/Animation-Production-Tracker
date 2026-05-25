@@ -61,6 +61,7 @@ export interface Project {
   clientId: string
   name: string
   description?: string
+  folderName?: string | null
   status: 'ACTIVE' | 'ON_HOLD' | 'COMPLETED'
   frameRate: 24
   createdAt: string
