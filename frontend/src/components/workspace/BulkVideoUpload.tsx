@@ -167,10 +167,15 @@ export function BulkVideoUpload({ projectId, subStageConfig }: Props) {
           thumbnail:  item.thumbnail,
           status:     'YET_TO_START' as const,
         }
-        // Create the cut-shot row
+        // Create the cut-shot row (with thumbnail)
         await addTask({ ...base, subStageId: subStageConfig.id })
-        // Mirror to Animation
-        await addTask({ ...base, subStageId: ANIMATION_SUB_STAGE_ID })
+        // Mirror to Animation — shot number + frame range only, no thumbnail
+        // (thumbnail belongs to the animatic, not duplicated to save DB space)
+        await addTask({
+          ...base,
+          subStageId: ANIMATION_SUB_STAGE_ID,
+          thumbnail:  null,
+        })
       }
       setItems([])
     } catch (err) {
