@@ -94,6 +94,7 @@ export interface TaskCreate {
   startDate?:       string | null
   endDate?:         string | null
   audioStatus?:     TaskRow['audioStatus']
+  thumbnail?:       string | null
 }
 
 export type TaskPatch = Partial<TaskCreate> & {

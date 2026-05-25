@@ -4,6 +4,7 @@ import type { StageConfig } from '../../types'
 import { usePipelineStore } from '../../store/pipelineStore'
 import { useAuthStore } from '../../store/authStore'
 import { QuickAddBar } from './QuickAddBar'
+import { BulkVideoUpload } from './BulkVideoUpload'
 import { FilterBar, DEFAULT_FILTERS, type FilterState } from './FilterBar'
 import { applyFilters } from '../../utils/filterUtils'
 import { BulkActionBar } from './BulkActionBar'
@@ -103,6 +104,14 @@ export function WorkspaceView({ projectId, stageConfig, subStageSlug, clientId }
           stageConfig={stageConfig}
           subStageConfig={subStageConfig}
           projectId={projectId}
+        />
+      )}
+
+      {/* Bulk video upload — only on Cut Shots, manager only */}
+      {canAddTasks && subStageConfig.slug === 'cut-shots' && (
+        <BulkVideoUpload
+          projectId={projectId}
+          subStageConfig={subStageConfig}
         />
       )}
 
