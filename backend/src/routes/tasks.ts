@@ -100,12 +100,20 @@ tasksRouter.patch('/:id', requireAuth, async (req, res) => {
         return res.status(403).json({ error: `Artists cannot modify '${key}'.` })
       }
     }
-    // Artists can only transition IN_PROGRESS ↔ LEAD_APPROVAL, and LEAD_RETAKE → IN_PROGRESS
+    // Allowed artist transitions:
+    //   • YET_TO_START → IN_PROGRESS  (Start Work)
+    //   • IN_PROGRESS  → LEAD_APPROVAL (Submit for Review)
+    //   • LEAD_RETAKE  → LEAD_APPROVAL (Submit for Review — retake auto-resumes
+    //                                   the timer so the artist goes straight
+    //                                   to Submit, no Back-to-Work step)
+    //   • LEAD_RETAKE  → IN_PROGRESS   (back-compat: older clients may still
+    //                                   send this path)
     if (parsed.data.status) {
       const valid = (
-        (existing.status === 'IN_PROGRESS' && parsed.data.status === 'LEAD_APPROVAL') ||
-        (existing.status === 'LEAD_RETAKE' && parsed.data.status === 'IN_PROGRESS')   ||
-        (existing.status === 'YET_TO_START' && parsed.data.status === 'IN_PROGRESS')
+        (existing.status === 'YET_TO_START' && parsed.data.status === 'IN_PROGRESS')   ||
+        (existing.status === 'IN_PROGRESS'  && parsed.data.status === 'LEAD_APPROVAL') ||
+        (existing.status === 'LEAD_RETAKE'  && parsed.data.status === 'LEAD_APPROVAL') ||
+        (existing.status === 'LEAD_RETAKE'  && parsed.data.status === 'IN_PROGRESS')
       )
       if (!valid) {
         return res.status(403).json({ error: `Artists cannot move ${existing.status} → ${parsed.data.status}.` })
