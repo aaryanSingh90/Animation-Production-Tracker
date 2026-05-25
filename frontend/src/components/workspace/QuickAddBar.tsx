@@ -98,7 +98,10 @@ export function QuickAddBar({ stageConfig, subStageConfig, projectId }: Props) {
             onChange={e => setName(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="SHOT NO."
-            className={`${inputCls} w-24 font-mono uppercase shrink-0`}
+            // No uppercase transform — what the user types is what gets saved
+            // and rendered in the row. The placeholder stays uppercase because
+            // the literal text is already capitalised.
+            className={`${inputCls} w-24 font-mono shrink-0`}
           />
           <input
             value={frameRange}
@@ -117,7 +120,9 @@ export function QuickAddBar({ stageConfig, subStageConfig, projectId }: Props) {
           onChange={e => setName(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={stageConfig.id === 'audio' ? 'AUDIO NAME…' : 'ASSET NAME…'}
-          className={`${inputCls} w-40 uppercase shrink-0`}
+          // No uppercase transform — what the user types is what gets saved
+          // and rendered in the row.
+          className={`${inputCls} w-40 shrink-0`}
         />
       )}
 

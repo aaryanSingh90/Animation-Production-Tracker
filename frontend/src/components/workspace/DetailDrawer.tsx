@@ -147,15 +147,16 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
       {/* Drawer Header */}
       <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-[#1a263e] bg-[#050810]/50">
         <div className="flex-1 min-w-0">
-          {/* Editable task name — read-only for artists, debounced commit for managers */}
+          {/* Editable task name — read-only for artists, debounced commit for managers.
+              No uppercase transform — display matches what the user typed. */}
           {isArtist ? (
-            <div className="text-sm font-black tracking-wide text-white uppercase truncate">{task.itemName}</div>
+            <div className="text-sm font-black tracking-wide text-white truncate">{task.itemName}</div>
           ) : (
             <DebouncedTextInput
               value={task.itemName}
               onCommit={v => updateTask(task.id, { itemName: v })}
               placeholder="Untitled task"
-              className="w-full text-sm font-black tracking-wide text-white uppercase bg-transparent border border-transparent hover:border-[#1a263e] focus:border-indigo-500 focus:bg-[#0a0f1b] rounded px-1.5 py-1 -mx-1.5 -my-1 focus:outline-none transition-colors"
+              className="w-full text-sm font-black tracking-wide text-white bg-transparent border border-transparent hover:border-[#1a263e] focus:border-indigo-500 focus:bg-[#0a0f1b] rounded px-1.5 py-1 -mx-1.5 -my-1 focus:outline-none transition-colors"
             />
           )}
           {task.shotNumber && (
