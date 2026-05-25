@@ -153,7 +153,7 @@ function ListRow({
 
 function FolderSection({
   folderName, projects, clientId, isManager, viewMode,
-  onDelete, onRenameFolder, onDeleteFolder,
+  onDelete, onArchive, onRenameFolder, onDeleteFolder,
   collapsed, onToggle,
 }: {
   folderName: string
