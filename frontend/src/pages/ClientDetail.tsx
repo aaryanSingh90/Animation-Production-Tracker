@@ -4,6 +4,7 @@ import {
   Plus, ArrowLeft, Trash2, Briefcase, AlertCircle,
   LayoutGrid, LayoutList, GripVertical,
   FolderOpen, FolderPlus, Pencil, ChevronDown, ChevronRight, X, Check,
+  Archive, ArchiveRestore, Package,
 } from 'lucide-react'
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors,
@@ -31,6 +32,7 @@ const STATUS_BADGES: Record<string, string> = {
   ACTIVE:    'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
   ON_HOLD:   'bg-amber-500/15  text-amber-400  border-amber-500/30',
   COMPLETED: 'bg-slate-500/15  text-slate-400  border-slate-600/30',
+  ARCHIVED:  'bg-slate-500/10  text-slate-600  border-slate-700/30',
 }
 
 const inputCls = 'px-3 py-2 text-xs bg-[#0d1424] border border-[#1b253b] rounded-lg text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-500 transition-colors'
@@ -38,9 +40,10 @@ const inputCls = 'px-3 py-2 text-xs bg-[#0d1424] border border-[#1b253b] rounded
 // ── sortable grid card ────────────────────────────────────────────────────────
 
 function GridCard({
-  proj, clientId, isManager, onDelete,
+  proj, clientId, isManager, onDelete, onArchive,
 }: {
-  proj: Project; clientId: string; isManager: boolean; onDelete: (id: string) => void
+  proj: Project; clientId: string; isManager: boolean
+  onDelete: (id: string) => void; onArchive?: (id: string) => void
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: proj.id })
@@ -67,10 +70,18 @@ function GridCard({
           </span>
         </div>
         {isManager && (
-          <button onClick={() => onDelete(proj.id)} aria-label={`Delete ${proj.name}`}
-            className="p-1 rounded hover:bg-rose-500/15 text-slate-700 hover:text-rose-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/40">
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
+          <div className="flex items-center gap-0.5">
+            {onArchive && (
+              <button onClick={() => onArchive(proj.id)} aria-label={`Archive ${proj.name}`} title="Archive"
+                className="p-1 rounded hover:bg-amber-500/15 text-slate-700 hover:text-amber-400 transition-colors focus-visible:outline-none">
+                <Archive className="w-3.5 h-3.5" />
+              </button>
+            )}
+            <button onClick={() => onDelete(proj.id)} aria-label={`Delete ${proj.name}`} title="Delete"
+              className="p-1 rounded hover:bg-rose-500/15 text-slate-700 hover:text-rose-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/40">
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
         )}
       </div>
       <Link to={`/clients/${clientId}/projects/${proj.id}`}>
@@ -87,9 +98,10 @@ function GridCard({
 // ── sortable list row ─────────────────────────────────────────────────────────
 
 function ListRow({
-  proj, clientId, isManager, onDelete,
+  proj, clientId, isManager, onDelete, onArchive,
 }: {
-  proj: Project; clientId: string; isManager: boolean; onDelete: (id: string) => void
+  proj: Project; clientId: string; isManager: boolean
+  onDelete: (id: string) => void; onArchive?: (id: string) => void
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: proj.id })
@@ -120,10 +132,18 @@ function ListRow({
         {format(new Date(proj.createdAt), 'MMM d, yyyy')}
       </span>
       {isManager && (
-        <button onClick={() => onDelete(proj.id)} aria-label={`Delete ${proj.name}`}
-          className="p-1 rounded hover:bg-rose-500/15 text-slate-700 hover:text-rose-400 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/40">
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
+        <div className="flex items-center gap-0.5 shrink-0">
+          {onArchive && (
+            <button onClick={() => onArchive(proj.id)} aria-label={`Archive ${proj.name}`} title="Archive"
+              className="p-1 rounded hover:bg-amber-500/15 text-slate-700 hover:text-amber-400 transition-colors focus-visible:outline-none">
+              <Archive className="w-3.5 h-3.5" />
+            </button>
+          )}
+          <button onClick={() => onDelete(proj.id)} aria-label={`Delete ${proj.name}`} title="Delete"
+            className="p-1 rounded hover:bg-rose-500/15 text-slate-700 hover:text-rose-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/40">
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
       )}
     </div>
   )
@@ -142,6 +162,7 @@ function FolderSection({
   isManager: boolean
   viewMode: 'grid' | 'list'
   onDelete: (id: string) => void
+  onArchive: (id: string) => void
   onRenameFolder: (oldName: string, newName: string) => void
   onDeleteFolder: (name: string) => void
   collapsed: boolean
@@ -219,13 +240,13 @@ function FolderSection({
           {viewMode === 'grid' ? (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {projects.map(proj => (
-                <GridCard key={proj.id} proj={proj} clientId={clientId} isManager={isManager} onDelete={onDelete} />
+                <GridCard key={proj.id} proj={proj} clientId={clientId} isManager={isManager} onDelete={onDelete} onArchive={onArchive} />
               ))}
             </div>
           ) : (
             <div className="flex flex-col gap-2">
               {projects.map(proj => (
-                <ListRow key={proj.id} proj={proj} clientId={clientId} isManager={isManager} onDelete={onDelete} />
+                <ListRow key={proj.id} proj={proj} clientId={clientId} isManager={isManager} onDelete={onDelete} onArchive={onArchive} />
               ))}
             </div>
           )}
@@ -239,7 +260,11 @@ function FolderSection({
 
 export function ClientDetail() {
   const { clientId } = useParams<{ clientId: string }>()
-  const { clients, projects, addProject, updateProject, deleteProject } = useClientStore()
+  const {
+    clients, projects, archivedByClient,
+    addProject, updateProject, deleteProject,
+    archiveProject, unarchiveProject, loadArchivedForClient,
+  } = useClientStore()
   const allTasks = usePipelineStore(s => s.tasks)
   const currentUser = useAuthStore(s => s.currentUser)
   const isManager = currentUser?.role === 'MANAGER'
@@ -327,6 +352,27 @@ export function ClientDetail() {
   }
 
   // ── form state ──
+  // ── archived section ──
+  const archivedProjects = archivedByClient[clientId!] ?? null
+  const [showArchived, setShowArchived] = useState(false)
+
+  async function handleToggleArchived() {
+    if (!showArchived && archivedProjects === null) {
+      await loadArchivedForClient(clientId!)
+    }
+    setShowArchived(v => !v)
+  }
+
+  async function handleArchive(id: string) {
+    try { await archiveProject(id) }
+    catch (err) { setError(err instanceof ApiError ? err.message : 'Failed to archive project.') }
+  }
+
+  async function handleUnarchive(id: string) {
+    try { await unarchiveProject(id) }
+    catch (err) { setError(err instanceof ApiError ? err.message : 'Failed to unarchive project.') }
+  }
+
   const [showForm, setShowForm] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [form, setForm] = useState({
@@ -500,13 +546,13 @@ export function ClientDetail() {
                 {viewMode === 'grid' ? (
                   <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     {sortedProjects.map(proj => (
-                      <GridCard key={proj.id} proj={proj} clientId={clientId!} isManager={isManager} onDelete={setDeleteId} />
+                      <GridCard key={proj.id} proj={proj} clientId={clientId!} isManager={isManager} onDelete={setDeleteId} onArchive={handleArchive} />
                     ))}
                   </div>
                 ) : (
                   <div className="flex flex-col gap-2">
                     {sortedProjects.map(proj => (
-                      <ListRow key={proj.id} proj={proj} clientId={clientId!} isManager={isManager} onDelete={setDeleteId} />
+                      <ListRow key={proj.id} proj={proj} clientId={clientId!} isManager={isManager} onDelete={setDeleteId} onArchive={handleArchive} />
                     ))}
                   </div>
                 )}
@@ -525,6 +571,7 @@ export function ClientDetail() {
                       isManager={isManager}
                       viewMode={viewMode}
                       onDelete={setDeleteId}
+                      onArchive={handleArchive}
                       onRenameFolder={handleRenameFolder}
                       onDeleteFolder={handleDeleteFolder}
                       collapsed={!!collapsedFolders[key]}
@@ -535,6 +582,73 @@ export function ClientDetail() {
               </div>
             )}
           </DndContext>
+        )}
+
+        {/* ── Archived section ── */}
+        {isManager && (
+          <div className="mt-8 border-t border-[#1a263e] pt-6">
+            <button
+              onClick={handleToggleArchived}
+              className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-slate-500 hover:text-slate-300 transition-colors mb-4"
+            >
+              <Package className="w-3.5 h-3.5" />
+              {showArchived ? 'Hide archived' : 'Show archived projects'}
+              {archivedProjects && archivedProjects.length > 0 && (
+                <span className="px-1.5 py-0.5 rounded bg-slate-700/40 text-slate-400 font-black text-[10px]">
+                  {archivedProjects.length}
+                </span>
+              )}
+              {showArchived
+                ? <ChevronDown className="w-3 h-3" />
+                : <ChevronRight className="w-3 h-3" />}
+            </button>
+
+            {showArchived && (
+              <div>
+                {archivedProjects === null ? (
+                  <p className="text-xs text-slate-600 animate-pulse">Loading…</p>
+                ) : archivedProjects.length === 0 ? (
+                  <p className="text-xs text-slate-600 font-bold uppercase tracking-wider">No archived projects.</p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {archivedProjects.map(proj => (
+                      <div key={proj.id}
+                        className="flex items-center gap-4 px-4 py-3 bg-[#0c1221]/60 border border-[#1b253b]/60 rounded-xl opacity-60 hover:opacity-90 transition-opacity"
+                      >
+                        <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded border shrink-0 ${STATUS_BADGES.ARCHIVED}`}>
+                          Archived
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <Link to={`/clients/${clientId}/projects/${proj.id}`}>
+                            <span className="text-sm font-bold text-slate-400 hover:text-indigo-400 transition-colors uppercase tracking-wide truncate block">
+                              {proj.name}
+                            </span>
+                          </Link>
+                          {proj.description && (
+                            <span className="text-[11px] text-slate-600 truncate block">{proj.description}</span>
+                          )}
+                        </div>
+                        <span className="text-[10px] font-bold text-slate-700 uppercase tracking-wider shrink-0">
+                          {format(new Date(proj.createdAt), 'MMM d, yyyy')}
+                        </span>
+                        <button
+                          onClick={() => handleUnarchive(proj.id)}
+                          title="Restore to active"
+                          className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-black uppercase tracking-wider text-slate-500 hover:text-emerald-400 hover:bg-emerald-500/10 border border-transparent hover:border-emerald-500/20 transition-all shrink-0"
+                        >
+                          <ArchiveRestore className="w-3 h-3" /> Restore
+                        </button>
+                        <button onClick={() => setDeleteId(proj.id)} title="Delete permanently"
+                          className="p-1 rounded hover:bg-rose-500/15 text-slate-700 hover:text-rose-400 transition-colors shrink-0">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         )}
 
         {/* Hint for manager when no folders yet */}

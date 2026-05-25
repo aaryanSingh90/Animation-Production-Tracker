@@ -12,7 +12,7 @@ const createSchema = z.object({
   name:        z.string().min(1),
   description: z.string().optional(),
   folderName:  z.string().min(1).optional().nullable(),
-  status:      z.enum(['ACTIVE','ON_HOLD','COMPLETED']).default('ACTIVE'),
+  status:      z.enum(['ACTIVE','ON_HOLD','COMPLETED','ARCHIVED']).default('ACTIVE'),
   frameRate:   z.literal(24).optional(),
 })
 
@@ -20,27 +20,37 @@ const updateSchema = z.object({
   name:        z.string().min(1).optional(),
   description: z.string().optional(),
   folderName:  z.string().min(1).optional().nullable(),
-  status:      z.enum(['ACTIVE','ON_HOLD','COMPLETED']).optional(),
+  status:      z.enum(['ACTIVE','ON_HOLD','COMPLETED','ARCHIVED']).optional(),
 })
 
-// GET /api/projects (?clientId=…)
-//   Managers — all projects (optionally filtered by clientId).
+// GET /api/projects (?clientId=… &includeArchived=true)
+//   By default ARCHIVED projects are excluded — keeps the payload small.
+//   Pass includeArchived=true to load the archive section on demand.
+//   Managers — all matching projects.
 //   Artists  — only projects they have tasks in.
 projectsRouter.get('/', requireAuth, async (req, res) => {
-  const clientFilter = typeof req.query.clientId === 'string'
-    ? { clientId: req.query.clientId }
-    : {}
+  const clientFilter     = typeof req.query.clientId === 'string' ? { clientId: req.query.clientId } : {}
+  const includeArchived  = req.query.includeArchived === 'true'
 
-  if (req.user!.role === 'ARTIST') {
+  // When NOT including archived: only return ARCHIVED rows when explicitly
+  // requested; otherwise exclude them entirely.
+  const archivedFilter   = includeArchived
+    ? { status: 'ARCHIVED' as const }           // archived-only view
+    : { status: { not: 'ARCHIVED' as const } }  // normal view: hide archived
+
+  if (req.user!.role !== 'MANAGER') {
     const ownedProjectIds = await artistOwnedProjectIds(req.user!.sub)
     const projects = await prisma.project.findMany({
-      where:   { ...clientFilter, id: { in: ownedProjectIds } },
+      where:   { ...clientFilter, ...archivedFilter, id: { in: ownedProjectIds } },
       orderBy: { name: 'asc' },
     })
     return res.json({ projects })
   }
 
-  const projects = await prisma.project.findMany({ where: clientFilter, orderBy: { name: 'asc' } })
+  const projects = await prisma.project.findMany({
+    where:   { ...clientFilter, ...archivedFilter },
+    orderBy: { name: 'asc' },
+  })
   res.json({ projects })
 })
 

@@ -7,7 +7,10 @@ import {
 
 interface ClientState {
   clients:     Client[]
+  /** Active projects only (status != ARCHIVED). Archived are lazy-loaded per client. */
   projects:    Project[]
+  /** Archived projects keyed by clientId — null = not loaded yet. */
+  archivedByClient: Record<string, Project[] | null>
   initialized: boolean
   loading:     boolean
 
@@ -18,9 +21,12 @@ interface ClientState {
   updateClient: (id: string, patch: Partial<ClientUpsert>)    => Promise<Client>
   deleteClient: (id: string)                                  => Promise<void>
 
-  addProject:    (data: ProjectUpsert & { clientId: string }) => Promise<Project>
-  updateProject: (id: string, patch: Partial<ProjectUpsert>)  => Promise<Project>
-  deleteProject: (id: string)                                 => Promise<void>
+  addProject:            (data: ProjectUpsert & { clientId: string }) => Promise<Project>
+  updateProject:         (id: string, patch: Partial<ProjectUpsert>)  => Promise<Project>
+  deleteProject:         (id: string)                                  => Promise<void>
+  archiveProject:        (id: string)                                  => Promise<void>
+  unarchiveProject:      (id: string)                                  => Promise<void>
+  loadArchivedForClient: (clientId: string)                            => Promise<void>
 
   getProjectsByClient: (clientId: string) => Project[]
 
@@ -43,10 +49,11 @@ function upsertById<T extends { id: string }>(list: T[], next: T): T[] {
 }
 
 export const useClientStore = create<ClientState>()((set, get) => ({
-  clients:     [],
-  projects:    [],
-  initialized: false,
-  loading:     false,
+  clients:          [],
+  projects:         [],
+  archivedByClient: {},
+  initialized:      false,
+  loading:          false,
 
   initialize: async () => {
     if (get().initialized) return
@@ -54,12 +61,13 @@ export const useClientStore = create<ClientState>()((set, get) => ({
     set({ initialized: true })
   },
 
+  // Only loads NON-ARCHIVED projects — keeps the payload small at startup.
   refresh: async () => {
     set({ loading: true })
     try {
       const [{ clients }, { projects }] = await Promise.all([
         Clients.list(),
-        Projects.list(),
+        Projects.list(),     // backend excludes ARCHIVED by default
       ])
       set({ clients, projects, loading: false })
     } catch (err) {
@@ -70,9 +78,6 @@ export const useClientStore = create<ClientState>()((set, get) => ({
 
   addClient: async (data) => {
     const { client } = await Clients.create(data)
-    // upsert (not append) — the SSE broadcast for `client.created` may have
-    // already inserted this row by the time the POST response lands. Without
-    // dedup we'd render the same client twice.
     set(s => ({ clients: upsertById(s.clients, client) }))
     return client
   },
@@ -93,7 +98,6 @@ export const useClientStore = create<ClientState>()((set, get) => ({
 
   addProject: async (data) => {
     const { project } = await Projects.create(data)
-    // upsert (not append) — same SSE race as addClient.
     set(s => ({ projects: upsertById(s.projects, project) }))
     return project
   },
@@ -106,7 +110,64 @@ export const useClientStore = create<ClientState>()((set, get) => ({
 
   deleteProject: async (id) => {
     await Projects.remove(id)
-    set(s => ({ projects: s.projects.filter(p => p.id !== id) }))
+    set(s => ({
+      projects: s.projects.filter(p => p.id !== id),
+      archivedByClient: Object.fromEntries(
+        Object.entries(s.archivedByClient).map(([cid, list]) => [
+          cid, list ? list.filter(p => p.id !== id) : null,
+        ])
+      ),
+    }))
+  },
+
+  // Move project to ARCHIVED — remove from active list, add to archived bucket
+  archiveProject: async (id) => {
+    const active = get().projects.find(p => p.id === id)
+    if (!active) return
+    const { project } = await Projects.update(id, { status: 'ARCHIVED' })
+    set(s => {
+      const existing = s.archivedByClient[project.clientId]
+      return {
+        projects: s.projects.filter(p => p.id !== id),
+        archivedByClient: {
+          ...s.archivedByClient,
+          // Only add to the bucket if it was already loaded — otherwise it
+          // will appear when the user explicitly opens the archive section.
+          [project.clientId]: existing != null ? upsertById(existing, project) : null,
+        },
+      }
+    })
+  },
+
+  // Move project back to ACTIVE — remove from archived bucket, add to active list
+  unarchiveProject: async (id) => {
+    const { project } = await Projects.update(id, { status: 'ACTIVE' })
+    set(s => {
+      const existing = s.archivedByClient[project.clientId]
+      return {
+        projects: upsertById(s.projects, project),
+        archivedByClient: {
+          ...s.archivedByClient,
+          [project.clientId]: existing != null
+            ? existing.filter(p => p.id !== id)
+            : null,
+        },
+      }
+    })
+  },
+
+  // Lazy-load archived projects for one client on demand
+  loadArchivedForClient: async (clientId) => {
+    // Already loaded — skip
+    if (get().archivedByClient[clientId] != null) return
+    try {
+      const { projects } = await Projects.listArchived(clientId)
+      set(s => ({
+        archivedByClient: { ...s.archivedByClient, [clientId]: projects },
+      }))
+    } catch (err) {
+      console.error('[clients] loadArchived failed', err)
+    }
   },
 
   getProjectsByClient: (clientId) => get().projects.filter(p => p.clientId === clientId),
@@ -124,11 +185,53 @@ export const useClientStore = create<ClientState>()((set, get) => ({
         }))
         break
       case 'project.created':
-      case 'project.updated':
+        // New projects are never ARCHIVED, safe to upsert into active list
         set(s => ({ projects: upsertById(s.projects, event.project) }))
         break
+      case 'project.updated':
+        if (event.project.status === 'ARCHIVED') {
+          // Move out of active list; only add to archived bucket if loaded
+          set(s => {
+            const existing = s.archivedByClient[event.project.clientId]
+            return {
+              projects: s.projects.filter(p => p.id !== event.project.id),
+              archivedByClient: {
+                ...s.archivedByClient,
+                [event.project.clientId]: existing != null
+                  ? upsertById(existing, event.project)
+                  : null,
+              },
+            }
+          })
+        } else {
+          // Active update — also remove from archived bucket in case it was
+          // just unarchived by another user session
+          set(s => {
+            const existing = s.archivedByClient[event.project.clientId]
+            return {
+              projects: upsertById(
+                s.projects.filter(p => p.id !== event.project.id),
+                event.project,
+              ),
+              archivedByClient: {
+                ...s.archivedByClient,
+                [event.project.clientId]: existing != null
+                  ? existing.filter(p => p.id !== event.project.id)
+                  : null,
+              },
+            }
+          })
+        }
+        break
       case 'project.deleted':
-        set(s => ({ projects: s.projects.filter(p => p.id !== event.projectId) }))
+        set(s => ({
+          projects: s.projects.filter(p => p.id !== event.projectId),
+          archivedByClient: Object.fromEntries(
+            Object.entries(s.archivedByClient).map(([cid, list]) => [
+              cid, list ? list.filter(p => p.id !== event.projectId) : null,
+            ])
+          ),
+        }))
         break
     }
   },

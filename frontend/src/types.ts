@@ -62,7 +62,7 @@ export interface Project {
   name: string
   description?: string
   folderName?: string | null
-  status: 'ACTIVE' | 'ON_HOLD' | 'COMPLETED'
+  status: 'ACTIVE' | 'ON_HOLD' | 'COMPLETED' | 'ARCHIVED'
   frameRate: 24
   createdAt: string
 }

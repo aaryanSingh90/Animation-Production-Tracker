@@ -38,6 +38,7 @@ enum ProjectStatus {
   ACTIVE
   ON_HOLD
   COMPLETED
+  ARCHIVED
 }
 
 enum TaskStatus {

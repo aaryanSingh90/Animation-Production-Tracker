@@ -149,6 +149,7 @@ export function Clients() {
               </thead>
               <tbody>
                 {clients.map(client => {
+                  // projects store only holds non-archived — this count is always "active"
                   const projectCount = projects.filter(p => p.clientId === client.id).length
                   return (
                     <tr key={client.id} className="border-b border-[#141d2f] hover:bg-[#0f1829] transition-colors">

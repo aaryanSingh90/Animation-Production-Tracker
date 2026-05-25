@@ -73,10 +73,11 @@ export interface ProjectUpsert {
 }
 
 export const Projects = {
-  list:   (clientId?: string)                      => api.get<{ projects: Project[] }>('/api/projects', clientId ? { clientId } : undefined),
-  create: (data: ProjectUpsert & { clientId: string }) => api.post<{ project: Project }>('/api/projects', data),
-  update: (id: string, patch: Partial<ProjectUpsert>) => api.patch<{ project: Project }>(`/api/projects/${id}`, patch),
-  remove: (id: string)                             => api.delete<{ ok: true }>(`/api/projects/${id}`),
+  list:           (clientId?: string)                          => api.get<{ projects: Project[] }>('/api/projects', clientId ? { clientId } : undefined),
+  listArchived:   (clientId: string)                           => api.get<{ projects: Project[] }>('/api/projects', { clientId, includeArchived: 'true' }),
+  create:         (data: ProjectUpsert & { clientId: string }) => api.post<{ project: Project }>('/api/projects', data),
+  update:         (id: string, patch: Partial<ProjectUpsert>)  => api.patch<{ project: Project }>(`/api/projects/${id}`, patch),
+  remove:         (id: string)                                 => api.delete<{ ok: true }>(`/api/projects/${id}`),
 }
 
 // ─── Tasks ──────────────────────────────────────────────────────────────────
