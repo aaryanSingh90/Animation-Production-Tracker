@@ -50,25 +50,26 @@ function GridCard({
     <div
       ref={setNodeRef}
       style={style}
-      className="bg-[#0c1221] rounded-xl border border-[#1b253b] p-5 hover:border-indigo-500/40 transition-all group relative"
+      className="bg-[#0c1221] rounded-xl border border-[#1b253b] p-5 hover:border-indigo-500/40 transition-all group"
     >
-      {/* Drag handle — top-left, visible on hover */}
-      {isManager && (
-        <button
-          {...attributes}
-          {...listeners}
-          className="absolute top-3 left-3 p-1 rounded text-slate-700 hover:text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing focus:outline-none"
-          aria-label="Drag to reorder"
-          tabIndex={-1}
-        >
-          <GripVertical className="w-3.5 h-3.5" />
-        </button>
-      )}
-
-      <div className="flex items-start justify-between mb-3">
-        <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded border ${STATUS_BADGES[proj.status] ?? STATUS_BADGES.COMPLETED}`}>
-          {proj.status.replace('_', ' ')}
-        </span>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-1.5">
+          {/* Drag handle — inline with badge, visible on hover */}
+          {isManager && (
+            <button
+              {...attributes}
+              {...listeners}
+              className="p-0.5 rounded text-slate-700 hover:text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing focus:outline-none shrink-0"
+              aria-label="Drag to reorder"
+              tabIndex={-1}
+            >
+              <GripVertical className="w-3.5 h-3.5" />
+            </button>
+          )}
+          <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded border ${STATUS_BADGES[proj.status] ?? STATUS_BADGES.COMPLETED}`}>
+            {proj.status.replace('_', ' ')}
+          </span>
+        </div>
         {isManager && (
           <button
             onClick={() => onDelete(proj.id)}
