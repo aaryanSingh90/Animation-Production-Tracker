@@ -1,6 +1,8 @@
-import { X, Clock, MessageSquare, Send, Image as ImageIcon, CheckCircle, RotateCcw, AlertTriangle, Send as SubmitIcon, Play } from 'lucide-react'
-import { useEffect, useState } from 'react'
-import type { TaskRow, ReviewComment } from '../../types'
+import { X, MessageSquare, Send, Image as ImageIcon, CheckCircle, RotateCcw, AlertTriangle, Send as SubmitIcon, Play, Upload, Link, Download, Trash2, Film, Maximize2, Clock } from 'lucide-react'
+import { useEffect, useState, useRef } from 'react'
+import type { TaskRow, TaskVersion, ReviewComment } from '../../types'
+import { API_URL } from '../../api/client'
+import { Tasks } from '../../api/endpoints'
 import { ANY_STATUS_CONFIG } from '../../types'
 import { usePipelineStore } from '../../store/pipelineStore'
 import { useAuthStore } from '../../store/authStore'
@@ -48,6 +50,14 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
   // Approve, Send Retake, Post Note). Prevents double-submit when the user
   // double-clicks or hits Enter twice — a fast double-fire used to create
   // two identical comments / two status changes back-to-back.
+  // ── Video version state ─────────────────────────────────────────────────────
+  const [activeVersionId, setActiveVersionId] = useState<string | null>(null)
+  const [showUrlVersionInput, setShowUrlVersionInput] = useState(false)
+  const [versionUrlInput, setVersionUrlInput]         = useState('')
+  const [uploadingVersion, setUploadingVersion]       = useState(false)
+  const videoRef    = useRef<HTMLVideoElement>(null)
+  const versionFileRef = useRef<HTMLInputElement>(null)
+
   const [actionPending, setActionPending] = useState(false)
   async function run<T>(fn: () => Promise<T>): Promise<T | undefined> {
     if (actionPending) return undefined
@@ -64,6 +74,9 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
     setShowUrlInput(false)
     setShowRetakeInput(false)
     setRetakeReason('')
+    setActiveVersionId(null)
+    setShowUrlVersionInput(false)
+    setVersionUrlInput('')
 
     const syncId = window.setTimeout(() => { setMinuteTick(Date.now()) }, 0)
     return () => window.clearTimeout(syncId)
@@ -155,6 +168,51 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
   function handleSaveThumbnailUrl() {
     updateTask(task!.id, { thumbnail: thumbUrlInput.trim() || undefined })
     setShowUrlInput(false)
+  }
+
+  // ── Video version helpers ────────────────────────────────────────────────────
+  const taskVersions: TaskVersion[] = (task as any).versions ?? []
+  const latestVersion = taskVersions[taskVersions.length - 1] ?? null
+  const activeVersion = taskVersions.find(v => v.id === activeVersionId) ?? latestVersion
+
+  function resolveVideoUrl(v: TaskVersion): string {
+    if (v.videoUrl.startsWith('/uploads/')) return `${API_URL}${v.videoUrl}`
+    return v.videoUrl
+  }
+
+  async function handleVersionFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file || !task) return
+    e.target.value = ''
+    setUploadingVersion(true)
+    try {
+      await Tasks.uploadVersion(task.id, file)
+      // SSE will push the updated task with the new version
+    } catch { /* toast handled globally */ }
+    finally { setUploadingVersion(false) }
+  }
+
+  async function handleVersionUrlSave() {
+    if (!versionUrlInput.trim() || !task) return
+    setUploadingVersion(true)
+    try {
+      await Tasks.addVersionUrl(task.id, versionUrlInput.trim())
+      setVersionUrlInput('')
+      setShowUrlVersionInput(false)
+    } catch { /* toast handled globally */ }
+    finally { setUploadingVersion(false) }
+  }
+
+  async function handleDeleteVersion(versionId: string) {
+    if (!task) return
+    await Tasks.removeVersion(task.id, versionId)
+    if (activeVersionId === versionId) setActiveVersionId(null)
+  }
+
+  function handleFullscreen() {
+    if (videoRef.current) {
+      if (videoRef.current.requestFullscreen) videoRef.current.requestFullscreen()
+    }
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -348,6 +406,184 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
               >
                 SAVE
               </button>
+            </div>
+          )}
+        </div>
+
+        {/* ── Video Player & Version History ───────────────────────────────── */}
+        <div className="space-y-3 border-t border-[#1b253b] pt-4">
+
+          {/* Section header + upload controls */}
+          <div className="flex items-center justify-between">
+            <label className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+              <Film className="w-3.5 h-3.5 text-indigo-400" />
+              Video Versions {taskVersions.length > 0 && <span className="text-indigo-400">({taskVersions.length})</span>}
+            </label>
+
+            {/* Upload controls — managers always, artists only on their own task */}
+            {(isManager || isMyTask) && (
+              <div className="flex items-center gap-1.5">
+                {uploadingVersion && (
+                  <span className="text-[9px] font-bold text-indigo-400 animate-pulse uppercase tracking-wider">Uploading…</span>
+                )}
+                <button
+                  onClick={() => versionFileRef.current?.click()}
+                  disabled={uploadingVersion}
+                  title="Upload video file"
+                  className="flex items-center gap-1 px-2 py-1 text-[9px] font-black uppercase tracking-wider text-slate-300 hover:text-white border border-[#1b253b] hover:border-indigo-500/50 bg-[#0a0f1b] hover:bg-indigo-600/20 rounded transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Upload className="w-3 h-3" /> Upload
+                </button>
+                <button
+                  onClick={() => setShowUrlVersionInput(p => !p)}
+                  disabled={uploadingVersion}
+                  title="Add video by URL"
+                  className={clsx(
+                    "p-1 rounded border transition-all",
+                    showUrlVersionInput
+                      ? "border-indigo-500/60 bg-indigo-600/20 text-indigo-400"
+                      : "border-[#1b253b] bg-[#0a0f1b] text-slate-400 hover:text-white hover:border-indigo-500/40"
+                  )}
+                >
+                  <Link className="w-3.5 h-3.5" />
+                </button>
+                {/* Hidden file input */}
+                <input
+                  ref={versionFileRef}
+                  type="file"
+                  accept="video/*"
+                  className="hidden"
+                  onChange={handleVersionFileUpload}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* URL paste row */}
+          {showUrlVersionInput && (
+            <div className="flex gap-1.5 p-2 bg-[#0d1424] border border-[#1b253b] rounded-md animate-in fade-in duration-100">
+              <input
+                value={versionUrlInput}
+                onChange={e => setVersionUrlInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleVersionUrlSave() }}
+                placeholder="Paste direct video URL (mp4, mov…)"
+                className="flex-1 px-2.5 py-1 text-xs border border-[#1a263e] rounded bg-[#070a13] text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500"
+              />
+              <button
+                onClick={handleVersionUrlSave}
+                disabled={uploadingVersion || !versionUrlInput.trim()}
+                className="px-2.5 py-1 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed rounded transition-all"
+              >
+                SAVE
+              </button>
+            </div>
+          )}
+
+          {/* ── Active version player ── */}
+          {activeVersion ? (
+            <div className="space-y-2">
+              <div className="relative rounded-lg overflow-hidden bg-black border border-[#1b253b] shadow-lg">
+                <video
+                  ref={videoRef}
+                  key={activeVersion.id}
+                  src={resolveVideoUrl(activeVersion)}
+                  controls
+                  onDoubleClick={handleFullscreen}
+                  className="w-full max-h-52 object-contain"
+                  title="Double-click for fullscreen"
+                />
+                {/* Overlay controls */}
+                <div className="absolute bottom-2 right-2 flex gap-1.5">
+                  <button
+                    onClick={handleFullscreen}
+                    title="Fullscreen"
+                    className="bg-black/70 hover:bg-indigo-600 text-white p-1 rounded transition-all"
+                  >
+                    <Maximize2 className="w-3.5 h-3.5" />
+                  </button>
+                  <a
+                    href={resolveVideoUrl(activeVersion)}
+                    download
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Download this version"
+                    className="bg-black/70 hover:bg-emerald-600 text-white p-1 rounded transition-all"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                  </a>
+                </div>
+              </div>
+              {/* Version meta */}
+              <div className="text-center text-[9px] font-bold text-slate-500 font-mono uppercase tracking-wider">
+                v{activeVersion.versionNum}
+                {' · '}
+                {activeVersion.uploadedByName}
+                {' · '}
+                {format(new Date(activeVersion.createdAt), 'MMM d, yyyy')}
+              </div>
+            </div>
+          ) : (
+            /* Empty state — shown when there are no versions yet */
+            <div className="flex flex-col items-center gap-2 py-7 text-slate-500 border border-dashed border-[#1b253b] rounded-lg">
+              <Film className="w-7 h-7 opacity-25" />
+              <span className="text-[10px] font-bold uppercase tracking-wider">No video versions yet</span>
+              {(isManager || isMyTask) && (
+                <span className="text-[9px] text-slate-600">Use Upload or paste a URL above</span>
+              )}
+            </div>
+          )}
+
+          {/* ── Version history list ── */}
+          {taskVersions.length > 0 && (
+            <div className="space-y-1.5 max-h-44 overflow-y-auto pr-0.5">
+              <div className="text-[9px] font-bold text-slate-600 uppercase tracking-wider mb-1">All versions (newest first)</div>
+              {[...taskVersions].reverse().map(v => (
+                <div
+                  key={v.id}
+                  onClick={() => setActiveVersionId(v.id)}
+                  className={clsx(
+                    "flex items-center gap-2.5 px-2.5 py-2 rounded-md border cursor-pointer transition-all",
+                    v.id === (activeVersion?.id)
+                      ? "border-indigo-500/50 bg-indigo-500/10"
+                      : "border-[#1b253b] bg-[#090f1d] hover:border-indigo-500/30 hover:bg-[#0d1424]"
+                  )}
+                >
+                  {/* Version badge */}
+                  <span className="text-[10px] font-black text-indigo-400 font-mono shrink-0 w-7">
+                    v{v.versionNum}
+                  </span>
+                  {/* Uploader + date */}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[10px] font-semibold text-slate-300 truncate">{v.uploadedByName}</div>
+                    <div className="text-[8px] font-bold text-slate-500 font-mono">
+                      {format(new Date(v.createdAt), 'MMM d · h:mm a')}
+                    </div>
+                  </div>
+                  {/* Action buttons */}
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    <a
+                      href={resolveVideoUrl(v)}
+                      download
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={e => e.stopPropagation()}
+                      title="Download"
+                      className="p-1.5 text-slate-500 hover:text-emerald-400 transition-colors rounded hover:bg-emerald-500/10"
+                    >
+                      <Download className="w-3 h-3" />
+                    </a>
+                    {isManager && (
+                      <button
+                        onClick={e => { e.stopPropagation(); void handleDeleteVersion(v.id) }}
+                        title="Delete version"
+                        className="p-1.5 text-slate-600 hover:text-rose-400 transition-colors rounded hover:bg-rose-500/10"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>

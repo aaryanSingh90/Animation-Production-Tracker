@@ -144,4 +144,23 @@ export const api = {
   post:   <T>(path: string, body?: unknown)                              => request<T>(path, { method: 'POST',   body }),
   patch:  <T>(path: string, body?: unknown)                              => request<T>(path, { method: 'PATCH',  body }),
   delete: <T>(path: string)                                              => request<T>(path, { method: 'DELETE' }),
+
+  /** Send FormData (file upload) — browser sets Content-Type + boundary automatically. */
+  postForm: <T>(path: string, form: FormData): Promise<T> => {
+    const url = `${API_URL}${path.startsWith('/') ? path : `/${path}`}`
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+      ...(inMemoryToken ? { Authorization: `Bearer ${inMemoryToken}` } : {}),
+    }
+    return fetch(url, { method: 'POST', headers, body: form, credentials: 'include' })
+      .then(async res => {
+        if (!res.ok) {
+          let bodyJson: unknown; try { bodyJson = await res.json() } catch { /* */ }
+          const msg = (bodyJson && typeof bodyJson === 'object' && 'error' in bodyJson)
+            ? String((bodyJson as { error: unknown }).error) : res.statusText
+          throw new ApiError(res.status, msg, bodyJson)
+        }
+        return res.json() as Promise<T>
+      })
+  },
 }

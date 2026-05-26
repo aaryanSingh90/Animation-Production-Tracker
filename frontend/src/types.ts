@@ -86,6 +86,17 @@ export interface Employee {
   // Password never leaves the backend — only sent to the API in create/update payloads.
 }
 
+// ─── Task Version ─────────────────────────────────────────────────────────────
+
+export interface TaskVersion {
+  id:             string
+  versionNum:     number
+  videoUrl:       string
+  uploadedByName: string
+  uploadedById?:  string | null
+  createdAt:      string
+}
+
 // ─── Review Comment ───────────────────────────────────────────────────────────
 
 export interface ReviewComment {
@@ -126,6 +137,7 @@ export interface TaskRow {
   thumbnail?: string
   retakeNote?: string
   comments?: ReviewComment[]
+  versions?: TaskVersion[]
   createdAt: string
   updatedAt: string
   statusHistory: StatusChange[]

@@ -170,12 +170,27 @@ model Task {
 
   statusHistory     StatusChange[]
   comments          ReviewComment[]
+  versions          TaskVersion[]
 
   @@index([projectId])
   @@index([subStageId])
   @@index([assignedArtistId])
   @@index([status])
   @@index([shotNumber])
+}
+
+model TaskVersion {
+  id             String   @id @default(cuid())
+  versionNum     Int
+  videoUrl       String   // absolute URL or server-relative /uploads/… path
+  uploadedByName String   // captured at write time — survives user deletion
+  uploadedById   String?
+  createdAt      DateTime @default(now())
+
+  task           Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId         String
+
+  @@index([taskId])
 }
 
 model StatusChange {

@@ -118,4 +118,19 @@ export const Tasks = {
   remove:  (id: string)                            => api.delete<{ ok: true }>(`/api/tasks/${id}`),
   comment: (id: string, message: string, type?: 'note' | 'retake' | 'approval') =>
     api.post<{ comment: unknown; task: TaskRow }>(`/api/tasks/${id}/comments`, { message, type }),
+
+  /** Upload a video file as a new version (multipart/form-data). */
+  uploadVersion: (id: string, file: File) => {
+    const form = new FormData()
+    form.append('video', file)
+    return api.postForm<{ task: TaskRow }>(`/api/tasks/${id}/versions`, form)
+  },
+
+  /** Save an external URL as a new version. */
+  addVersionUrl: (id: string, videoUrl: string) =>
+    api.post<{ task: TaskRow }>(`/api/tasks/${id}/versions`, { videoUrl }),
+
+  /** Delete a specific version (manager only). */
+  removeVersion: (id: string, versionId: string) =>
+    api.delete<{ ok: true; task: TaskRow }>(`/api/tasks/${id}/versions/${versionId}`),
 }

@@ -1,9 +1,29 @@
 import { Router } from 'express'
 import { z } from 'zod'
+import multer from 'multer'
+import path from 'path'
+import fs from 'fs'
+import { fileURLToPath } from 'url'
 import { prisma } from '../lib/prisma.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 import { broadcast } from '../lib/sse.js'
 import { zodMsg } from '../lib/zodMsg.js'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+// ── File upload (multer) ────────────────────────────────────────────────────
+const uploadsDir = path.join(__dirname, '..', '..', 'uploads')
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true })
+
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, uploadsDir),
+  filename: (_req, file, cb) => {
+    const ext  = path.extname(file.originalname)
+    const name = `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`
+    cb(null, name)
+  },
+})
+const upload = multer({ storage, limits: { fileSize: 500 * 1024 * 1024 } }) // 500 MB max
 
 export const tasksRouter = Router()
 
@@ -48,6 +68,7 @@ const updateSchema = createSchema.partial().extend({
 const TASK_INCLUDE = {
   statusHistory: { orderBy: { changedAt: 'asc' as const } },
   comments:      { orderBy: { createdAt: 'asc' as const } },
+  versions:      { orderBy: { versionNum: 'asc' as const } },
 }
 
 // GET /api/tasks (?projectId, ?subStageId, ?assignedArtistId)
@@ -183,4 +204,67 @@ tasksRouter.post('/:id/comments', requireAuth, async (req, res) => {
   const task = await prisma.task.findUnique({ where: { id: req.params.id }, include: TASK_INCLUDE })
   broadcast({ type: 'task.updated', task })
   res.status(201).json({ comment, task })
+})
+
+// ─── Video Versions ─────────────────────────────────────────────────────────
+
+/**
+ * POST /api/tasks/:id/versions
+ *   • multipart/form-data field "video" → uploads file to /uploads/, creates version
+ *   • application/json { videoUrl: string }  → stores external URL as version
+ * Both paths auto-increment versionNum and broadcast task.updated.
+ */
+tasksRouter.post('/:id/versions', requireAuth, upload.single('video'), async (req, res) => {
+  const taskId = req.params.id
+
+  // Verify task exists
+  const existing = await prisma.task.findUnique({ where: { id: taskId } })
+  if (!existing) return res.status(404).json({ error: 'Task not found' })
+
+  // Resolve video URL
+  let videoUrl: string
+  if (req.file) {
+    // File uploaded — build a server-relative URL the frontend can use
+    videoUrl = `/uploads/${req.file.filename}`
+  } else if (typeof req.body?.videoUrl === 'string' && req.body.videoUrl.trim()) {
+    videoUrl = req.body.videoUrl.trim()
+  } else {
+    return res.status(400).json({ error: 'Provide a video file or videoUrl.' })
+  }
+
+  // Get uploader info
+  const uploader = await prisma.employee.findUnique({ where: { id: req.user!.sub } })
+  const uploaderName = uploader?.name ?? 'Unknown'
+
+  // Next version number
+  const count = await prisma.taskVersion.count({ where: { taskId } })
+  const versionNum = count + 1
+
+  await prisma.taskVersion.create({
+    data: { taskId, versionNum, videoUrl, uploadedByName: uploaderName, uploadedById: req.user!.sub },
+  })
+
+  const task = await prisma.task.findUnique({ where: { id: taskId }, include: TASK_INCLUDE })
+  broadcast({ type: 'task.updated', task })
+  res.status(201).json({ task })
+})
+
+/**
+ * DELETE /api/tasks/:id/versions/:versionId — managers only
+ * Removes the version record and deletes the file from disk if it is a local upload.
+ */
+tasksRouter.delete('/:id/versions/:versionId', requireAuth, requireRole('MANAGER'), async (req, res) => {
+  const version = await prisma.taskVersion.findUnique({ where: { id: req.params.versionId } })
+  if (!version) return res.status(404).json({ error: 'Version not found' })
+
+  // Delete file from disk if it was a local upload
+  if (version.videoUrl.startsWith('/uploads/')) {
+    const filePath = path.join(uploadsDir, path.basename(version.videoUrl))
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+  }
+
+  await prisma.taskVersion.delete({ where: { id: version.id } })
+  const task = await prisma.task.findUnique({ where: { id: req.params.id }, include: TASK_INCLUDE })
+  broadcast({ type: 'task.updated', task })
+  res.json({ ok: true, task })
 })
