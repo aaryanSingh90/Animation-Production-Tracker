@@ -80,6 +80,12 @@ interface Props {
 
 export function BulkVideoUpload({ projectId, subStageConfig }: Props) {
   const addTask = usePipelineStore(s => s.addTask)
+  // Count tasks already committed to the DB for this sub-stage so that
+  // new uploads continue from the right shot number (e.g. if 001–004 exist
+  // the next batch starts at 005, not 001).
+  const committedCount = usePipelineStore(s =>
+    s.tasks.filter(t => t.projectId === projectId && t.subStageId === subStageConfig.id).length
+  )
   const fileRef = useRef<HTMLInputElement>(null)
 
   const [items,      setItems]      = useState<VideoItem[]>([])
@@ -99,10 +105,13 @@ export function BulkVideoUpload({ projectId, subStageConfig }: Props) {
     const next: VideoItem[] = []
     const failed: string[]  = []
 
-    // Sequential shot numbers continuing from however many items already exist
-    // e.g. first batch → 001, 002, 003 …
-    //      second batch of 2 more → 004, 005
-    const seqOffset = items.length
+    // Sequential shot numbers:
+    //   committedCount = tasks already saved to DB for this sub-stage
+    //   items.length   = items already in this preview (not yet submitted)
+    // Together they tell us where the next shot number should start.
+    // e.g. 4 existing shots in DB + 0 in preview → first new shot = 005
+    //      4 existing shots in DB + 3 in preview  → next new shot  = 008
+    const seqOffset = committedCount + items.length
 
     for (let i = 0; i < list.length; i++) {
       const file = list[i]
@@ -126,7 +135,7 @@ export function BulkVideoUpload({ projectId, subStageConfig }: Props) {
     setItems(prev => [...prev, ...next])
     if (failed.length) setError(`Skipped (unreadable): ${failed.join(', ')}`)
     setProcessing(false)
-  }, [items.length])
+  }, [committedCount, items.length])
 
   // ── Drag & drop ────────────────────────────────────────────────────────────
 
