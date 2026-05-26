@@ -91,6 +91,22 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
     return () => window.clearInterval(timerId)
   }, [isActiveTimer, task?.id])
 
+  // ── Soft-link: Animation tasks read versions from their Cut Shots twin ────────
+  // IMPORTANT: this hook MUST be called before the early return below so that
+  // the hook call count stays constant between renders (React rules of hooks).
+  // It only depends on `passedTask` (a prop), so it is safe to call even when
+  // `task` is null.
+  const linkedCutShot = usePipelineStore(s => {
+    if (!passedTask) return null
+    const live = s.tasks.find(t => t.id === passedTask.id) ?? passedTask
+    if (live.subStageId !== 'animation-animation' || !live.shotNumber) return null
+    return s.tasks.find(t =>
+      t.subStageId === 'animatics-cut-shots' &&
+      t.shotNumber  === live.shotNumber &&
+      t.projectId   === live.projectId
+    ) ?? null
+  })
+
   if (!task) return null
 
   const elapsed      = getTaskElapsedMs(task, minuteTick)
@@ -173,20 +189,6 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
   }
 
   // ── Video version helpers ────────────────────────────────────────────────────
-  // Soft-link: Animation tasks read versions from their Cut Shots twin.
-  // This way the animatic video uploaded in Cut Shots is visible + playable
-  // from the Animation stage drawer without duplicating the file.
-  const linkedCutShot = usePipelineStore(s => {
-    if (!passedTask) return null
-    const live = s.tasks.find(t => t.id === passedTask.id) ?? passedTask
-    if (live.subStageId !== 'animation-animation' || !live.shotNumber) return null
-    return s.tasks.find(t =>
-      t.subStageId === 'animatics-cut-shots' &&
-      t.shotNumber  === live.shotNumber &&
-      t.projectId   === live.projectId
-    ) ?? null
-  })
-
   const ownVersions: TaskVersion[]  = (task as any).versions ?? []
   // If this is an Animation task with no own versions, fall back to the Cut Shots twin
   const taskVersions: TaskVersion[] = ownVersions.length > 0
