@@ -12,7 +12,12 @@ import { zodMsg } from '../lib/zodMsg.js'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // ── File upload (multer) ────────────────────────────────────────────────────
-const uploadsDir = path.join(__dirname, '..', '..', 'uploads')
+// UPLOADS_DIR can be overridden via env var so that on Render we use the
+// persistent disk mount (/opt/render/project/uploads) rather than the
+// ephemeral build directory (which is wiped on every redeploy).
+const uploadsDir = process.env.UPLOADS_DIR
+  ? path.resolve(process.env.UPLOADS_DIR)
+  : path.join(__dirname, '..', '..', 'uploads')
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true })
 
 const storage = multer.diskStorage({

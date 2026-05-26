@@ -23,11 +23,22 @@ services:
     # The Express app exposes `/health` for Render's checker.
     healthCheckPath: /health
 
+    # Persistent disk — keeps uploaded video files across redeploys.
+    # Render free plan requires an upgrade for persistent disks; use the
+    # Starter disk (1 GB) at minimum. The mountPath MUST match UPLOADS_DIR below.
+    disk:
+      name: shothub-uploads
+      mountPath: /opt/render/project/uploads
+      sizeGB: 5
+
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 10000
+      # Persistent uploads directory — matches the disk mountPath above.
+      - key: UPLOADS_DIR
+        value: /opt/render/project/uploads
       # Secrets — set these in Render's dashboard, not in the repo.
       - key: DATABASE_URL
         sync: false

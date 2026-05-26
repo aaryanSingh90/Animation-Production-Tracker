@@ -257,10 +257,18 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
     const vid = videoRef.current
     if (!vid) return
     try {
-      await vid.requestFullscreen?.()
-      // Start playing once fullscreen is entered (double-click = intent to watch)
-      void vid.play()
-    } catch { /* fullscreen blocked on some devices — ignore */ }
+      // Standard Fullscreen API (Chrome, Firefox, Edge, Safari 16.4+)
+      if (document.fullscreenEnabled && vid.requestFullscreen) {
+        await vid.requestFullscreen()
+      // Webkit — iOS Safari / older macOS Safari
+      } else if ((vid as any).webkitSupportsFullscreen) {
+        ;(vid as any).webkitEnterFullscreen()
+      } else if ((vid as any).webkitRequestFullscreen) {
+        await (vid as any).webkitRequestFullscreen()
+      }
+    } catch { /* fullscreen can be blocked on certain pages / browsers — ignore */ }
+    // Always try to play so double-click = instant watch
+    try { await vid.play() } catch { /* ignore */ }
   }
 
   /**
@@ -273,6 +281,7 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
     if (v.videoUrl.startsWith('/uploads/')) {
       try {
         const resp = await fetch(url, { credentials: 'include' })
+        if (!resp.ok) throw new Error(`Server returned ${resp.status} — the file may have been deleted.`)
         const blob = await resp.blob()
         const ext  = v.videoUrl.split('.').pop() ?? 'mp4'
         const blobUrl = URL.createObjectURL(blob)
@@ -568,31 +577,46 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
                   key={activeVersion.id}
                   src={resolveVideoUrl(activeVersion)}
                   controls
+                  playsInline
                   onPlay={() => setIsVideoPlaying(true)}
                   onPause={() => setIsVideoPlaying(false)}
                   onEnded={() => setIsVideoPlaying(false)}
                   onDoubleClick={handleFullscreen}
+                  onError={() => pushToast({
+                    kind: 'error',
+                    title: 'Video unavailable',
+                    body: 'The file could not be loaded — it may have been deleted from the server.',
+                    ttl: 6000,
+                  })}
                   className="w-full max-h-52 object-contain"
                 />
-                {/* Big play overlay — visible when paused so a single click plays;
-                    disappears when playing so native controls (scrubber etc.) are fully
-                    accessible. Double-click also enters fullscreen. */}
+                {/* Play overlay — covers only the video viewport (NOT the native controls bar
+                    at the bottom ~44 px). Clicking it plays; double-clicking enters fullscreen.
+                    Disappears once playing so the scrubber / volume / pause button are reachable. */}
                 {!isVideoPlaying && (
                   <div
-                    onClick={() => void videoRef.current?.play()}
+                    onClick={async () => {
+                      const vid = videoRef.current
+                      if (!vid) return
+                      try { await vid.play() }
+                      catch (err) {
+                        pushToast({ kind: 'error', title: 'Cannot play video',
+                          body: err instanceof Error ? err.message : 'Check the video file and try again', ttl: 5000 })
+                      }
+                    }}
                     onDoubleClick={handleFullscreen}
-                    className="absolute inset-0 flex items-center justify-center cursor-pointer"
+                    className="absolute inset-x-0 top-0 bottom-[44px] flex items-center justify-center cursor-pointer"
                   >
                     <div className="w-12 h-12 rounded-full bg-black/55 border border-white/25 flex items-center justify-center hover:bg-black/75 transition-colors">
                       <Play className="w-6 h-6 text-white ml-0.5" />
                     </div>
                   </div>
                 )}
-                {/* Corner action buttons */}
+                {/* Corner buttons — always above the overlay (z-10) and below the controls bar */}
                 <div className="absolute bottom-2 right-2 flex gap-1.5 z-10">
                   <button
                     onClick={handleFullscreen}
-                    title="Fullscreen"
+                    title="Fullscreen (or double-click the video)"
                     className="bg-black/70 hover:bg-indigo-600 text-white p-1 rounded transition-all"
                   >
                     <Maximize2 className="w-3.5 h-3.5" />

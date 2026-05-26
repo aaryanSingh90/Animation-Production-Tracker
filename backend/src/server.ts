@@ -43,8 +43,11 @@ export function createApp() {
   app.use(express.json({ limit: '10mb' }))
 
   // Serve uploaded video files as static assets.
-  // Files are stored in <backend-root>/uploads/ and accessible at /uploads/<filename>.
-  const uploadsDir = path.join(__dirname, '..', 'uploads')
+  // Uses UPLOADS_DIR env var so the same code works both locally (relative path)
+  // and on Render where a persistent disk is mounted at a fixed absolute path.
+  const uploadsDir = process.env.UPLOADS_DIR
+    ? path.resolve(process.env.UPLOADS_DIR)
+    : path.join(__dirname, '..', 'uploads')
   app.use('/uploads', express.static(uploadsDir))
 
   // Health check (bypasses rate limit + auth).
