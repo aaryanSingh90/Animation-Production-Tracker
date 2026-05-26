@@ -27,6 +27,14 @@ interface PipelineState {
    */
   loadForSubStage: (projectId: string, subStageId: string) => Promise<void>
 
+  /**
+   * Load ALL tasks for a project in a single API call.
+   * Used by the Pipeline Matrix so it doesn't need 11 separate sub-stage fetches.
+   * Marks every fetched sub-stage as loaded, so subsequent loadForSubStage
+   * calls on the same project are no-ops (no double-fetching).
+   */
+  loadForProject: (projectId: string) => Promise<void>
+
   addTask:          (data: TaskCreate)                                       => Promise<TaskRow>
   updateTask:       (id: string, patch: TaskPatch)                           => Promise<TaskRow>
   updateTaskStatus: (id: string, newStatus: TaskStatus, _userId?: string)    => Promise<TaskRow>
@@ -105,6 +113,38 @@ export const usePipelineStore = create<PipelineState>()((set, get) => ({
       })
     } catch (err) {
       console.error('[tasks] loadForSubStage failed', err)
+      set({ loading: false })
+    }
+  },
+
+  loadForProject: async (projectId) => {
+    // Use a synthetic key so we only fetch the full project once per session
+    const projectKey = `project:${projectId}`
+    if (get().loadedSubStages[projectKey]) return
+
+    set({ loading: true })
+    try {
+      const { tasks: fresh } = await Tasks.list({ projectId })
+      set(s => {
+        // Replace all tasks for this project with the fresh batch
+        const rest = s.tasks.filter(t => t.projectId !== projectId)
+        // Mark the synthetic project key AND every individual sub-stage as loaded
+        // so subsequent loadForSubStage calls on the same project are no-ops.
+        const newLoaded: Record<string, true> = {
+          ...s.loadedSubStages,
+          [projectKey]: true,
+        }
+        for (const t of fresh) {
+          newLoaded[`${projectId}:${t.subStageId}`] = true
+        }
+        return {
+          tasks:           [...rest, ...fresh],
+          loadedSubStages: newLoaded,
+          loading:         false,
+        }
+      })
+    } catch (err) {
+      console.error('[tasks] loadForProject failed', err)
       set({ loading: false })
     }
   },

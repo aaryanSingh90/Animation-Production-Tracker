@@ -33,8 +33,9 @@ const CHARACTER_STAGES: Array<{ key: string; label: string; subStageId: string }
 export function ShotMatrix() {
   const clients   = useClientStore(s => s.clients)
   const projects  = useClientStore(s => s.projects)
-  const tasks     = usePipelineStore(s => s.tasks)
-  const employees = useEmployeeStore(s => s.employees)
+  const tasks            = usePipelineStore(s => s.tasks)
+  const loadForProject   = usePipelineStore(s => s.loadForProject)
+  const employees        = useEmployeeStore(s => s.employees)
   const updateTaskStatus = usePipelineStore(s => s.updateTaskStatus)
 
   const [view, setView] = useState<View>('project')
@@ -49,6 +50,12 @@ export function ShotMatrix() {
     if (selectedClientId === ALL_CLIENTS) return projects
     return projects.filter(p => p.clientId === selectedClientId)
   }, [projects, selectedClientId])
+
+  // Eagerly load tasks for every project visible in the current client filter.
+  // loadForProject is idempotent (no-op after the first call per project per session).
+  useEffect(() => {
+    visibleProjects.forEach(p => loadForProject(p.id))
+  }, [visibleProjects, loadForProject])
 
   // Shot-view-specific: project picker
   const [shotViewProjectId, setShotViewProjectId] = useState<string>(ALL_PROJECTS)
