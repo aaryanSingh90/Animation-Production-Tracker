@@ -201,6 +201,13 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
   // Label shown in section header when versions come from the linked cut-shot
   const versionsFromCutShots = ownVersions.length === 0 && taskVersions.length > 0
 
+  // ── Thumbnail soft-link (same pattern as video versions) ─────────────────────
+  // If this task has no thumbnail of its own, fall back to the linked Cut Shots
+  // task's thumbnail so the storyboard image is visible from the Animation stage
+  // without the manager having to paste the URL twice.
+  const displayThumb     = task.thumbnail ?? (linkedCutShot as any)?.thumbnail ?? null
+  const thumbFromCutShot = !task.thumbnail && !!displayThumb
+
   function resolveVideoUrl(v: TaskVersion): string {
     if (v.videoUrl.startsWith('/uploads/')) return `${API_URL}${v.videoUrl}`
     return v.videoUrl
@@ -458,8 +465,18 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
         <div className="space-y-2">
           <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Canvas & Storyboard</label>
           <div className="relative group w-full h-44 bg-slate-950 border border-[#1b253b] rounded-lg overflow-hidden flex items-center justify-center shadow-lg">
-            {task.thumbnail ? (
-              <img src={task.thumbnail} className="w-full h-full object-cover" alt="" />
+            {displayThumb ? (
+              <>
+                <img src={displayThumb} className="w-full h-full object-cover" alt="" />
+                {/* Badge when the image comes from the linked Cut Shots task */}
+                {thumbFromCutShot && (
+                  <div className="absolute top-2 left-2">
+                    <span className="text-[8px] font-black text-indigo-300 bg-[#080d1a]/85 border border-indigo-500/40 px-1.5 py-0.5 rounded uppercase tracking-wider backdrop-blur-sm">
+                      via cut shots
+                    </span>
+                  </div>
+                )}
+              </>
             ) : (
               <div className="flex flex-col items-center gap-2 text-slate-500">
                 <ImageIcon className="w-8 h-8 opacity-40 text-indigo-500 animate-pulse" />
