@@ -23,7 +23,9 @@ export function createApp() {
   // Security headers. CSP is disabled because the frontend runs on a separate
   // origin and we'd need a more elaborate policy to allow it — covered by
   // Vercel's own headers config in production.
-  app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }))
+  // crossOriginResourcePolicy is set to 'cross-origin' so that <video> and
+  // <img> elements on the frontend (different origin) can load /uploads/ files.
+  app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false, crossOriginResourcePolicy: { policy: 'cross-origin' } }))
 
   // Trust X-Forwarded-* headers when sitting behind Render's proxy, so
   // express-rate-limit can correctly key on the real client IP.

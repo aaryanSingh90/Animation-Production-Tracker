@@ -186,27 +186,45 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
     e.target.value = ''
     setUploadingVersion(true)
     try {
-      await Tasks.uploadVersion(task.id, file)
-      // SSE will push the updated task with the new version
-    } catch { /* toast handled globally */ }
-    finally { setUploadingVersion(false) }
+      const { task: updated } = await Tasks.uploadVersion(task.id, file)
+      // Directly merge into store; SSE may arrive later and will be deduplicated
+      usePipelineStore.getState().applyServerEvent({ type: 'task.updated', task: updated })
+      const vnum = updated.versions?.length ?? '?'
+      pushToast({ kind: 'info', title: 'Version uploaded', body: `v${vnum} saved for ${updated.itemName}`, ttl: 2500 })
+    } catch (err) {
+      pushToast({ kind: 'error', title: 'Upload failed', body: err instanceof Error ? err.message : 'Check backend is running and try again', ttl: 5000 })
+    } finally {
+      setUploadingVersion(false)
+    }
   }
 
   async function handleVersionUrlSave() {
     if (!versionUrlInput.trim() || !task) return
     setUploadingVersion(true)
     try {
-      await Tasks.addVersionUrl(task.id, versionUrlInput.trim())
+      const { task: updated } = await Tasks.addVersionUrl(task.id, versionUrlInput.trim())
+      usePipelineStore.getState().applyServerEvent({ type: 'task.updated', task: updated })
+      const vnum = updated.versions?.length ?? '?'
+      pushToast({ kind: 'info', title: 'Version added', body: `v${vnum} saved for ${updated.itemName}`, ttl: 2500 })
       setVersionUrlInput('')
       setShowUrlVersionInput(false)
-    } catch { /* toast handled globally */ }
-    finally { setUploadingVersion(false) }
+    } catch (err) {
+      pushToast({ kind: 'error', title: 'Failed to add version', body: err instanceof Error ? err.message : 'Please try again', ttl: 5000 })
+    } finally {
+      setUploadingVersion(false)
+    }
   }
 
   async function handleDeleteVersion(versionId: string) {
     if (!task) return
-    await Tasks.removeVersion(task.id, versionId)
-    if (activeVersionId === versionId) setActiveVersionId(null)
+    try {
+      const { task: updated } = await Tasks.removeVersion(task.id, versionId)
+      usePipelineStore.getState().applyServerEvent({ type: 'task.updated', task: updated })
+      if (activeVersionId === versionId) setActiveVersionId(null)
+      pushToast({ kind: 'info', title: 'Version deleted', ttl: 2000 })
+    } catch (err) {
+      pushToast({ kind: 'error', title: 'Delete failed', body: err instanceof Error ? err.message : 'Please try again', ttl: 5000 })
+    }
   }
 
   function handleFullscreen() {
