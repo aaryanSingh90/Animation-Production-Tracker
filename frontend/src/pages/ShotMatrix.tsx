@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Film, Image as ImageIcon, Briefcase, User, Grid3X3, CheckCircle2 } from 'lucide-react'
+import { Film, Image as ImageIcon, Briefcase, User, Grid3X3, CheckCircle2, Search, X as XIcon, AlertTriangle } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useClientStore } from '../store/clientStore'
 import { usePipelineStore } from '../store/pipelineStore'
@@ -15,6 +15,9 @@ const SHOT_STAGES = STAGE_CONFIGS.filter(s => s.workflowType === 'SHOT')
 
 const ALL_CLIENTS  = '__all_clients__'
 const ALL_PROJECTS = '__all_projects__'
+const NO_CLIENT    = '__no_client__'
+
+const LS_KEY = 'shothub:matrix:client'
 
 type View = 'project' | 'shot' | 'character'
 
@@ -31,8 +34,8 @@ const CHARACTER_STAGES: Array<{ key: string; label: string; subStageId: string }
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function ShotMatrix() {
-  const clients   = useClientStore(s => s.clients)
-  const projects  = useClientStore(s => s.projects)
+  const clients          = useClientStore(s => s.clients)
+  const projects         = useClientStore(s => s.projects)
   const tasks            = usePipelineStore(s => s.tasks)
   const loadForProject   = usePipelineStore(s => s.loadForProject)
   const employees        = useEmployeeStore(s => s.employees)
@@ -40,36 +43,56 @@ export function ShotMatrix() {
 
   const [view, setView] = useState<View>('project')
 
-  // Client filter shared by all three views
+  // ── Client selection ─────────────────────────────────────────────────────
+  // Default: no client selected (empty state). Remembered across page reloads.
   const [selectedClientId, setSelectedClientId] = useState<string>(() => {
-    const firstWithProjects = clients.find(c => projects.some(p => p.clientId === c.id))
-    return firstWithProjects ? ALL_CLIENTS : ALL_CLIENTS
+    try { return localStorage.getItem(LS_KEY) ?? NO_CLIENT } catch { return NO_CLIENT }
   })
 
+  // Persist selection so the user doesn't have to re-select on every visit
+  useEffect(() => {
+    try { localStorage.setItem(LS_KEY, selectedClientId) } catch {}
+  }, [selectedClientId])
+
+  // Projects in scope for the selected client (or all if ALL_CLIENTS)
   const visibleProjects = useMemo(() => {
+    if (selectedClientId === NO_CLIENT) return []
     if (selectedClientId === ALL_CLIENTS) return projects
     return projects.filter(p => p.clientId === selectedClientId)
   }, [projects, selectedClientId])
 
-  // Eagerly load tasks for every project visible in the current client filter.
-  // loadForProject is idempotent (no-op after the first call per project per session).
-  useEffect(() => {
-    visibleProjects.forEach(p => loadForProject(p.id))
-  }, [visibleProjects, loadForProject])
+  // ── Project search ───────────────────────────────────────────────────────
+  const [projectSearch, setProjectSearch] = useState('')
+  // Clear search when client changes
+  useEffect(() => { setProjectSearch('') }, [selectedClientId])
 
-  // Shot-view-specific: project picker
+  // Projects after applying the search filter — passed to all three views
+  const displayProjects = useMemo(() => {
+    if (!projectSearch.trim()) return visibleProjects
+    const q = projectSearch.toLowerCase().trim()
+    return visibleProjects.filter(p => p.name.toLowerCase().includes(q))
+  }, [visibleProjects, projectSearch])
+
+  // ── Data loading ─────────────────────────────────────────────────────────
+  // Only load tasks when a specific client (or ALL_CLIENTS) is selected.
+  // loadForProject is idempotent — safe to call on every re-render.
+  useEffect(() => {
+    if (selectedClientId === NO_CLIENT) return
+    visibleProjects.forEach(p => loadForProject(p.id))
+  }, [visibleProjects, loadForProject, selectedClientId])
+
+  // ── Shot-view state ──────────────────────────────────────────────────────
   const [shotViewProjectId, setShotViewProjectId] = useState<string>(ALL_PROJECTS)
-  // Reset shot-view project picker when client filter changes
   useEffect(() => { setShotViewProjectId(ALL_PROJECTS) }, [selectedClientId])
 
-  // Sequence filter (Shot View only)
   const [sequenceFilter, setSequenceFilter] = useState<string>('ALL')
   useEffect(() => { setSequenceFilter('ALL') }, [view, shotViewProjectId])
 
+  // ── Edge case: no projects in the system at all ──────────────────────────
   if (projects.length === 0) {
     return (
       <div className="p-6 text-slate-300">
-        <h1 className="text-xl font-black tracking-wide text-white uppercase mb-2">Shot Matrix</h1>
+        <h1 className="text-xl font-black tracking-wide text-white uppercase mb-2">Pipeline Matrix</h1>
         <p className="text-sm text-slate-500">No projects yet. Create one to start tracking.</p>
       </div>
     )
@@ -77,83 +100,206 @@ export function ShotMatrix() {
 
   const viewSubtitle: Record<View, string> = {
     project:   'Project rollup — each row is a project, columns are the 11 pipeline stages',
-    shot:      'Shot-level breakdown for a single project — drill into each shot status',
+    shot:      'Shot-level breakdown — drill into each shot across all stages',
     character: 'Character / asset rollup — track each model through Modelling → Blendshapes → Rigging → Texturing',
   }
 
   return (
-    <div className="p-6 space-y-6 text-slate-100 min-h-screen bg-[#0b0f19]">
+    <div className="p-6 space-y-5 text-slate-100 min-h-screen bg-[#0b0f19]">
 
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#1a263e] pb-5">
-        <div>
-          <h1 className="text-xl font-black tracking-wide text-white uppercase flex items-center gap-2">
-            <Grid3X3 className="w-5 h-5 text-indigo-400" /> Pipeline Matrix
-          </h1>
-          <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mt-1.5">
-            {viewSubtitle[view]}
-          </p>
-        </div>
+      {/* ── Header ────────────────────────────────────────────────────────── */}
+      <div className="space-y-4 border-b border-[#1a263e] pb-5">
 
-        <div className="flex items-center gap-2.5 flex-wrap">
-          {/* Client filter — shared across all views */}
-          <div className="flex items-center gap-1.5 bg-[#0e1626] border border-[#1b253b] px-2.5 py-1.5 rounded-md">
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Client:</span>
-            <select
-              value={selectedClientId}
-              onChange={e => setSelectedClientId(e.target.value)}
-              className="bg-transparent border-0 text-xs font-semibold text-white focus:ring-0 focus:outline-none cursor-pointer pr-8"
-            >
-              <option value={ALL_CLIENTS} className="bg-[#0e1626] text-white">All Clients</option>
-              {clients.map(c => (
-                <option key={c.id} value={c.id} className="bg-[#0e1626] text-white">{c.name.toUpperCase()}</option>
-              ))}
-            </select>
+        {/* Title row */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-black tracking-wide text-white uppercase flex items-center gap-2">
+              <Grid3X3 className="w-5 h-5 text-indigo-400" /> Pipeline Matrix
+            </h1>
+            <p className="text-xs text-slate-400 font-bold uppercase tracking-wider mt-1.5">
+              {viewSubtitle[view]}
+            </p>
           </div>
 
-          {/* Project picker — only for Shot View */}
-          {view === 'shot' && (
-            <div className="flex items-center gap-1.5 bg-[#0e1626] border border-[#1b253b] px-2.5 py-1.5 rounded-md">
-              <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Project:</span>
-              <select
-                value={shotViewProjectId}
-                onChange={e => setShotViewProjectId(e.target.value)}
-                className="bg-transparent border-0 text-xs font-semibold text-white focus:ring-0 focus:outline-none cursor-pointer pr-8"
-              >
-                <option value={ALL_PROJECTS} className="bg-[#0e1626] text-white">All projects</option>
-                {visibleProjects.map(p => (
-                  <option key={p.id} value={p.id} className="bg-[#0e1626] text-white">{p.name.toUpperCase()}</option>
-                ))}
-              </select>
+          {/* Search — only shown when a client is selected */}
+          {selectedClientId !== NO_CLIENT && (
+            <div className="relative shrink-0">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
+              <input
+                value={projectSearch}
+                onChange={e => setProjectSearch(e.target.value)}
+                placeholder="Search projects…"
+                className="pl-8 pr-8 py-1.5 w-52 text-xs bg-[#0e1626] border border-[#1b253b] rounded-md text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-500 transition-colors"
+              />
+              {projectSearch && (
+                <button
+                  onClick={() => setProjectSearch('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-600 hover:text-slate-300 transition-colors"
+                >
+                  <XIcon className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           )}
         </div>
+
+        {/* ── Client pill selector ───────────────────────────────────────── */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
+          <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest shrink-0 pr-1">
+            Client:
+          </span>
+
+          {clients.map(c => {
+            const count = projects.filter(p => p.clientId === c.id).length
+            const isActive = selectedClientId === c.id
+            return (
+              <button
+                key={c.id}
+                onClick={() => setSelectedClientId(isActive ? NO_CLIENT : c.id)}
+                className={clsx(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold whitespace-nowrap transition-all border shrink-0',
+                  isActive
+                    ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-900/40'
+                    : 'bg-[#0e1626] border-[#1b253b] text-slate-400 hover:text-white hover:border-slate-600 hover:bg-[#131d30]'
+                )}
+              >
+                {c.name}
+                <span className={clsx(
+                  'text-[9px] font-black px-1.5 py-0.5 rounded-full transition-colors',
+                  isActive
+                    ? 'bg-indigo-500/40 text-indigo-200'
+                    : 'bg-[#141d2f] text-slate-600'
+                )}>
+                  {count}
+                </span>
+              </button>
+            )
+          })}
+
+          {/* All Clients — opt-in, loads everything */}
+          <button
+            onClick={() => setSelectedClientId(selectedClientId === ALL_CLIENTS ? NO_CLIENT : ALL_CLIENTS)}
+            className={clsx(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold whitespace-nowrap transition-all border shrink-0',
+              selectedClientId === ALL_CLIENTS
+                ? 'bg-amber-600/30 border-amber-500/60 text-amber-300'
+                : 'bg-[#0e1626] border-[#1b253b] text-slate-500 hover:text-amber-400 hover:border-amber-500/40'
+            )}
+          >
+            <AlertTriangle className="w-3 h-3" />
+            All Clients
+            <span className={clsx(
+              'text-[9px] font-black px-1.5 py-0.5 rounded-full',
+              selectedClientId === ALL_CLIENTS ? 'bg-amber-500/20 text-amber-400' : 'bg-[#141d2f] text-slate-600'
+            )}>
+              {projects.length}
+            </span>
+          </button>
+        </div>
+
+        {/* Search result count — shown when search is active */}
+        {projectSearch.trim() && (
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider -mt-1">
+            {displayProjects.length === 0
+              ? 'No projects match'
+              : `${displayProjects.length} of ${visibleProjects.length} project${visibleProjects.length !== 1 ? 's' : ''} shown`}
+          </p>
+        )}
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 border-b border-[#1a263e]">
-        <TabBtn icon={Briefcase} label="Project View" active={view === 'project'} onClick={() => setView('project')} />
-        <TabBtn icon={Film}      label="Shot View"    active={view === 'shot'}    onClick={() => setView('shot')} />
-        <TabBtn icon={User}      label="Character View" active={view === 'character'} onClick={() => setView('character')} />
-      </div>
+      {/* ── No-client-selected empty state ────────────────────────────────── */}
+      {selectedClientId === NO_CLIENT && (
+        <div className="flex flex-col items-center gap-6 py-16 text-center">
+          <div className="w-14 h-14 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
+            <Grid3X3 className="w-7 h-7 text-indigo-500/60" />
+          </div>
+          <div>
+            <p className="text-sm font-black text-slate-300 uppercase tracking-wider">Select a client to view pipeline data</p>
+            <p className="text-xs text-slate-600 mt-1.5">Only that client's projects will be loaded — keeping things fast</p>
+          </div>
 
-      {/* Body */}
-      {view === 'project' && (
-        <ProjectView projects={visibleProjects} tasks={tasks} clients={clients} />
+          {/* Client cards grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 w-full max-w-3xl text-left mt-2">
+            {clients.map(c => {
+              const projectCount  = projects.filter(p => p.clientId === c.id).length
+              const activeCount   = projects.filter(p => p.clientId === c.id && p.status === 'ACTIVE').length
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => setSelectedClientId(c.id)}
+                  className="group p-4 bg-[#0c1221] border border-[#1b253b] rounded-xl hover:border-indigo-500/50 hover:bg-[#0f1828] transition-all text-left"
+                >
+                  <div className="text-xs font-black text-slate-100 uppercase tracking-wide group-hover:text-indigo-300 transition-colors truncate">
+                    {c.name}
+                  </div>
+                  <div className="flex items-center gap-2 mt-2">
+                    <span className="text-[9px] font-bold text-slate-500">
+                      {projectCount} project{projectCount !== 1 ? 's' : ''}
+                    </span>
+                    {activeCount > 0 && (
+                      <>
+                        <span className="text-slate-700">·</span>
+                        <span className="text-[9px] font-bold text-emerald-500">
+                          {activeCount} active
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </div>
       )}
-      {view === 'shot' && (
-        <ShotView
-          projects={visibleProjects}
-          shotViewProjectId={shotViewProjectId}
-          tasks={tasks}
-          employees={employees}
-          updateTaskStatus={updateTaskStatus}
-          sequenceFilter={sequenceFilter}
-          setSequenceFilter={setSequenceFilter}
-        />
-      )}
-      {view === 'character' && (
-        <CharacterView projects={visibleProjects} tasks={tasks} />
+
+      {/* ── Main content (only when a client is selected) ─────────────────── */}
+      {selectedClientId !== NO_CLIENT && (
+        <>
+          {/* Tabs + project picker */}
+          <div className="flex items-center justify-between gap-4 border-b border-[#1a263e]">
+            <div className="flex gap-1">
+              <TabBtn icon={Briefcase} label="Project View"   active={view === 'project'}   onClick={() => setView('project')} />
+              <TabBtn icon={Film}      label="Shot View"      active={view === 'shot'}      onClick={() => setView('shot')} />
+              <TabBtn icon={User}      label="Character View" active={view === 'character'} onClick={() => setView('character')} />
+            </div>
+
+            {/* Project picker — only for Shot View */}
+            {view === 'shot' && displayProjects.length > 0 && (
+              <div className="flex items-center gap-1.5 bg-[#0e1626] border border-[#1b253b] px-2.5 py-1.5 rounded-md shrink-0">
+                <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider">Project:</span>
+                <select
+                  value={shotViewProjectId}
+                  onChange={e => setShotViewProjectId(e.target.value)}
+                  className="bg-transparent border-0 text-xs font-semibold text-white focus:ring-0 focus:outline-none cursor-pointer pr-6 max-w-[200px]"
+                >
+                  <option value={ALL_PROJECTS} className="bg-[#0e1626] text-white">All projects</option>
+                  {displayProjects.map(p => (
+                    <option key={p.id} value={p.id} className="bg-[#0e1626] text-white">{p.name.toUpperCase()}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+
+          {/* View bodies */}
+          {view === 'project' && (
+            <ProjectView projects={displayProjects} tasks={tasks} clients={clients} />
+          )}
+          {view === 'shot' && (
+            <ShotView
+              projects={displayProjects}
+              shotViewProjectId={shotViewProjectId}
+              tasks={tasks}
+              employees={employees}
+              updateTaskStatus={updateTaskStatus}
+              sequenceFilter={sequenceFilter}
+              setSequenceFilter={setSequenceFilter}
+            />
+          )}
+          {view === 'character' && (
+            <CharacterView projects={displayProjects} tasks={tasks} />
+          )}
+        </>
       )}
     </div>
   )
@@ -165,7 +311,7 @@ export function ShotMatrix() {
 
 function ProjectView({ projects, tasks, clients }: { projects: Project[]; tasks: TaskRow[]; clients: Client[] }) {
   if (projects.length === 0) {
-    return <EmptyBlock text="No projects in this client filter." />
+    return <EmptyBlock text="No projects match. Try a different search or client." />
   }
 
   return (
