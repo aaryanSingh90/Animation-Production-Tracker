@@ -64,9 +64,7 @@ interface Props {
   onRowClick: (task: TaskRow) => void
 }
 
-type ListElement =
-  | { type: 'header'; key: string; name: string; tasks: TaskRow[]; approvedCount: number }
-  | { type: 'row'; key: string; task: TaskRow; index: number; rowObj: Row<TaskRow> }
+type ListElement = { key: string; task: TaskRow; index: number; rowObj: Row<TaskRow> }
 
 // Procedural vector storyboard fallbacks for high-fidelity empty states
 function ProceduralThumbnail({ subStageId }: { subStageId: string; itemName?: string }) {
@@ -188,7 +186,6 @@ export function TaskTable({ tasks, subStageConfig, selectedIds, onSelect, onRowC
   const canEdit     = !isArtist // managers can edit status/artist inline
 
   const [deleteId, setDeleteId] = useState<string | null>(null)
-  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
   const [columnFilters, setColumnFilters] = useState<ColumnFilterMap>({})
 
   // Reset filters when the user navigates to a different sub-stage
@@ -252,14 +249,6 @@ export function TaskTable({ tasks, subStageConfig, selectedIds, onSelect, onRowC
       }
     }
     reader.readAsDataURL(file)
-  }
-
-  // Parse Sequence prefix from shot numbers automatically (standard film pipeline procedure)
-  function getSequenceName(task: TaskRow) {
-    const name = (task.shotNumber || task.itemName || '').trim()
-    const match = name.match(/^(seq[_\-\s]?\d+|sq[_\-\s]?\d+|\d{3})/i)
-    if (match) return match[0].toUpperCase()
-    return 'OTHER ASSETS'
   }
 
   const columns = useMemo<ColumnDef<TaskRow>[]>(() => {
@@ -496,49 +485,14 @@ export function TaskTable({ tasks, subStageConfig, selectedIds, onSelect, onRowC
 
   const rows = table.getRowModel().rows
 
-  // Flat mapping of Collapsible headers + sub-rows for rendering and TanStack virtualization.
-  // Built from `visibleTasks` so per-column filters hide groups whose members are all filtered out.
-  const flatListElements = useMemo(() => {
-    const elements: ListElement[] = []
-    const groups: Record<string, TaskRow[]> = {}
-
-    visibleTasks.forEach(task => {
-      const seq = getSequenceName(task)
-      if (!groups[seq]) groups[seq] = []
-      groups[seq].push(task)
+  // Flat list of task rows for virtualization — no grouping headers.
+  const flatListElements = useMemo<ListElement[]>(() => {
+    return visibleTasks.flatMap(task => {
+      const rowObj = rows.find(r => r.original.id === task.id)
+      if (!rowObj) return []
+      return [{ key: `row-${task.id}`, task, index: rowObj.index, rowObj }]
     })
-
-    // Sort sequences alphabetically so matrix is consistently structured
-    Object.keys(groups).sort().forEach(seqName => {
-      const seqTasks = groups[seqName]
-      const approved = seqTasks.filter(t => t.status === 'FINAL_APPROVAL').length
-
-      elements.push({
-        type: 'header',
-        key: `header-${seqName}`,
-        name: seqName,
-        tasks: seqTasks,
-        approvedCount: approved,
-      })
-
-      if (!collapsedGroups[seqName]) {
-        seqTasks.forEach(task => {
-          const rowObj = rows.find(r => r.original.id === task.id)
-          if (rowObj) {
-            elements.push({
-              type: 'row',
-              key: `row-${task.id}`,
-              task,
-              index: rowObj.index,
-              rowObj,
-            })
-          }
-        })
-      }
-    })
-
-    return elements
-  }, [visibleTasks, collapsedGroups, rows])
+  }, [visibleTasks, rows])
 
   const virtualizer = useVirtualizer({
     count: flatListElements.length,
@@ -627,44 +581,6 @@ export function TaskTable({ tasks, subStageConfig, selectedIds, onSelect, onRowC
                   const item = flatListElements[virtualRow.index]
                   if (!item) return null
 
-                  // RenderCollapsible Group Header
-                  if (item.type === 'header') {
-                    const isCollapsed = collapsedGroups[item.name]
-                    const pct = item.tasks.length ? Math.round((item.approvedCount / item.tasks.length) * 100) : 0
-                    return (
-                      <tr
-                        key={item.key}
-                        onClick={() => setCollapsedGroups(prev => ({ ...prev, [item.name]: !prev[item.name] }))}
-                        className="bg-[#101726] border-b border-[#1b253b] cursor-pointer hover:bg-[#162035] transition-colors select-none"
-                        style={{ height: 32 }}
-                      >
-                        <td colSpan={columns.length} className="px-3 py-1.5 text-xs font-bold text-slate-300 align-middle">
-                          <div className="flex items-center justify-between w-full">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] text-indigo-400">{isCollapsed ? '▶' : '▼'}</span>
-                              <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-1.5 py-0.5 rounded">
-                                SHOT
-                              </span>
-                              <span className="text-white font-extrabold font-mono tracking-wide">{item.name}</span>
-                              <span className="text-slate-400 font-semibold text-[10px] ml-1">({item.tasks.length} elements)</span>
-                            </div>
-                            <div className="flex items-center gap-3">
-                              <span className="text-[10px] font-bold text-slate-400 uppercase">Progression:</span>
-                              <div className="w-20 h-1.5 bg-[#0a0d16] rounded-full overflow-hidden border border-[#1b253b]">
-                                <div
-                                  className="h-full bg-gradient-to-r from-emerald-500 to-green-400 transition-all duration-300"
-                                  style={{ width: `${pct}%` }}
-                                />
-                              </div>
-                              <span className="text-[10px] font-black text-emerald-400 w-8 text-right">{pct}%</span>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  }
-
-                  // RenderStandard Task Row
                   const row = item.rowObj
                   const task = item.task
                   const overdue = isOverdue(task.endDate, task.status)

@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Plus, AlertCircle } from 'lucide-react'
+import { useState, useRef } from 'react'
+import { Plus, AlertCircle, Film, X } from 'lucide-react'
 import type { AudioStatus, StageConfig, SubStageConfig, TaskStatus } from '../../types'
 import { calcSeconds, formatSeconds } from '../../utils/calcSeconds'
 import { getCurrentDateTimeLocal } from '../../utils/timeTracking'
@@ -8,6 +8,8 @@ import { ArtistDropdown } from '../employees/ArtistDropdown'
 import { StatusDropdown } from '../ui/StatusDropdown'
 import { MIRROR_RULES } from '../../config/stageConfigs'
 import { ApiError } from '../../api/client'
+import { Tasks } from '../../api/endpoints'
+import { clsx } from 'clsx'
 
 interface Props {
   stageConfig: StageConfig
@@ -31,6 +33,8 @@ export function QuickAddBar({ stageConfig, subStageConfig, projectId }: Props) {
   const [endDate, setEndDate] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [videoFile, setVideoFile] = useState<File | null>(null)
+  const videoFileRef = useRef<HTMLInputElement>(null)
 
   const seconds = frameRange ? calcSeconds(frameRange) : 0
 
@@ -41,7 +45,7 @@ export function QuickAddBar({ stageConfig, subStageConfig, projectId }: Props) {
     setError(null)
     try {
       const itemName = name || frameRange
-      await addTask({
+      const created = await addTask({
         subStageId: subStageConfig.id,
         projectId,
         itemName,
@@ -54,6 +58,16 @@ export function QuickAddBar({ stageConfig, subStageConfig, projectId }: Props) {
         endDate:          endDate || null,
         audioStatus:      isEditing ? audioStatus : undefined,
       })
+
+      // If the user attached a video, upload it now as v1 of this task.
+      if (videoFile) {
+        try {
+          const { task: updated } = await Tasks.uploadVersion(created.id, videoFile)
+          usePipelineStore.getState().applyServerEvent({ type: 'task.updated', task: updated })
+        } catch {
+          setError('Shot created — but video upload failed. Upload it from the sidebar.')
+        }
+      }
 
       // Auto-mirror: propagate name + artist to all downstream pipeline stages
       // (Character Blendshapes, Unwrapping, Texturing, Rigging — per MIRROR_RULES)
@@ -75,6 +89,7 @@ export function QuickAddBar({ stageConfig, subStageConfig, projectId }: Props) {
       setAudioStatus('YET_TO_START')
       setStartDate(getCurrentDateTimeLocal())
       setEndDate('')
+      setVideoFile(null)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to create task — check connection.')
     } finally {
@@ -154,6 +169,47 @@ export function QuickAddBar({ stageConfig, subStageConfig, projectId }: Props) {
             className={`${inputCls} w-40 font-mono text-[11px] text-slate-300 shrink-0`}
           />
         </>
+      )}
+
+      {/* Video attach — shown on all shot-based stages (optional) */}
+      {isShot && (
+        <div className="flex items-center gap-1 shrink-0">
+          <input
+            ref={videoFileRef}
+            type="file"
+            accept="video/*"
+            className="hidden"
+            onChange={e => { setVideoFile(e.target.files?.[0] ?? null); e.target.value = '' }}
+          />
+          <button
+            type="button"
+            onClick={() => videoFileRef.current?.click()}
+            disabled={submitting}
+            title={videoFile ? videoFile.name : 'Attach a video to this shot (optional)'}
+            className={clsx(
+              'flex items-center gap-1 px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-md border transition-all disabled:opacity-40 disabled:cursor-not-allowed',
+              videoFile
+                ? 'border-indigo-500/60 bg-indigo-600/20 text-indigo-300'
+                : 'border-[#1b253b] bg-[#0a0f1b] text-slate-400 hover:text-white hover:border-indigo-500/40'
+            )}
+          >
+            <Film className="w-3.5 h-3.5 shrink-0" />
+            {videoFile
+              ? <span className="max-w-[72px] truncate">{videoFile.name}</span>
+              : <span>Video</span>
+            }
+          </button>
+          {videoFile && (
+            <button
+              type="button"
+              onClick={() => setVideoFile(null)}
+              title="Remove video"
+              className="p-1 text-slate-500 hover:text-rose-400 transition-colors rounded"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
+        </div>
       )}
 
       <button
