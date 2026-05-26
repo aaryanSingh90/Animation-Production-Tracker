@@ -57,6 +57,7 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
   const [uploadingVersion, setUploadingVersion]       = useState(false)
   const videoRef    = useRef<HTMLVideoElement>(null)
   const versionFileRef = useRef<HTMLInputElement>(null)
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false)
 
   const [actionPending, setActionPending] = useState(false)
   async function run<T>(fn: () => Promise<T>): Promise<T | undefined> {
@@ -77,6 +78,7 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
     setActiveVersionId(null)
     setShowUrlVersionInput(false)
     setVersionUrlInput('')
+    setIsVideoPlaying(false)
 
     const syncId = window.setTimeout(() => { setMinuteTick(Date.now()) }, 0)
     return () => window.clearTimeout(syncId)
@@ -257,6 +259,33 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
       // Start playing once fullscreen is entered (double-click = intent to watch)
       void vid.play()
     } catch { /* fullscreen blocked on some devices — ignore */ }
+  }
+
+  /**
+   * Fetch-based download so cross-origin `/uploads/` files actually save instead
+   * of opening a new blank tab (the `download` attribute is ignored for cross-origin
+   * URLs in all major browsers).
+   */
+  async function downloadVersion(v: TaskVersion) {
+    const url = resolveVideoUrl(v)
+    if (v.videoUrl.startsWith('/uploads/')) {
+      try {
+        const resp = await fetch(url, { credentials: 'include' })
+        const blob = await resp.blob()
+        const ext  = v.videoUrl.split('.').pop() ?? 'mp4'
+        const blobUrl = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href     = blobUrl
+        a.download = `${task?.itemName ?? 'shot'}-v${v.versionNum}.${ext}`
+        a.click()
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 5000)
+      } catch (err) {
+        pushToast({ kind: 'error', title: 'Download failed', body: err instanceof Error ? err.message : 'Try again', ttl: 4000 })
+      }
+    } else {
+      // External URL — open in a new tab (normal browser behaviour)
+      window.open(url, '_blank', 'noopener,noreferrer')
+    }
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -537,12 +566,28 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
                   key={activeVersion.id}
                   src={resolveVideoUrl(activeVersion)}
                   controls
+                  onPlay={() => setIsVideoPlaying(true)}
+                  onPause={() => setIsVideoPlaying(false)}
+                  onEnded={() => setIsVideoPlaying(false)}
                   onDoubleClick={handleFullscreen}
                   className="w-full max-h-52 object-contain"
-                  title="Double-click for fullscreen"
                 />
-                {/* Overlay controls */}
-                <div className="absolute bottom-2 right-2 flex gap-1.5">
+                {/* Big play overlay — visible when paused so a single click plays;
+                    disappears when playing so native controls (scrubber etc.) are fully
+                    accessible. Double-click also enters fullscreen. */}
+                {!isVideoPlaying && (
+                  <div
+                    onClick={() => void videoRef.current?.play()}
+                    onDoubleClick={handleFullscreen}
+                    className="absolute inset-0 flex items-center justify-center cursor-pointer"
+                  >
+                    <div className="w-12 h-12 rounded-full bg-black/55 border border-white/25 flex items-center justify-center hover:bg-black/75 transition-colors">
+                      <Play className="w-6 h-6 text-white ml-0.5" />
+                    </div>
+                  </div>
+                )}
+                {/* Corner action buttons */}
+                <div className="absolute bottom-2 right-2 flex gap-1.5 z-10">
                   <button
                     onClick={handleFullscreen}
                     title="Fullscreen"
@@ -550,16 +595,13 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
                   >
                     <Maximize2 className="w-3.5 h-3.5" />
                   </button>
-                  <a
-                    href={resolveVideoUrl(activeVersion)}
-                    download
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    onClick={() => void downloadVersion(activeVersion)}
                     title="Download this version"
                     className="bg-black/70 hover:bg-emerald-600 text-white p-1 rounded transition-all"
                   >
                     <Download className="w-3.5 h-3.5" />
-                  </a>
+                  </button>
                 </div>
               </div>
               {/* Version meta */}
@@ -610,17 +652,13 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
                   </div>
                   {/* Action buttons */}
                   <div className="flex items-center gap-0.5 shrink-0">
-                    <a
-                      href={resolveVideoUrl(v)}
-                      download
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={e => e.stopPropagation()}
+                    <button
+                      onClick={e => { e.stopPropagation(); void downloadVersion(v) }}
                       title="Download"
                       className="p-1.5 text-slate-500 hover:text-emerald-400 transition-colors rounded hover:bg-emerald-500/10"
                     >
                       <Download className="w-3 h-3" />
-                    </a>
+                    </button>
                     {isManager && (
                       <button
                         onClick={e => { e.stopPropagation(); void handleDeleteVersion(v.id) }}
