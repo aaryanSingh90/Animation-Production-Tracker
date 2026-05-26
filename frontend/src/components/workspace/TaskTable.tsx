@@ -643,7 +643,7 @@ export function TaskTable({ tasks, subStageConfig, selectedIds, onSelect, onRowC
                             <div className="flex items-center gap-2">
                               <span className="text-[10px] text-indigo-400">{isCollapsed ? '▶' : '▼'}</span>
                               <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-1.5 py-0.5 rounded">
-                                SEQUENCE
+                                SHOT
                               </span>
                               <span className="text-white font-extrabold font-mono tracking-wide">{item.name}</span>
                               <span className="text-slate-400 font-semibold text-[10px] ml-1">({item.tasks.length} elements)</span>
