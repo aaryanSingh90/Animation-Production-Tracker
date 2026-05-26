@@ -21,6 +21,18 @@ interface Props {
   clientId: string
 }
 
+// Sub-stages whose tasks reference the Cut Shots task via soft-link
+// (thumbnail mirror + video-version mirror). We preload Cut Shots whenever
+// one of these stages loads so the link works even when the user navigates
+// directly to Animation (or FX / Lighting / Compositing) without having
+// visited the Animatics page first in the same session.
+const NEEDS_CUT_SHOTS = new Set([
+  'animation-animation',
+  'fx-fx',
+  'lighting-lighting',
+  'compositing-compositing',
+])
+
 export function WorkspaceView({ projectId, stageConfig, subStageSlug, clientId }: Props) {
   const navigate    = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -43,10 +55,17 @@ export function WorkspaceView({ projectId, stageConfig, subStageSlug, clientId }
          (canSeeAllTasks || t.assignedArtistId === currentUser?.id)
   )
 
-  // Load tasks for this sub-stage on demand (managers) — artists already have their tasks
+  // Load tasks for this sub-stage on demand.
+  // Managers load per sub-stage; artists already have their own tasks from
+  // initForArtist. Shot-based stages ALSO preload Cut Shots for the soft-link —
+  // safe for both roles because loadForSubStage is idempotent (fetches once
+  // per project+sub-stage per session).
   useEffect(() => {
     if (isManager) {
       loadForSubStage(projectId, subStageConfig.id)
+    }
+    if (NEEDS_CUT_SHOTS.has(subStageConfig.id)) {
+      loadForSubStage(projectId, 'animatics-cut-shots')
     }
   }, [projectId, subStageConfig.id, isManager, loadForSubStage])
 
