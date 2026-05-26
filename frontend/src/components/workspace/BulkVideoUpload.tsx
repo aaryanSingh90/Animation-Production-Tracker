@@ -1,6 +1,7 @@
 import { useRef, useState, useCallback } from 'react'
 import { Upload, X, Check, AlertCircle, Film } from 'lucide-react'
 import { usePipelineStore } from '../../store/pipelineStore'
+import { Tasks } from '../../api/endpoints'
 import { ApiError } from '../../api/client'
 import type { SubStageConfig } from '../../types'
 
@@ -165,6 +166,7 @@ export function BulkVideoUpload({ projectId, subStageConfig }: Props) {
     if (!items.length || creating) return
     setCreating(true)
     setError(null)
+    let versionErrors = 0
     try {
       for (const item of items) {
         const base = {
@@ -177,9 +179,21 @@ export function BulkVideoUpload({ projectId, subStageConfig }: Props) {
           status:     'YET_TO_START' as const,
         }
         // Create the cut-shot row (with thumbnail)
-        await addTask({ ...base, subStageId: subStageConfig.id })
-        // Mirror to Animation — shot number + frame range only, no thumbnail
-        // (thumbnail belongs to the animatic, not duplicated to save DB space)
+        const cutTask = await addTask({ ...base, subStageId: subStageConfig.id })
+
+        // Upload the animatic video as version 1 so manager + artists can play it.
+        // Best-effort: if the upload fails the task row still exists and the user
+        // can retry via the Upload button in the task drawer.
+        try {
+          const { task: updated } = await Tasks.uploadVersion(cutTask.id, item.file)
+          usePipelineStore.getState().applyServerEvent({ type: 'task.updated', task: updated })
+        } catch {
+          versionErrors++
+        }
+
+        // Mirror to Animation — same shot/frame/seconds, no thumbnail and no video
+        // version (Animation reads the latest version from the Cut Shots twin via
+        // a soft-link in the detail drawer).
         await addTask({
           ...base,
           subStageId: ANIMATION_SUB_STAGE_ID,
@@ -187,6 +201,9 @@ export function BulkVideoUpload({ projectId, subStageConfig }: Props) {
         })
       }
       setItems([])
+      if (versionErrors > 0) {
+        setError(`${versionErrors} video upload(s) failed — tasks created, retry via the task drawer.`)
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to create some tasks.')
     } finally {
@@ -327,7 +344,7 @@ export function BulkVideoUpload({ projectId, subStageConfig }: Props) {
             >
               <Check className="w-3.5 h-3.5" />
               {creating
-                ? 'Creating…'
+                ? 'Uploading videos…'
                 : `Create ${items.length} Shot${items.length !== 1 ? 's' : ''}`}
             </button>
 

@@ -171,9 +171,31 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
   }
 
   // ── Video version helpers ────────────────────────────────────────────────────
-  const taskVersions: TaskVersion[] = (task as any).versions ?? []
+  // Soft-link: Animation tasks read versions from their Cut Shots twin.
+  // This way the animatic video uploaded in Cut Shots is visible + playable
+  // from the Animation stage drawer without duplicating the file.
+  const linkedCutShot = usePipelineStore(s => {
+    if (!passedTask) return null
+    const live = s.tasks.find(t => t.id === passedTask.id) ?? passedTask
+    if (live.subStageId !== 'animation-animation' || !live.shotNumber) return null
+    return s.tasks.find(t =>
+      t.subStageId === 'animatics-cut-shots' &&
+      t.shotNumber  === live.shotNumber &&
+      t.projectId   === live.projectId
+    ) ?? null
+  })
+
+  const ownVersions: TaskVersion[]  = (task as any).versions ?? []
+  // If this is an Animation task with no own versions, fall back to the Cut Shots twin
+  const taskVersions: TaskVersion[] = ownVersions.length > 0
+    ? ownVersions
+    : ((linkedCutShot as any)?.versions ?? [])
+
   const latestVersion = taskVersions[taskVersions.length - 1] ?? null
   const activeVersion = taskVersions.find(v => v.id === activeVersionId) ?? latestVersion
+
+  // Label shown in section header when versions come from the linked cut-shot
+  const versionsFromCutShots = ownVersions.length === 0 && taskVersions.length > 0
 
   function resolveVideoUrl(v: TaskVersion): string {
     if (v.videoUrl.startsWith('/uploads/')) return `${API_URL}${v.videoUrl}`
@@ -227,10 +249,14 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
     }
   }
 
-  function handleFullscreen() {
-    if (videoRef.current) {
-      if (videoRef.current.requestFullscreen) videoRef.current.requestFullscreen()
-    }
+  async function handleFullscreen() {
+    const vid = videoRef.current
+    if (!vid) return
+    try {
+      await vid.requestFullscreen?.()
+      // Start playing once fullscreen is entered (double-click = intent to watch)
+      void vid.play()
+    } catch { /* fullscreen blocked on some devices — ignore */ }
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -436,6 +462,11 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
             <label className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
               <Film className="w-3.5 h-3.5 text-indigo-400" />
               Video Versions {taskVersions.length > 0 && <span className="text-indigo-400">({taskVersions.length})</span>}
+              {versionsFromCutShots && (
+                <span className="text-[8px] font-black text-indigo-500/70 border border-indigo-500/30 px-1 py-0.5 rounded uppercase tracking-wider">
+                  via cut shots
+                </span>
+              )}
             </label>
 
             {/* Upload controls — managers always, artists only on their own task */}
