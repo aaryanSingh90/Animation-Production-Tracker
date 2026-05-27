@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { TaskRow, TaskStatus } from '../types'
 import { Tasks, type TaskCreate, type TaskPatch } from '../api/endpoints'
+import { logger } from '../utils/logger'
 
 interface PipelineState {
   tasks:            TaskRow[]
@@ -8,6 +9,9 @@ interface PipelineState {
   loadedSubStages:  Record<string, true>
   initialized:      boolean
   loading:          boolean
+
+  /** BUG-01: Reset all store state — called on logout so a new login starts clean. */
+  reset: () => void
 
   /**
    * Called at startup for ARTIST / FREELANCE / LEAD users.
@@ -36,6 +40,8 @@ interface PipelineState {
   loadForProject: (projectId: string) => Promise<void>
 
   addTask:          (data: TaskCreate)                                       => Promise<TaskRow>
+  /** BUG-02: Atomic batch create — all tasks created in one DB transaction or none. */
+  addBatch:         (items: TaskCreate[])                                    => Promise<TaskRow[]>
   updateTask:       (id: string, patch: TaskPatch)                           => Promise<TaskRow>
   updateTaskStatus: (id: string, newStatus: TaskStatus, _userId?: string)    => Promise<TaskRow>
   deleteTask:       (id: string)                                             => Promise<void>
@@ -44,6 +50,8 @@ interface PipelineState {
   bulkUpdateStatus: (ids: string[], status: TaskStatus)  => Promise<void>
   bulkUpdateArtist: (ids: string[], artistId: string | null) => Promise<void>
   bulkDeleteTasks:  (ids: string[])                      => Promise<void>
+  /** BUG-15: Bulk retake with a required note (each task gets status LEAD_RETAKE + retakeNote). */
+  bulkRetake:       (ids: string[], retakeNote: string)  => Promise<void>
 
   // Pure-derived helpers
   getTasksBySubStage: (subStageId: string, projectId: string) => TaskRow[]
@@ -71,6 +79,9 @@ export const usePipelineStore = create<PipelineState>()((set, get) => ({
   initialized:     false,
   loading:         false,
 
+  // BUG-01: Reset to initial state on logout so a subsequent login sees a clean store.
+  reset: () => set({ tasks: [], loadedSubStages: {}, initialized: false, loading: false }),
+
   // ── Initialisation ──────────────────────────────────────────────────────────
 
   initForArtist: async (userId) => {
@@ -81,7 +92,7 @@ export const usePipelineStore = create<PipelineState>()((set, get) => ({
       const { tasks } = await Tasks.list({ assignedArtistId: userId })
       set({ tasks, loading: false, initialized: true })
     } catch (err) {
-      console.error('[tasks] initForArtist failed', err)
+      logger.error('[tasks] initForArtist failed', err)
       set({ loading: false, initialized: true })
     }
   },
@@ -112,7 +123,7 @@ export const usePipelineStore = create<PipelineState>()((set, get) => ({
         }
       })
     } catch (err) {
-      console.error('[tasks] loadForSubStage failed', err)
+      logger.error('[tasks] loadForSubStage failed', err)
       set({ loading: false })
     }
   },
@@ -144,7 +155,7 @@ export const usePipelineStore = create<PipelineState>()((set, get) => ({
         }
       })
     } catch (err) {
-      console.error('[tasks] loadForProject failed', err)
+      logger.error('[tasks] loadForProject failed', err)
       set({ loading: false })
     }
   },
@@ -155,6 +166,17 @@ export const usePipelineStore = create<PipelineState>()((set, get) => ({
     const { task } = await Tasks.create(data)
     set(s => ({ tasks: upsert(s.tasks, task) }))
     return task
+  },
+
+  // BUG-02: Atomic batch — all mirror tasks created in one server transaction.
+  addBatch: async (items) => {
+    const { tasks } = await Tasks.createBatch(items)
+    set(s => {
+      let updated = s.tasks
+      for (const task of tasks) updated = upsert(updated, task)
+      return { tasks: updated }
+    })
+    return tasks
   },
 
   updateTask: async (id, patch) => {
@@ -209,6 +231,21 @@ export const usePipelineStore = create<PipelineState>()((set, get) => ({
   bulkDeleteTasks: async (ids) => {
     await Promise.allSettled(ids.map(id => Tasks.remove(id)))
     set(s => ({ tasks: s.tasks.filter(t => !ids.includes(t.id)) }))
+  },
+
+  // BUG-15: Bulk retake with a required note so artists know what to fix.
+  bulkRetake: async (ids, retakeNote) => {
+    const results = await Promise.allSettled(
+      ids.map(id => Tasks.update(id, { status: 'LEAD_RETAKE', retakeNote }))
+    )
+    const ok = results
+      .filter((r): r is PromiseFulfilledResult<{ task: TaskRow }> => r.status === 'fulfilled')
+      .map(r => r.value.task)
+    set(s => {
+      let tasks = s.tasks
+      for (const t of ok) tasks = upsert(tasks, t)
+      return { tasks }
+    })
   },
 
   // ── Derived helpers ─────────────────────────────────────────────────────────

@@ -82,7 +82,11 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
 
     const syncId = window.setTimeout(() => { setMinuteTick(Date.now()) }, 0)
     return () => window.clearTimeout(syncId)
-  }, [task])
+  // BUG-04: depend on task.id, not the whole task object. Without this every
+  // SSE update (comments, version uploads) would reset the form while the user
+  // is typing — clearing the retake reason textarea, URL inputs, etc.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task?.id])
 
   useEffect(() => {
     if (!isActiveTimer) return
@@ -220,8 +224,9 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
     setUploadingVersion(true)
     try {
       const { task: updated } = await Tasks.uploadVersion(task.id, file)
-      // Directly merge into store; SSE may arrive later and will be deduplicated
-      usePipelineStore.getState().applyServerEvent({ type: 'task.updated', task: updated })
+      // Directly merge into store; SSE may arrive later and will be deduplicated.
+      // BUG-19: pass currentUser.id so artist-assigned tasks aren't filtered out.
+      usePipelineStore.getState().applyServerEvent({ type: 'task.updated', task: updated }, currentUser?.id)
       const vnum = updated.versions?.length ?? '?'
       pushToast({ kind: 'info', title: 'Version uploaded', body: `v${vnum} saved for ${updated.itemName}`, ttl: 2500 })
     } catch (err) {
@@ -236,7 +241,8 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
     setUploadingVersion(true)
     try {
       const { task: updated } = await Tasks.addVersionUrl(task.id, versionUrlInput.trim())
-      usePipelineStore.getState().applyServerEvent({ type: 'task.updated', task: updated })
+      // BUG-19: pass currentUser.id so artist-assigned tasks aren't filtered out.
+      usePipelineStore.getState().applyServerEvent({ type: 'task.updated', task: updated }, currentUser?.id)
       const vnum = updated.versions?.length ?? '?'
       pushToast({ kind: 'info', title: 'Version added', body: `v${vnum} saved for ${updated.itemName}`, ttl: 2500 })
       setVersionUrlInput('')
@@ -252,7 +258,8 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
     if (!task) return
     try {
       const { task: updated } = await Tasks.removeVersion(task.id, versionId)
-      usePipelineStore.getState().applyServerEvent({ type: 'task.updated', task: updated })
+      // BUG-19: pass currentUser.id so artist-assigned tasks aren't filtered out.
+      usePipelineStore.getState().applyServerEvent({ type: 'task.updated', task: updated }, currentUser?.id)
       if (activeVersionId === versionId) setActiveVersionId(null)
       pushToast({ kind: 'info', title: 'Version deleted', ttl: 2000 })
     } catch (err) {
@@ -773,8 +780,17 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
               <input
                 type="datetime-local"
                 value={toDateTimeInputValue(task.endDate)}
-                // Auto-close the calendar after pick
-                onChange={e => { updateTask(task.id, { endDate: e.target.value || null }); e.target.blur() }}
+                // BUG-17: Validate end date > start date before persisting.
+                onChange={e => {
+                  const v = e.target.value || null
+                  if (v && task.startDate && new Date(v) <= new Date(task.startDate)) {
+                    pushToast({ kind: 'error', title: 'Invalid date', body: 'End date must be after the start date.', ttl: 3000 })
+                    e.target.value = toDateTimeInputValue(task.endDate)
+                    return
+                  }
+                  updateTask(task.id, { endDate: v })
+                  e.target.blur()
+                }}
                 className="w-full px-2.5 py-1.5 text-xs border border-[#1b253b] rounded-md bg-[#0a0f1b] text-slate-200 focus:outline-none focus:border-indigo-500 transition-colors font-mono"
               />
             )}

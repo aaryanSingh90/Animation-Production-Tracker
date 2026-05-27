@@ -166,7 +166,7 @@ export function Settings() {
             </div>
             <div className="flex items-center justify-between py-1.5 border-b border-[#1a263e]">
               <span className="text-slate-500 uppercase tracking-wider font-bold">Storage</span>
-              <span className="text-slate-300 font-medium">IndexedDB via Dexie.js</span>
+              <span className="text-slate-300 font-medium">PostgreSQL via Prisma</span>
             </div>
             <div className="flex items-center justify-between py-1.5 border-b border-[#1a263e]">
               <span className="text-slate-500 uppercase tracking-wider font-bold">Records</span>
@@ -176,7 +176,7 @@ export function Settings() {
             </div>
             <div className="flex items-center justify-between py-1.5">
               <span className="text-slate-500 uppercase tracking-wider font-bold">Stack</span>
-              <span className="text-slate-300 font-medium">React 18 · Zustand · Dexie · TanStack</span>
+              <span className="text-slate-300 font-medium">React 18 · Zustand · Vite · Express · Prisma</span>
             </div>
           </div>
         </div>

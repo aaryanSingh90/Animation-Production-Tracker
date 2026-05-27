@@ -25,7 +25,23 @@ export function createApp() {
   // Vercel's own headers config in production.
   // crossOriginResourcePolicy is set to 'cross-origin' so that <video> and
   // <img> elements on the frontend (different origin) can load /uploads/ files.
-  app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false, crossOriginResourcePolicy: { policy: 'cross-origin' } }))
+  // BUG-20: re-enable CSP with a minimal API-server policy.
+  // This server only returns JSON and serves static video files — no HTML pages —
+  // so a tight "no inline scripts/frames" policy is safe and costs nothing.
+  // crossOriginResourcePolicy must stay 'cross-origin' so <video> on the Vercel
+  // frontend can load /uploads/ files across origins.
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc:  ["'none'"],
+        scriptSrc:   ["'none'"],
+        frameSrc:    ["'none'"],
+        objectSrc:   ["'none'"],
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  }))
 
   // Trust X-Forwarded-* headers when sitting behind Render's proxy, so
   // express-rate-limit can correctly key on the real client IP.

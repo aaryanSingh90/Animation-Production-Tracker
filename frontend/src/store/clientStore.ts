@@ -4,6 +4,7 @@ import {
   Clients, Projects,
   type ClientUpsert, type ProjectUpsert,
 } from '../api/endpoints'
+import { logger } from '../utils/logger'
 
 interface ClientState {
   clients:     Client[]
@@ -14,6 +15,8 @@ interface ClientState {
   initialized: boolean
   loading:     boolean
 
+  /** BUG-01: Reset all store state — called on logout so a new login starts clean. */
+  reset:       () => void
   initialize:  () => Promise<void>
   refresh:     () => Promise<void>
 
@@ -55,6 +58,9 @@ export const useClientStore = create<ClientState>()((set, get) => ({
   initialized:      false,
   loading:          false,
 
+  // BUG-01: Reset to initial state on logout so a subsequent login sees a clean store.
+  reset: () => set({ clients: [], projects: [], archivedByClient: {}, initialized: false, loading: false }),
+
   initialize: async () => {
     if (get().initialized) return
     await get().refresh()
@@ -71,7 +77,7 @@ export const useClientStore = create<ClientState>()((set, get) => ({
       ])
       set({ clients, projects, loading: false })
     } catch (err) {
-      console.error('[clients] refresh failed', err)
+      logger.error('[clients] refresh failed', err)
       set({ loading: false })
     }
   },
@@ -166,7 +172,7 @@ export const useClientStore = create<ClientState>()((set, get) => ({
         archivedByClient: { ...s.archivedByClient, [clientId]: projects },
       }))
     } catch (err) {
-      console.error('[clients] loadArchived failed', err)
+      logger.error('[clients] loadArchived failed', err)
     }
   },
 

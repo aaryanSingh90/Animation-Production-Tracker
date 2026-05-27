@@ -5,6 +5,7 @@ import { useEmployeeStore } from '../store/employeeStore'
 import { usePipelineStore } from '../store/pipelineStore'
 import { connect as sseConnect, disconnect as sseDisconnect, subscribe as sseSubscribe } from '../api/sse'
 
+
 /**
  * Boots the app:
  *   1. Restore JWT session (if any).
@@ -25,6 +26,19 @@ export function useInitializeApp() {
   useEffect(() => {
     restoreSession().finally(() => setReady(true))
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // BUG-10: When SSE reconnects after a drop, re-fetch employees + clients so any
+  // changes that arrived while we were offline are reflected immediately.
+  useEffect(() => {
+    function handleSseReconnect() {
+      void Promise.all([
+        useEmployeeStore.getState().refresh(),
+        useClientStore.getState().refresh(),
+      ])
+    }
+    window.addEventListener('shothub:sse-reconnect', handleSseReconnect)
+    return () => window.removeEventListener('shothub:sse-reconnect', handleSseReconnect)
   }, [])
 
   // 2. When we're authenticated, pull the data + open SSE

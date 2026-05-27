@@ -48,16 +48,18 @@ export function MyWorkPage() {
     const byProject: Record<string, ProjectGroup> = {}
 
     myTasks.forEach(task => {
+      // BUG-06: `projects` only contains active projects. When a project is archived,
+      // the task is still assigned to the artist but the project lookup returns undefined,
+      // causing the task to be silently dropped. Use a fallback so archived tasks remain visible.
       const proj   = projects.find(p => p.id === task.projectId)
-      const client = clients.find(c => c.id === proj?.clientId)
-      if (!proj || !client) return
+      const client = proj ? clients.find(c => c.id === proj.clientId) : undefined
 
       if (!byProject[task.projectId]) {
         byProject[task.projectId] = {
           projectId:   task.projectId,
-          projectName: proj.name,
-          clientName:  client.name,
-          clientId:    client.id,
+          projectName: proj?.name ?? '(Archived project)',
+          clientName:  client?.name ?? '',
+          clientId:    proj?.clientId ?? '',
           stageGroups: [],
         }
       }

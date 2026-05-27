@@ -2,6 +2,9 @@ import { create } from 'zustand'
 import type { Employee } from '../types'
 import { Auth } from '../api/endpoints'
 import { ApiError, clearSession, setToken } from '../api/client'
+import { usePipelineStore } from './pipelineStore'
+import { useClientStore }   from './clientStore'
+import { useEmployeeStore }  from './employeeStore'
 
 interface AuthState {
   currentUser:        Employee | null
@@ -76,6 +79,11 @@ export const useAuthStore = create<AuthState>()((set) => ({
 
   logout: async () => {
     stopRefreshTimer()
+    // BUG-01: Reset all data stores so the next user who logs in on the same
+    // browser tab sees a clean slate, not the previous user's data.
+    usePipelineStore.getState().reset()
+    useClientStore.getState().reset()
+    useEmployeeStore.getState().reset()
     try { await Auth.logout() } catch { /* still log out locally even if server unreachable */ }
     clearSession()
     set({ currentUser: null, loginError: null, mustChangePassword: false })
@@ -91,6 +99,10 @@ if (typeof window !== 'undefined') {
   window.addEventListener('shothub:unauthorized', () => {
     stopRefreshTimer()
     clearSession()
+    // BUG-01: Also reset data stores on a forced 401 logout.
+    usePipelineStore.getState().reset()
+    useClientStore.getState().reset()
+    useEmployeeStore.getState().reset()
     useAuthStore.setState({ currentUser: null, mustChangePassword: false })
   })
 

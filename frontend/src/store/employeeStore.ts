@@ -1,11 +1,14 @@
 import { create } from 'zustand'
 import type { Employee } from '../types'
 import { Employees, type EmployeeUpsert } from '../api/endpoints'
+import { logger } from '../utils/logger'
 
 interface EmployeeState {
   employees:   Employee[]
   initialized: boolean
   loading:     boolean
+  /** BUG-01: Reset all store state — called on logout so a new login starts clean. */
+  reset:       () => void
   initialize:  () => Promise<void>
   refresh:     () => Promise<void>
   addEmployee: (data: EmployeeUpsert) => Promise<Employee>
@@ -32,6 +35,9 @@ export const useEmployeeStore = create<EmployeeState>()((set, get) => ({
   initialized: false,
   loading:     false,
 
+  // BUG-01: Reset to initial state on logout so a subsequent login sees a clean store.
+  reset: () => set({ employees: [], initialized: false, loading: false }),
+
   initialize: async () => {
     if (get().initialized) return
     await get().refresh()
@@ -44,7 +50,7 @@ export const useEmployeeStore = create<EmployeeState>()((set, get) => ({
       const { employees } = await Employees.list()
       set({ employees, loading: false })
     } catch (err) {
-      console.error('[employees] refresh failed', err)
+      logger.error('[employees] refresh failed', err)
       set({ loading: false })
     }
   },

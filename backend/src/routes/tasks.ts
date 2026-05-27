@@ -5,7 +5,7 @@ import path from 'path'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
 import { prisma } from '../lib/prisma.js'
-import { requireAuth, requireRole } from '../middleware/auth.js'
+import { requireAuth, requireAuthStrict, requireRole } from '../middleware/auth.js'
 import { broadcast } from '../lib/sse.js'
 import { zodMsg } from '../lib/zodMsg.js'
 
@@ -28,7 +28,21 @@ const storage = multer.diskStorage({
     cb(null, name)
   },
 })
-const upload = multer({ storage, limits: { fileSize: 500 * 1024 * 1024 } }) // 500 MB max
+
+// BUG-09: reject non-video/image files server-side (browser accept= is just a hint)
+function videoFilter(_req: Express.Request, file: Express.Multer.File, cb: multer.FileFilterCallback) {
+  if (file.mimetype.startsWith('video/') || file.mimetype.startsWith('image/')) {
+    cb(null, true)
+  } else {
+    cb(new Error('Only video and image files are allowed.'))
+  }
+}
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 500 * 1024 * 1024 }, // 500 MB max
+  fileFilter: videoFilter,
+})
 
 export const tasksRouter = Router()
 
@@ -108,8 +122,9 @@ tasksRouter.post('/', requireAuth, requireRole('MANAGER'), async (req, res) => {
   res.status(201).json({ task })
 })
 
-// PATCH /api/tasks/:id — any authenticated user (status transitions enforced below)
-tasksRouter.patch('/:id', requireAuth, async (req, res) => {
+// PATCH /api/tasks/:id — BUG-12: use strict auth so deactivated/password-changed
+// users are rejected immediately instead of continuing for up to 1h on the old token
+tasksRouter.patch('/:id', requireAuthStrict, async (req, res) => {
   const parsed = updateSchema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error: zodMsg(parsed.error) })
   const existing = await prisma.task.findUnique({ where: { id: req.params.id } })
@@ -191,7 +206,7 @@ const commentSchema = z.object({
   type:    z.enum(['note','retake','approval']).default('note'),
 })
 
-tasksRouter.post('/:id/comments', requireAuth, async (req, res) => {
+tasksRouter.post('/:id/comments', requireAuthStrict, async (req, res) => {
   const parsed = commentSchema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error: zodMsg(parsed.error) })
   const author = await prisma.employee.findUnique({ where: { id: req.user!.sub } })
@@ -219,7 +234,7 @@ tasksRouter.post('/:id/comments', requireAuth, async (req, res) => {
  *   • application/json { videoUrl: string }  → stores external URL as version
  * Both paths auto-increment versionNum and broadcast task.updated.
  */
-tasksRouter.post('/:id/versions', requireAuth, upload.single('video'), async (req, res) => {
+tasksRouter.post('/:id/versions', requireAuthStrict, upload.single('video'), async (req, res) => {
   const taskId = req.params.id
 
   // Verify task exists
@@ -245,9 +260,19 @@ tasksRouter.post('/:id/versions', requireAuth, upload.single('video'), async (re
   const count = await prisma.taskVersion.count({ where: { taskId } })
   const versionNum = count + 1
 
-  await prisma.taskVersion.create({
-    data: { taskId, versionNum, videoUrl, uploadedByName: uploaderName, uploadedById: req.user!.sub },
-  })
+  // BUG-03: if the DB write fails after the file was saved, delete the orphaned
+  // file so it doesn't accumulate on disk with no DB record
+  try {
+    await prisma.taskVersion.create({
+      data: { taskId, versionNum, videoUrl, uploadedByName: uploaderName, uploadedById: req.user!.sub },
+    })
+  } catch (err) {
+    if (req.file) {
+      const filePath = path.join(uploadsDir, req.file.filename)
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+    }
+    throw err // re-throw so the global error handler sends a 500
+  }
 
   const task = await prisma.task.findUnique({ where: { id: taskId }, include: TASK_INCLUDE })
   broadcast({ type: 'task.updated', task })
@@ -272,4 +297,36 @@ tasksRouter.delete('/:id/versions/:versionId', requireAuth, requireRole('MANAGER
   const task = await prisma.task.findUnique({ where: { id: req.params.id }, include: TASK_INCLUDE })
   broadcast({ type: 'task.updated', task })
   res.json({ ok: true, task })
+})
+
+// ─── BUG-02: Batch task creation (atomic mirror tasks) ──────────────────────
+/**
+ * POST /api/tasks/batch — MANAGER only
+ * Creates multiple tasks in a single Prisma transaction.
+ * Used for character auto-mirroring: Modelling → Blendshapes, Rigging,
+ * Unwrapping, Texturing. All succeed or all fail — no partial state.
+ */
+const batchCreateSchema = z.array(createSchema).min(1).max(20)
+
+tasksRouter.post('/batch', requireAuth, requireRole('MANAGER'), async (req, res) => {
+  const parsed = batchCreateSchema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ error: zodMsg(parsed.error) })
+
+  const tasks = await prisma.$transaction(
+    parsed.data.map(item =>
+      prisma.task.create({
+        data: {
+          ...item,
+          startDate: item.startDate ? new Date(item.startDate) : null,
+          endDate:   item.endDate   ? new Date(item.endDate)   : null,
+        },
+        include: TASK_INCLUDE,
+      })
+    )
+  )
+
+  for (const task of tasks) {
+    broadcast({ type: 'task.created', task })
+  }
+  res.status(201).json({ tasks })
 })

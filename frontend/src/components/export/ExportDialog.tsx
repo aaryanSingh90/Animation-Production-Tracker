@@ -15,11 +15,13 @@ interface Props {
 type ScopeType = 'studio' | 'client' | 'project'
 
 export function ExportDialog({ open, onClose }: Props) {
-  const clients   = useClientStore(s => s.clients)
-  const projects  = useClientStore(s => s.projects)
-  const tasks     = usePipelineStore(s => s.tasks)
-  const employees = useEmployeeStore(s => s.employees)
-  const pushToast = useToastStore(s => s.push)
+  const clients        = useClientStore(s => s.clients)
+  const projects       = useClientStore(s => s.projects)
+  const tasks          = usePipelineStore(s => s.tasks)
+  const employees      = useEmployeeStore(s => s.employees)
+  const pushToast      = useToastStore(s => s.push)
+  // BUG-11: Used to pre-load tasks for all in-scope projects before export.
+  const loadForProject = usePipelineStore(s => s.loadForProject)
 
   const [scopeType, setScopeType] = useState<ScopeType>('studio')
   const [clientId,  setClientId]  = useState<string>(clients[0]?.id ?? '')
@@ -68,6 +70,18 @@ export function ExportDialog({ open, onClose }: Props) {
     if (exporting) return
     setExporting(true)
     try {
+      // BUG-11: Ensure all in-scope project tasks are loaded before building the
+      // spreadsheet. Managers load tasks lazily (per sub-stage), so an export
+      // without this step would be missing tasks from unvisited stages.
+      const projectsInScope =
+        scopeType === 'studio'  ? projects
+      : scopeType === 'client'  ? projects.filter(p => p.clientId === clientId)
+      :                            projects.filter(p => p.id === projectId)
+      await Promise.all(projectsInScope.map(p => loadForProject(p.id)))
+
+      // Read fresh from the store after loading to get all newly fetched tasks.
+      const freshTasks = usePipelineStore.getState().tasks
+
       const scope: ExportScope =
         scopeType === 'studio'  ? { type: 'studio' }
       : scopeType === 'client'  ? { type: 'client',  clientId }
@@ -80,7 +94,7 @@ export function ExportDialog({ open, onClose }: Props) {
         includeComments:      incComments,
         includeStatusHistory: incHistory,
         includeTeam:          incTeam,
-      }, { tasks, clients, projects, employees })
+      }, { tasks: freshTasks, clients, projects, employees })
 
       pushToast({
         kind: 'approval',

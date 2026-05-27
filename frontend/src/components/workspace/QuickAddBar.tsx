@@ -18,7 +18,8 @@ interface Props {
 }
 
 export function QuickAddBar({ stageConfig, subStageConfig, projectId }: Props) {
-  const addTask = usePipelineStore(s => s.addTask)
+  const addTask  = usePipelineStore(s => s.addTask)
+  const addBatch = usePipelineStore(s => s.addBatch)
 
   // Shot-based if SHOT workflow OR the Cut Shots sub-stage inside Animatics
   const isShot = stageConfig.workflowType === 'SHOT' || subStageConfig.slug === 'cut-shots'
@@ -71,14 +72,15 @@ export function QuickAddBar({ stageConfig, subStageConfig, projectId }: Props) {
 
       // Auto-mirror: propagate name + artist to all downstream pipeline stages
       // (Character Blendshapes, Unwrapping, Texturing, Rigging — per MIRROR_RULES)
+      // BUG-02: Use atomic batch so all mirror tasks are created together or not at all.
       const mirrorTargets = MIRROR_RULES[subStageConfig.id]
       if (mirrorTargets) {
-        await Promise.allSettled(mirrorTargets.map(targetSubStageId => addTask({
-          subStageId: targetSubStageId,
+        await addBatch(mirrorTargets.map(targetSubStageId => ({
+          subStageId:       targetSubStageId,
           projectId,
           itemName,
           assignedArtistId: artist,
-          status: 'YET_TO_START',
+          status:           'YET_TO_START' as const,
         })))
       }
 

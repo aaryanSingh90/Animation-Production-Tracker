@@ -114,6 +114,8 @@ export interface TaskFilter {
 export const Tasks = {
   list:    (filter?: TaskFilter)                   => api.get<{ tasks: TaskRow[] }>('/api/tasks', filter as Record<string, string | undefined>),
   create:  (data: TaskCreate)                      => api.post<{ task: TaskRow }>('/api/tasks', data),
+  /** BUG-02: atomic batch create — all tasks created in one DB transaction or none */
+  createBatch: (items: TaskCreate[])               => api.post<{ tasks: TaskRow[] }>('/api/tasks/batch', items),
   update:  (id: string, patch: TaskPatch)          => api.patch<{ task: TaskRow }>(`/api/tasks/${id}`, patch),
   remove:  (id: string)                            => api.delete<{ ok: true }>(`/api/tasks/${id}`),
   comment: (id: string, message: string, type?: 'note' | 'retake' | 'approval') =>

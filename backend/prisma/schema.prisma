@@ -177,6 +177,10 @@ model Task {
   @@index([assignedArtistId])
   @@index([status])
   @@index([shotNumber])
+  // BUG-22: A partial unique index on (projectId, subStageId, shotNumber)
+  // WHERE shotNumber IS NOT NULL is defined in migration
+  // 20260527000001_task_shot_partial_unique. Prisma schema DSL cannot express
+  // partial indexes, so the constraint lives only in the migration SQL.
 }
 
 model TaskVersion {

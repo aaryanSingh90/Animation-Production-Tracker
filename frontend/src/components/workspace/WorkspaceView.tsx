@@ -73,13 +73,31 @@ export function WorkspaceView({ projectId, stageConfig, subStageSlug, clientId }
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [drawerTask, setDrawerTask] = useState<TaskRow | null>(null)
 
-  // Auto-open drawer when ?open=taskId is present in the URL
+  // BUG-08: Reset filters when the user switches to a different sub-stage so
+  // stale artist / status filters from one stage don't bleed into the next.
+  useEffect(() => {
+    setFilters(DEFAULT_FILTERS)
+  }, [subStageConfig.id])
+
+  // Auto-open drawer when ?open=taskId is present in the URL.
+  // BUG-07: Also close the drawer when ?open disappears (browser back button).
   const openTaskId = searchParams.get('open')
   useEffect(() => {
-    if (!openTaskId) return
-    const t = allStoreTasks.find(x => x.id === openTaskId)
-    if (t) setDrawerTask(t)
+    if (openTaskId) {
+      const t = allStoreTasks.find(x => x.id === openTaskId)
+      if (t) setDrawerTask(t)
+    } else {
+      setDrawerTask(null)
+    }
   }, [openTaskId, allStoreTasks])
+
+  // BUG-05: If the currently-open task is deleted (by another user via SSE),
+  // close the drawer so we don't show a stale / ghost task.
+  useEffect(() => {
+    if (drawerTask && !allStoreTasks.some(t => t.id === drawerTask.id)) {
+      setDrawerTask(null)
+    }
+  }, [allStoreTasks, drawerTask])
 
   function handleCloseDrawer() {
     setDrawerTask(null)

@@ -1,52 +1,45 @@
 /**
  * Lightweight fetch wrapper for the ShotHub API.
  *
- * Auth model (post Phase-1 hardening):
+ * Auth model:
  *   • Primary: HttpOnly cookie `shothub_token` set by the backend on login,
  *     sent automatically by the browser via `credentials: 'include'`.
  *     We never see or store this token in JS, so an XSS bug can't exfiltrate it.
  *
- *   • Fallback: in-memory + localStorage token (back-compat for during the
- *     migration window — older browser sessions still have a token in
- *     localStorage from the previous version of the app). Once everyone has
- *     re-logged in we can delete the localStorage branch.
+ *   • In-memory fallback: the token is also cached in `inMemoryToken` for the
+ *     SSE EventSource, which cannot send cookies or headers on its own and reads
+ *     `getToken()` to add `?token=` to the SSE URL.
  *
  * Behaviour:
- *   - Listens for 401 globally → clears the legacy token + dispatches a
+ *   - Listens for 401 globally → clears the in-memory token + dispatches a
  *     logout event so the router can boot the user to /login.
  *   - 403 with `code: 'PASSWORD_CHANGE_REQUIRED'` → dispatches a special
  *     event so the router can redirect to /account (change-password screen).
  *   - Throws `ApiError` for any non-2xx response.
  */
 
+// BUG-24: Warn in production if VITE_API_URL is not configured — the app would
+// silently try localhost:4000, which doesn't exist in a deployed environment.
+if (import.meta.env.PROD && !import.meta.env.VITE_API_URL) {
+  console.warn('[ShotHub] VITE_API_URL is not set — falling back to localhost:4000, which will fail in production. Set the env variable in your deployment config.')
+}
+
 export const API_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:4000').replace(/\/$/, '')
 
-const TOKEN_KEY = 'shothub:jwt'
-
-// Legacy in-memory token — only used as a back-compat fallback during the
-// cookie migration. New logins set the cookie + return token in the response
-// body; we cache it here so the very first request after login still has it
-// in case the cookie hasn't been written yet (rare, but happens on Safari).
-let inMemoryToken: string | null = (() => {
-  try { return localStorage.getItem(TOKEN_KEY) } catch { return null }
-})()
+// BUG-13: In-memory only — no localStorage. The HttpOnly cookie is the real
+// auth mechanism; this token is only used as a fallback for the SSE EventSource
+// (which can't send cookies on cross-origin requests in all browsers).
+let inMemoryToken: string | null = null
 
 export function getToken(): string | null { return inMemoryToken }
 
 export function setToken(token: string | null) {
   inMemoryToken = token
-  try {
-    if (token) localStorage.setItem(TOKEN_KEY, token)
-    else        localStorage.removeItem(TOKEN_KEY)
-  } catch { /* SSR / private mode — ignore */ }
 }
 
-/** Clear every trace of an auth session from this browser. */
+/** Clear the in-memory auth token. The HttpOnly cookie is cleared server-side by /logout. */
 export function clearSession() {
   setToken(null)
-  // We don't manually clear the cookie — the /logout endpoint does that with
-  // a server Set-Cookie expire. Calling this without hitting /logout leaves
-  // the cookie until it expires (1h), which is fine for our threat model.
 }
 
 export class ApiError extends Error {

@@ -76,9 +76,19 @@ export function ShotMatrix() {
   // ── Data loading ─────────────────────────────────────────────────────────
   // Only load tasks when a specific client (or ALL_CLIENTS) is selected.
   // loadForProject is idempotent — safe to call on every re-render.
+  // BUG-18: Load sequentially rather than all at once to avoid firing N
+  // simultaneous API requests when the client has many projects.
   useEffect(() => {
     if (selectedClientId === NO_CLIENT) return
-    visibleProjects.forEach(p => loadForProject(p.id))
+    let cancelled = false
+    async function loadAll() {
+      for (const p of visibleProjects) {
+        if (cancelled) break
+        await loadForProject(p.id)
+      }
+    }
+    void loadAll()
+    return () => { cancelled = true }
   }, [visibleProjects, loadForProject, selectedClientId])
 
   // ── Shot-view state ──────────────────────────────────────────────────────
