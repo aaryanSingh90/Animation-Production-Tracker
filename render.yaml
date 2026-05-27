@@ -15,7 +15,7 @@ services:
 
     # Build: install deps, generate Prisma client, compile TypeScript.
     # Migrations + seed run on every deploy (idempotent — upserts only).
-    buildCommand: npm install && npx prisma generate && npm run build && npx prisma migrate deploy && npm run db:seed
+    buildCommand: npm install && npx prisma generate && npm run build && npm run db:resolve && npx prisma migrate deploy && npm run db:seed
 
     # Start: serve the compiled app.
     startCommand: npm start
