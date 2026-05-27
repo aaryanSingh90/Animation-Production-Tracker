@@ -483,17 +483,20 @@ export function DetailDrawer({ task: passedTask, onClose }: Props) {
                 <span className="text-[10px] font-bold uppercase tracking-wider">No Storyboard Loaded</span>
               </div>
             )}
-            <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-              <button
-                onClick={() => setShowUrlInput(!showUrlInput)}
-                className="bg-slate-900/90 hover:bg-indigo-600 text-white text-[9px] font-bold uppercase px-2 py-1 rounded border border-[#1b253b] transition-all"
-              >
-                {showUrlInput ? 'CLOSE' : 'PASTE URL'}
-              </button>
-            </div>
+            {/* Paste URL — managers only; artists cannot overwrite the storyboard reference */}
+            {!isArtist && (
+              <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={() => setShowUrlInput(!showUrlInput)}
+                  className="bg-slate-900/90 hover:bg-indigo-600 text-white text-[9px] font-bold uppercase px-2 py-1 rounded border border-[#1b253b] transition-all"
+                >
+                  {showUrlInput ? 'CLOSE' : 'PASTE URL'}
+                </button>
+              </div>
+            )}
           </div>
 
-          {showUrlInput && (
+          {showUrlInput && !isArtist && (
             <div className="flex gap-1.5 p-2 bg-[#0d1424] border border-[#1b253b] rounded-md animate-in fade-in duration-100">
               <input
                 value={thumbUrlInput}
