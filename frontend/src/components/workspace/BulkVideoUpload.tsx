@@ -167,7 +167,13 @@ export function BulkVideoUpload({ projectId, subStageConfig }: Props) {
     setCreating(true)
     setError(null)
     let versionErrors = 0
+    let mirrorSkipped = 0
     try {
+      // BUG-22 follow-up: pre-load Animation tasks for this project so we can
+      // detect when a mirror already exists and avoid hitting the partial
+      // unique index on (projectId, subStageId, shotNumber).
+      await usePipelineStore.getState().loadForSubStage(projectId, ANIMATION_SUB_STAGE_ID)
+
       for (const item of items) {
         const base = {
           projectId,
@@ -194,16 +200,30 @@ export function BulkVideoUpload({ projectId, subStageConfig }: Props) {
         // Mirror to Animation — same shot/frame/seconds, no thumbnail and no video
         // version (Animation reads the latest version from the Cut Shots twin via
         // a soft-link in the detail drawer).
-        await addTask({
-          ...base,
-          subStageId: ANIMATION_SUB_STAGE_ID,
-          thumbnail:  null,
-        })
+        //
+        // Skip if an Animation task with the same shot number already exists for
+        // this project — the partial unique index would otherwise reject the
+        // insert. The soft-link only needs ONE animation row per shot number.
+        const animationExists = usePipelineStore.getState().tasks.some(t =>
+          t.projectId === projectId &&
+          t.subStageId === ANIMATION_SUB_STAGE_ID &&
+          t.shotNumber === item.shotNumber
+        )
+        if (animationExists) {
+          mirrorSkipped++
+        } else {
+          await addTask({
+            ...base,
+            subStageId: ANIMATION_SUB_STAGE_ID,
+            thumbnail:  null,
+          })
+        }
       }
       setItems([])
-      if (versionErrors > 0) {
-        setError(`${versionErrors} video upload(s) failed — tasks created, retry via the task drawer.`)
-      }
+      const messages: string[] = []
+      if (versionErrors > 0) messages.push(`${versionErrors} video upload(s) failed — retry via the task drawer`)
+      if (mirrorSkipped > 0) messages.push(`${mirrorSkipped} animation mirror(s) already existed — skipped`)
+      if (messages.length > 0) setError(messages.join(' · '))
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to create some tasks.')
     } finally {
