@@ -19,7 +19,8 @@ import { AccessDenied } from './pages/AccessDenied'
 
 function ManagerOnly({ children }: { children: React.ReactNode }) {
   const role = useAuthStore(s => s.currentUser?.role)
-  if (role !== 'MANAGER') return <Navigate to="/" replace />
+  // Non-managers land on My Work, not the root, so they never see a blank page
+  if (role !== 'MANAGER') return <Navigate to="/my-work" replace />
   return <>{children}</>
 }
 
@@ -73,8 +74,8 @@ function AppInner() {
       <Routes>
         <Route element={<Layout />}>
           <Route path="/" element={<Dashboard />} />
-          <Route path="/clients" element={<Clients />} />
-          <Route path="/clients/:clientId" element={<ClientDetail />} />
+          <Route path="/clients" element={<ManagerOnly><Clients /></ManagerOnly>} />
+          <Route path="/clients/:clientId" element={<ManagerOnly><ClientDetail /></ManagerOnly>} />
           <Route path="/clients/:clientId/projects/:projectId" element={<ProjectHub />} />
           <Route
             path="/clients/:clientId/projects/:projectId/pipeline/:stageSlug/:subStageSlug"
@@ -90,7 +91,11 @@ function AppInner() {
           <Route path="/account"  element={<AccountPage />} />
           <Route path="/settings" element={<ManagerOnly><Settings /></ManagerOnly>} />
           <Route path="/access-denied" element={<AccessDenied />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={
+            currentUser?.role === 'MANAGER'
+              ? <Navigate to="/" replace />
+              : <Navigate to="/my-work" replace />
+          } />
         </Route>
       </Routes>
     </>
