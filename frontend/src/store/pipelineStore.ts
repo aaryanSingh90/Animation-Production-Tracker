@@ -54,7 +54,7 @@ interface PipelineState {
     | { type: 'task.created'; task: TaskRow }
     | { type: 'task.updated'; task: TaskRow }
     | { type: 'task.deleted'; taskId: string }
-  ) => void
+  , currentUserId?: string) => void
 }
 
 function upsert(tasks: TaskRow[], next: TaskRow): TaskRow[] {
@@ -222,18 +222,24 @@ export const usePipelineStore = create<PipelineState>()((set, get) => ({
 
   // ── SSE ─────────────────────────────────────────────────────────────────────
 
-  applyServerEvent: (event) => {
+  applyServerEvent: (event, currentUserId) => {
     if (event.type === 'task.deleted') {
       set(s => ({ tasks: s.tasks.filter(t => t.id !== event.taskId) }))
     } else {
-      // Only merge into store if this sub-stage was already loaded —
-      // prevents tasks from unloaded sub-stages leaking in via SSE
       const { task } = event
       const key = `${task.projectId}:${task.subStageId}`
-      const isLoaded = !!get().loadedSubStages[key]
-      // Artists always accept SSE for their own tasks (already in store)
-      const isOwn = get().tasks.some(t => t.id === task.id)
-      if (isLoaded || isOwn) {
+
+      // Accept the update when any of these is true:
+      //   isLoaded      — manager already loaded this sub-stage; keep it current
+      //   isOwn         — task was already in the store (existing assignment)
+      //   isAssignedToMe — manager just assigned / re-assigned this task to the
+      //                    current user; without this check artists would never
+      //                    see new tasks without refreshing
+      const isLoaded       = !!get().loadedSubStages[key]
+      const isOwn          = get().tasks.some(t => t.id === task.id)
+      const isAssignedToMe = !!currentUserId && task.assignedArtistId === currentUserId
+
+      if (isLoaded || isOwn || isAssignedToMe) {
         set(s => ({ tasks: upsert(s.tasks, task) }))
       }
     }

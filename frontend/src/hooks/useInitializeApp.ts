@@ -43,7 +43,9 @@ export function useInitializeApp() {
         case 'task.created':
         case 'task.updated':
         case 'task.deleted':
-          usePipelineStore.getState().applyServerEvent(event)
+          // Pass currentUser.id so artists instantly receive tasks
+          // that a manager just assigned to them (not yet in their store)
+          usePipelineStore.getState().applyServerEvent(event, currentUser.id)
           break
         case 'employee.created':
         case 'employee.updated':
