@@ -4,6 +4,19 @@ v3 runs as a **single process**: the Express backend serves both the REST API
 and the built React app on one port. No Vercel, no separate frontend server,
 no CORS. Uploaded videos are stored on the local disk.
 
+## Windows quick start (recommended)
+
+1. Install **Node.js 18+** and **PostgreSQL**, then create a database named `shothub`.
+2. Copy `backend\.env.example` to `backend\.env` and fill in `DATABASE_URL` and `JWT_SECRET`.
+3. Double-click **`setup.bat`** — installs everything, migrates, seeds and builds.
+   Run it once now, and again any time you pull updates.
+4. Double-click **`start.bat`**, then open <http://localhost:4000>.
+
+> You do **not** run two servers. v3 is a single process: the API serves the
+> built React app on one port. Vite is only used while `setup.bat` builds.
+
+The detailed / macOS / Linux steps are below.
+
 ## Prerequisites
 
 - **Node.js 18+** (`node -v`)
