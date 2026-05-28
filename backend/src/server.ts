@@ -5,6 +5,7 @@ import helmet from 'helmet'
 import cookieParser from 'cookie-parser'
 import rateLimit from 'express-rate-limit'
 import path from 'path'
+import fs from 'fs'
 import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -20,26 +21,27 @@ import { eventsRouter }    from './routes/events.js'
 export function createApp() {
   const app = express()
 
-  // Security headers. CSP is disabled because the frontend runs on a separate
-  // origin and we'd need a more elaborate policy to allow it — covered by
-  // Vercel's own headers config in production.
-  // crossOriginResourcePolicy is set to 'cross-origin' so that <video> and
-  // <img> elements on the frontend (different origin) can load /uploads/ files.
-  // BUG-20: re-enable CSP with a minimal API-server policy.
-  // This server only returns JSON and serves static video files — no HTML pages —
-  // so a tight "no inline scripts/frames" policy is safe and costs nothing.
-  // crossOriginResourcePolicy must stay 'cross-origin' so <video> on the Vercel
-  // frontend can load /uploads/ files across origins.
+  // Security headers (Content Security Policy).
+  // v3 serves the built React SPA from this same origin, so the CSP must allow
+  // the app's own bundled scripts/styles. 'self' covers the JS/CSS bundles;
+  // data:/blob: cover base64 thumbnails and object-URL video playback.
   app.use(helmet({
     contentSecurityPolicy: {
       directives: {
-        defaultSrc:  ["'none'"],
-        scriptSrc:   ["'none'"],
-        frameSrc:    ["'none'"],
-        objectSrc:   ["'none'"],
+        defaultSrc: ["'self'"],
+        scriptSrc:  ["'self'"],
+        styleSrc:   ["'self'", "'unsafe-inline'"],   // Tailwind injects inline styles
+        imgSrc:     ["'self'", 'data:', 'blob:'],      // thumbnails are data URLs
+        mediaSrc:   ["'self'", 'data:', 'blob:'],      // <video> uses blob/object URLs
+        connectSrc: ["'self'"],                        // API + SSE on same origin
+        fontSrc:    ["'self'", 'data:'],
+        objectSrc:  ["'none'"],
+        frameSrc:   ["'none'"],
       },
     },
     crossOriginEmbedderPolicy: false,
+    // Keep cross-origin so a separately-hosted frontend (SERVE_FRONTEND=false)
+    // can still load /uploads/ media when not running single-origin.
     crossOriginResourcePolicy: { policy: 'cross-origin' },
   }))
 
@@ -123,7 +125,27 @@ export function createApp() {
   app.use('/api/tasks',     tasksRouter)
   app.use('/api/events',    eventsRouter)
 
-  // 404
+  // ─── Serve the built frontend (v3 single-origin local deployment) ──────────
+  // The compiled React app is served from the same origin as the API, so there
+  // is no CORS and only one port to run. Set SERVE_FRONTEND=false to run the
+  // API alone (e.g. when the frontend is hosted separately).
+  if (process.env.SERVE_FRONTEND !== 'false') {
+    const distDir = process.env.FRONTEND_DIST
+      ? path.resolve(process.env.FRONTEND_DIST)
+      : path.join(__dirname, '..', '..', 'frontend', 'dist')
+    if (fs.existsSync(distDir)) {
+      app.use(express.static(distDir))
+      // SPA fallback — any GET that isn't an API/uploads/health route returns
+      // index.html so React Router deep-links work on hard refresh.
+      app.get(/^(?!\/api\/|\/uploads\/|\/health).*/, (_req, res) => {
+        res.sendFile(path.join(distDir, 'index.html'))
+      })
+    } else {
+      console.warn(`[server] SERVE_FRONTEND is on but ${distDir} not found — build the frontend first. Serving API only.`)
+    }
+  }
+
+  // 404 (API routes + anything else when the frontend isn't served)
   app.use((req, res) => res.status(404).json({ error: `Not found: ${req.method} ${req.path}` }))
 
   // Final error handler — logs to console + escalates 5xxs to Sentry.

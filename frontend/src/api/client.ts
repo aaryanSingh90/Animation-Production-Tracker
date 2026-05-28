@@ -18,12 +18,14 @@
  *   - Throws `ApiError` for any non-2xx response.
  */
 
-// BUG-24: Warn in production if VITE_API_URL is not configured — the app would
-// silently try localhost:4000, which doesn't exist in a deployed environment.
-if (import.meta.env.PROD && !import.meta.env.VITE_API_URL) {
-  console.warn('[ShotHub] VITE_API_URL is not set — falling back to localhost:4000, which will fail in production. Set the env variable in your deployment config.')
+// BUG-24: Warn in production only when VITE_API_URL was never declared. An
+// explicit empty string is the intended single-origin (v3) config — relative
+// API paths — so that must NOT warn. `undefined` means the var is missing.
+if (import.meta.env.PROD && import.meta.env.VITE_API_URL === undefined) {
+  console.warn('[ShotHub] VITE_API_URL is not set — falling back to localhost:4000. Set it (or an empty string for single-origin) in your build config.')
 }
 
+// Empty string → '' → relative paths (single-origin). Undefined → localhost fallback.
 export const API_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:4000').replace(/\/$/, '')
 
 // BUG-13: In-memory only — no localStorage. The HttpOnly cookie is the real

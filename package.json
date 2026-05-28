@@ -1,0 +1,15 @@
+{
+  "name": "shothub",
+  "version": "3.0.0",
+  "private": true,
+  "description": "ShotHub v3 — single-origin local-server build (Express serves API + built React app)",
+  "scripts": {
+    "setup": "npm --prefix backend install && npm --prefix frontend install && npm --prefix backend run prisma:generate && npm --prefix backend run prisma:deploy && npm --prefix backend run db:seed && npm run build",
+    "build": "npm --prefix backend run build && npm --prefix frontend run build",
+    "build:backend": "npm --prefix backend run build",
+    "build:frontend": "npm --prefix frontend run build",
+    "migrate": "npm --prefix backend run prisma:deploy",
+    "seed": "npm --prefix backend run db:seed",
+    "start": "npm --prefix backend start"
+  }
+}
