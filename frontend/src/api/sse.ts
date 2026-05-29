@@ -40,6 +40,20 @@ export type ServerEvent =
   | { type: 'project.updated';  project: Project }
   | { type: 'project.deleted';  projectId: string }
 
+/**
+ * Is the API served from a different origin than the page? API_URL is '' in the
+ * single-origin (v3) build → same-origin. An absolute URL is compared against
+ * the current origin.
+ */
+function isCrossOrigin(): boolean {
+  if (!API_URL) return false
+  try {
+    return new URL(API_URL, window.location.origin).origin !== window.location.origin
+  } catch {
+    return false
+  }
+}
+
 let source:        EventSource | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let backoffMs = 1000
@@ -60,11 +74,18 @@ function emit(event: ServerEvent) {
 }
 
 export function connect() {
-  const token = getToken()
-  if (!token) return                                       // not logged in yet
   if (source && source.readyState !== EventSource.CLOSED) return
 
-  source = new EventSource(`${API_URL}/api/events?token=${encodeURIComponent(token)}`)
+  // BUG-34: only fall back to the `?token=` query param when the API is on a
+  // DIFFERENT origin (e.g. Vercel frontend → Render backend), where the browser
+  // may not attach the HttpOnly cookie to the EventSource request. In the
+  // default single-origin (v3) setup the cookie is sent automatically, so
+  // appending the token would needlessly leak it into server/access logs.
+  const token = isCrossOrigin() ? getToken() : null
+  const url = token
+    ? `${API_URL}/api/events?token=${encodeURIComponent(token)}`
+    : `${API_URL}/api/events`
+  source = new EventSource(url, { withCredentials: true })
 
   source.onopen = () => {
     const isReconnect = hasConnectedOnce

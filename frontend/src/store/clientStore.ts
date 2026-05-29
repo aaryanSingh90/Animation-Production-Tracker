@@ -5,6 +5,7 @@ import {
   type ClientUpsert, type ProjectUpsert,
 } from '../api/endpoints'
 import { logger } from '../utils/logger'
+import { useToastStore } from './toastStore'
 
 interface ClientState {
   clients:     Client[]
@@ -79,6 +80,9 @@ export const useClientStore = create<ClientState>()((set, get) => ({
     } catch (err) {
       logger.error('[clients] refresh failed', err)
       set({ loading: false })
+      // BUG-42: clients + projects are the backbone of every screen — if they
+      // fail to load the app looks empty for no apparent reason. Tell the user.
+      useToastStore.getState().push({ kind: 'error', title: 'Could not load projects', body: 'Check your connection and reload.', ttl: 6000 })
     }
   },
 

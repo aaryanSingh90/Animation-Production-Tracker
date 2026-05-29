@@ -91,7 +91,9 @@ async function main() {
       role: 'MANAGER', department: 'Editing', active: true, avatarColor: '#6366f1',
     },
   })
-  console.log(`  ✓ MANAGER  ${ADMIN_EMAIL.padEnd(30)} pw: ${ADMIN_PASSWORD}`)
+  // BUG-33: never echo plaintext credentials to stdout — seed logs routinely end
+  // up in terminal scrollback, CI artifacts and shared screenshares.
+  console.log(`  ✓ MANAGER  ${ADMIN_EMAIL.padEnd(30)} (password from SEED_ADMIN_PASSWORD)`)
 
   // Map email → employee id after upsert
   const empByEmail: Record<string, string> = { [ADMIN_EMAIL]: adminEmp.id }
@@ -343,9 +345,16 @@ interface AssetSpec {
 
 async function seedModelling(projectId: string, assets: AssetSpec[]) {
   for (const a of assets) {
-    await prisma.task.create({ data: { projectId, subStageId: 'modelling-character', itemName: a.name, assignedArtistId: a.mod, status: a.status } })
-    await prisma.task.create({ data: { projectId, subStageId: 'rigging-character',   itemName: a.name, assignedArtistId: a.rig, status: a.status } })
-    await prisma.task.create({ data: { projectId, subStageId: 'texturing-character', itemName: a.name, assignedArtistId: a.tex, status: a.status } })
+    await prisma.task.create({ data: { projectId, subStageId: 'modelling-character',             itemName: a.name, assignedArtistId: a.mod, status: a.status } })
+    // BUG-23: the real auto-mirror (MIRROR_RULES) fans Modelling Character out to
+    // Blendshapes + Unwrapping as well. The seed previously skipped both, so the
+    // export's Character Sheet (which reads modelling-character-blendshapes) and
+    // the Unwrapping stage showed empty rows for every seeded asset. Mirror the
+    // app's behaviour: same name/artist/status as the modelling source.
+    await prisma.task.create({ data: { projectId, subStageId: 'modelling-character-blendshapes', itemName: a.name, assignedArtistId: a.mod, status: a.status } })
+    await prisma.task.create({ data: { projectId, subStageId: 'unwrapping-character',            itemName: a.name, assignedArtistId: a.mod, status: a.status } })
+    await prisma.task.create({ data: { projectId, subStageId: 'rigging-character',               itemName: a.name, assignedArtistId: a.rig, status: a.status } })
+    await prisma.task.create({ data: { projectId, subStageId: 'texturing-character',             itemName: a.name, assignedArtistId: a.tex, status: a.status } })
   }
 }
 
@@ -357,10 +366,10 @@ main()
     console.log('╠══════════════════════════════════════════════════════════╣')
     console.log(`║  Admin login:                                            ║`)
     console.log(`║    Email:    ${ADMIN_EMAIL.padEnd(42)} ║`)
-    console.log(`║    Password: ${ADMIN_PASSWORD.padEnd(42)} ║`)
+    console.log(`║    Password: ${'see SEED_ADMIN_PASSWORD in backend/.env'.padEnd(42)} ║`)
     console.log('╠══════════════════════════════════════════════════════════╣')
     console.log(`║  All artists:                                            ║`)
-    console.log(`║    Password: ${DEFAULT_PW.padEnd(42)} ║`)
+    console.log(`║    Password: ${'see SEED_DEFAULT_PASSWORD in backend/.env'.padEnd(42)} ║`)
     console.log(`║    Email:    [firstname]@studio.local                    ║`)
     console.log(`║    e.g.      sneha@studio.local                          ║`)
     console.log('╚══════════════════════════════════════════════════════════╝')

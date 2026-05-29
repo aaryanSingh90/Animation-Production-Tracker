@@ -32,9 +32,19 @@ export function useInitializeApp() {
   // changes that arrived while we were offline are reflected immediately.
   useEffect(() => {
     function handleSseReconnect() {
+      // Re-fetch all data stores so changes that arrived while offline are picked up.
+      const user = useAuthStore.getState().currentUser
       void Promise.all([
         useEmployeeStore.getState().refresh(),
         useClientStore.getState().refresh(),
+        // BUG-09: refresh tasks after reconnect for EVERYONE, not just managers.
+        // Managers reload all tasks; artists/leads/freelancers reload their own —
+        // otherwise an artist would miss changes to their tasks made while offline.
+        user?.role === 'MANAGER'
+          ? usePipelineStore.getState().refreshAllTasks()
+          : user
+            ? usePipelineStore.getState().refreshForArtist(user.id)
+            : Promise.resolve(),
       ])
     }
     window.addEventListener('shothub:sse-reconnect', handleSseReconnect)
@@ -59,7 +69,7 @@ export function useInitializeApp() {
         case 'task.deleted':
           // Pass currentUser.id so artists instantly receive tasks
           // that a manager just assigned to them (not yet in their store)
-          usePipelineStore.getState().applyServerEvent(event, currentUser.id)
+          usePipelineStore.getState().applyServerEvent(event, currentUser.id, currentUser.role === 'MANAGER')
           break
         case 'employee.created':
         case 'employee.updated':

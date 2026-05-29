@@ -4,12 +4,27 @@ import type { AudioStatus, StageConfig, SubStageConfig, TaskStatus } from '../..
 import { calcSeconds, formatSeconds } from '../../utils/calcSeconds'
 import { getCurrentDateTimeLocal } from '../../utils/timeTracking'
 import { usePipelineStore } from '../../store/pipelineStore'
+import { useClientStore } from '../../store/clientStore'
 import { ArtistDropdown } from '../employees/ArtistDropdown'
 import { StatusDropdown } from '../ui/StatusDropdown'
 import { MIRROR_RULES } from '../../config/stageConfigs'
 import { ApiError } from '../../api/client'
-import { Tasks } from '../../api/endpoints'
+import { Tasks, type TaskCreate } from '../../api/endpoints'
 import { clsx } from 'clsx'
+
+// BUG-3: reject nonsensical frame ranges before we create a shot. Returns a
+// user-facing message, or null when the range is valid. Mirrors the duration
+// rules in calcSeconds / the backend's framesInRange.
+function validateFrameRange(range: string): string | null {
+  const parts = range.split('-').map(s => parseInt(s.trim(), 10))
+  if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1])) {
+    return 'Frame range must look like 101-124.'
+  }
+  const [start, end] = parts
+  if (start < 0 || end < 0) return 'Frame numbers cannot be negative.'
+  if (end < start) return 'End frame must be ≥ start frame.'
+  return null
+}
 
 interface Props {
   stageConfig: StageConfig
@@ -18,8 +33,11 @@ interface Props {
 }
 
 export function QuickAddBar({ stageConfig, subStageConfig, projectId }: Props) {
-  const addTask  = usePipelineStore(s => s.addTask)
   const addBatch = usePipelineStore(s => s.addBatch)
+
+  // BUG-2/BUG-40: derive seconds from THIS project's frame rate, not a hardcoded 24.
+  const project = useClientStore(s => s.projects.find(p => p.id === projectId))
+  const fps = project?.frameRate && project.frameRate > 0 ? project.frameRate : 24
 
   // Shot-based if SHOT workflow OR the Cut Shots sub-stage inside Animatics
   const isShot = stageConfig.workflowType === 'SHOT' || subStageConfig.slug === 'cut-shots'
@@ -37,51 +55,70 @@ export function QuickAddBar({ stageConfig, subStageConfig, projectId }: Props) {
   const [videoFile, setVideoFile] = useState<File | null>(null)
   const videoFileRef = useRef<HTMLInputElement>(null)
 
-  const seconds = frameRange ? calcSeconds(frameRange) : 0
+  const seconds = frameRange ? calcSeconds(frameRange, fps) : 0
 
   async function submit() {
-    if (!name && !frameRange) return
     if (submitting) return
+    // BUG-3: trim before validating/creating so " Asset " and stray whitespace
+    // don't produce mismatched mirror rows or sneak past the empty-input guard.
+    const trimmedName  = name.trim()
+    const trimmedRange = frameRange.trim()
+    if (!trimmedName && !trimmedRange) return
+
+    // BUG-3: validate the frame range up front — never persist a shot whose
+    // duration would silently zero out (end < start, negatives, garbage).
+    if (isShot && trimmedRange) {
+      const rangeErr = validateFrameRange(trimmedRange)
+      if (rangeErr) { setError(rangeErr); return }
+    }
+
     setSubmitting(true)
     setError(null)
     try {
-      const itemName = name || frameRange
-      const created = await addTask({
-        subStageId: subStageConfig.id,
-        projectId,
-        itemName,
-        shotNumber:       isShot ? (name || undefined) : undefined,
-        frameRange:       isShot ? (frameRange || undefined) : undefined,
-        seconds:          isShot ? seconds : undefined,
-        assignedArtistId: artist,
-        status,
-        startDate:        startDate || getCurrentDateTimeLocal(),
-        endDate:          endDate || null,
-        audioStatus:      isEditing ? audioStatus : undefined,
-      })
+      const itemName = trimmedName || trimmedRange
+      const computedSeconds = isShot && trimmedRange ? calcSeconds(trimmedRange, fps) : 0
 
-      // If the user attached a video, upload it now as v1 of this task.
-      if (videoFile) {
+      // BUG-5: create the parent row AND its auto-mirror copies in ONE atomic
+      // batch. Previously the parent was a standalone create() followed by a
+      // separate batch() for the mirrors, so a failure between the two left an
+      // orphaned parent with no downstream rows. Now it's all-or-nothing.
+      // The parent is always element 0, so the batch result's [0] is the row we
+      // attach any uploaded video to.
+      const mirrorTargets = MIRROR_RULES[subStageConfig.id] ?? []
+      const items: TaskCreate[] = [
+        {
+          subStageId:       subStageConfig.id,
+          projectId,
+          itemName,
+          shotNumber:       isShot ? (trimmedName || undefined) : undefined,
+          frameRange:       isShot ? (trimmedRange || undefined) : undefined,
+          seconds:          isShot ? computedSeconds : undefined,
+          assignedArtistId: artist,
+          status,
+          startDate:        startDate || getCurrentDateTimeLocal(),
+          endDate:          endDate || null,
+          audioStatus:      isEditing ? audioStatus : undefined,
+        },
+        ...mirrorTargets.map<TaskCreate>(targetSubStageId => ({
+          subStageId:       targetSubStageId,
+          projectId,
+          itemName,
+          assignedArtistId: artist,
+          status:           'YET_TO_START' as const,
+        })),
+      ]
+
+      const createdTasks = await addBatch(items)
+      const created = createdTasks[0]
+
+      // If the user attached a video, upload it now as v1 of the parent task.
+      if (videoFile && created) {
         try {
           const { task: updated } = await Tasks.uploadVersion(created.id, videoFile)
           usePipelineStore.getState().applyServerEvent({ type: 'task.updated', task: updated })
         } catch {
           setError('Shot created — but video upload failed. Upload it from the sidebar.')
         }
-      }
-
-      // Auto-mirror: propagate name + artist to all downstream pipeline stages
-      // (Character Blendshapes, Unwrapping, Texturing, Rigging — per MIRROR_RULES)
-      // BUG-02: Use atomic batch so all mirror tasks are created together or not at all.
-      const mirrorTargets = MIRROR_RULES[subStageConfig.id]
-      if (mirrorTargets) {
-        await addBatch(mirrorTargets.map(targetSubStageId => ({
-          subStageId:       targetSubStageId,
-          projectId,
-          itemName,
-          assignedArtistId: artist,
-          status:           'YET_TO_START' as const,
-        })))
       }
 
       setName('')

@@ -63,6 +63,19 @@ export function buildAndDownloadExport(opts: ExportOptions, data: ExportData) {
     appendTeam(wb, scoped, data.employees)
   }
 
+  // BUG-45: every sheet builder skips when it has no rows, so an export over an
+  // empty scope (or with all optional sheets disabled) can end up with ZERO
+  // sheets — and XLSX.writeFile throws an opaque "Workbook is empty" error.
+  // Guarantee at least one sheet with a clear, human message instead.
+  if (wb.SheetNames.length === 0) {
+    const ws = XLSX.utils.json_to_sheet([
+      { Info: 'No data in the selected scope.' },
+      { Info: 'Nothing matched this client / project, or the chosen sheets had no rows.' },
+    ])
+    ws['!cols'] = [{ wch: 70 }]
+    XLSX.utils.book_append_sheet(wb, ws, 'No Data')
+  }
+
   const filename = buildFilename(opts.scope, scoped)
   XLSX.writeFile(wb, filename)
 }
@@ -106,6 +119,10 @@ function scopeData(scope: ExportScope, data: ExportData): ScopedData {
  * keep using the same vocabulary they're used to ("Audio Recevied", etc.).
  */
 function appendRhymesOverview(wb: XLSX.WorkBook, d: ScopedData) {
+  // BUG-45: don't emit an empty "Rhymes Overview" sheet when there are no
+  // projects in scope — that produced a confusing blank tab. The No-Data guard
+  // in buildAndDownloadExport covers the truly-empty case instead.
+  if (d.projects.length === 0) return
   const rows = d.projects.map((project, idx) => {
     const projectTasks = d.tasks.filter(t => t.projectId === project.id)
     const tasksAt      = (subStageId: string) => projectTasks.filter(t => t.subStageId === subStageId)
@@ -194,7 +211,7 @@ function appendRhymesOverview(wb: XLSX.WorkBook, d: ScopedData) {
   // Freeze the header row + the first two id columns so users can scroll
   // horizontally without losing the project name.
   ws['!freeze'] = { xSplit: 2, ySplit: 1 }
-  XLSX.utils.book_append_sheet(wb, ws, 'Rhymes Overview')
+  XLSX.utils.book_append_sheet(wb, ws, uniqueSheetName(wb, 'Rhymes Overview'))
 }
 
 /**
@@ -260,7 +277,7 @@ function appendCharacterSheet(wb: XLSX.WorkBook, d: ScopedData) {
   const ws = XLSX.utils.json_to_sheet(rows)
   ws['!cols'] = autoCols(rows)
   ws['!freeze'] = { xSplit: 3, ySplit: 1 }
-  XLSX.utils.book_append_sheet(wb, ws, 'Character Sheet')
+  XLSX.utils.book_append_sheet(wb, ws, uniqueSheetName(wb, 'Character Sheet'))
 }
 
 function appendSummary(wb: XLSX.WorkBook, d: ScopedData) {
@@ -296,7 +313,7 @@ function appendSummary(wb: XLSX.WorkBook, d: ScopedData) {
   const ws = XLSX.utils.json_to_sheet(rows, { skipHeader: false })
   // Auto-size columns
   ws['!cols'] = autoCols(rows)
-  XLSX.utils.book_append_sheet(wb, ws, 'Summary')
+  XLSX.utils.book_append_sheet(wb, ws, uniqueSheetName(wb, 'Summary'))
 }
 
 function appendStageSheets(wb: XLSX.WorkBook, d: ScopedData) {
@@ -340,8 +357,7 @@ function appendStageSheets(wb: XLSX.WorkBook, d: ScopedData) {
 
     const ws = XLSX.utils.json_to_sheet(rows)
     ws['!cols'] = autoCols(rows)
-    const sheetName = sanitizeSheetName(stage.name)
-    XLSX.utils.book_append_sheet(wb, ws, sheetName)
+    XLSX.utils.book_append_sheet(wb, ws, uniqueSheetName(wb, stage.name))
   }
 }
 
@@ -368,7 +384,7 @@ function appendComments(wb: XLSX.WorkBook, d: ScopedData) {
   rows.sort((a, b) => b.Date.localeCompare(a.Date))
   const ws = XLSX.utils.json_to_sheet(rows)
   ws['!cols'] = autoCols(rows)
-  XLSX.utils.book_append_sheet(wb, ws, 'Comments')
+  XLSX.utils.book_append_sheet(wb, ws, uniqueSheetName(wb, 'Comments'))
 }
 
 function appendStatusHistory(wb: XLSX.WorkBook, d: ScopedData) {
@@ -394,7 +410,7 @@ function appendStatusHistory(wb: XLSX.WorkBook, d: ScopedData) {
   rows.sort((a, b) => b.Date.localeCompare(a.Date))
   const ws = XLSX.utils.json_to_sheet(rows)
   ws['!cols'] = autoCols(rows)
-  XLSX.utils.book_append_sheet(wb, ws, 'Status History')
+  XLSX.utils.book_append_sheet(wb, ws, uniqueSheetName(wb, 'Status History'))
 }
 
 function appendTeam(wb: XLSX.WorkBook, d: ScopedData, allEmployees: Employee[]) {
@@ -417,7 +433,7 @@ function appendTeam(wb: XLSX.WorkBook, d: ScopedData, allEmployees: Employee[]) 
   if (rows.length === 0) return
   const ws = XLSX.utils.json_to_sheet(rows)
   ws['!cols'] = autoCols(rows)
-  XLSX.utils.book_append_sheet(wb, ws, 'Team')
+  XLSX.utils.book_append_sheet(wb, ws, uniqueSheetName(wb, 'Team'))
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -425,6 +441,27 @@ function appendTeam(wb: XLSX.WorkBook, d: ScopedData, allEmployees: Employee[]) 
 function sanitizeSheetName(name: string): string {
   // Excel limits: 31 chars, no : / \ ? * [ ]
   return name.replace(/[*?/\\:[\]]/g, '').slice(0, 31)
+}
+
+/**
+ * BUG-43: Excel forbids two sheets with the same name and XLSX.book_append_sheet
+ * THROWS on a collision — aborting the whole export. Stage names truncated to 31
+ * chars (or a stage that happens to share a name with a fixed sheet like
+ * "Summary"/"Team") can collide. Return a sanitized name that's guaranteed
+ * unique within this workbook, appending " (2)", " (3)", … and trimming so the
+ * result still respects the 31-char cap.
+ */
+function uniqueSheetName(wb: XLSX.WorkBook, desired: string): string {
+  const base = sanitizeSheetName(desired) || 'Sheet'
+  const existing = new Set(wb.SheetNames)
+  if (!existing.has(base)) return base
+  for (let i = 2; i < 1000; i++) {
+    const suffix = ` (${i})`
+    const candidate = base.slice(0, 31 - suffix.length) + suffix
+    if (!existing.has(candidate)) return candidate
+  }
+  // Pathological fallback — should never be reached in practice.
+  return `${base.slice(0, 24)} (${Date.now() % 100000})`.slice(0, 31)
 }
 
 function buildFilename(scope: ExportScope, d: ScopedData): string {

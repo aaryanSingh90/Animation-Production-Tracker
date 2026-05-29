@@ -63,7 +63,10 @@ export interface Project {
   description?: string
   folderName?: string | null
   status: 'ACTIVE' | 'ON_HOLD' | 'COMPLETED' | 'ARCHIVED'
-  frameRate: 24
+  // Per-project frame rate (defaults to 24 server-side). Typed as the literal
+  // 24 originally, which wrongly told TS every project ran at 24fps; it's a
+  // free-form number — calcSeconds() relies on the real value.
+  frameRate: number
   createdAt: string
 }
 

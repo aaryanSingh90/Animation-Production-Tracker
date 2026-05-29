@@ -6,6 +6,7 @@ import {
   signToken, COOKIE_NAME, ACCESS_TOKEN_MAX_AGE_SECONDS, type JwtPayload,
 } from '../lib/jwt.js'
 import { requireAuth, requireAuthStrict } from '../middleware/auth.js'
+import { STRONG_PASSWORD } from '../lib/password.js'
 
 export const authRouter = Router()
 
@@ -15,15 +16,8 @@ const FAILED_WINDOW_MS    = 60 * 60 * 1000        // 1h rolling window
 const LOCK_DURATION_MS    = 60 * 60 * 1000        // 1h lock after threshold
 
 // ─── Password policy (Phase 1) ───────────────────────────────────────────────
-// Min 10 chars, must contain a letter AND a digit. Banned obvious patterns.
-// We accept anything that survives the schema — bcrypt handles the rest.
-const STRONG_PASSWORD = z.string()
-  .min(10, 'Password must be at least 10 characters.')
-  .max(200)
-  .refine(s => /[a-zA-Z]/.test(s) && /[0-9]/.test(s),
-    'Password must contain at least one letter and one digit.')
-  .refine(s => !/^(password|studio|admin|qwerty|12345)/i.test(s),
-    'That password is too common. Pick something unique.')
+// STRONG_PASSWORD now lives in lib/password.ts so employee creation/reset and
+// this change-password flow share one source of truth (BUG-17).
 
 // ─── Cookie helpers ──────────────────────────────────────────────────────────
 const COOKIE_PROD_ATTRS = {

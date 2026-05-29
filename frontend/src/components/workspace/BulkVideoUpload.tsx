@@ -1,7 +1,8 @@
 import { useRef, useState, useCallback } from 'react'
 import { Upload, X, Check, AlertCircle, Film } from 'lucide-react'
 import { usePipelineStore } from '../../store/pipelineStore'
-import { Tasks } from '../../api/endpoints'
+import { useClientStore } from '../../store/clientStore'
+import { Tasks, type TaskCreate } from '../../api/endpoints'
 import { ApiError } from '../../api/client'
 import type { SubStageConfig } from '../../types'
 
@@ -80,13 +81,16 @@ interface Props {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function BulkVideoUpload({ projectId, subStageConfig }: Props) {
-  const addTask = usePipelineStore(s => s.addTask)
+  const addBatch = usePipelineStore(s => s.addBatch)
   // Count tasks already committed to the DB for this sub-stage so that
   // new uploads continue from the right shot number (e.g. if 001–004 exist
   // the next batch starts at 005, not 001).
   const committedCount = usePipelineStore(s =>
     s.tasks.filter(t => t.projectId === projectId && t.subStageId === subStageConfig.id).length
   )
+  // BUG-2/BUG-40: derive the frame range from THIS project's frame rate, not 24.
+  const project = useClientStore(s => s.projects.find(p => p.id === projectId))
+  const fps = project?.frameRate && project.frameRate > 0 ? project.frameRate : 24
   const fileRef = useRef<HTMLInputElement>(null)
 
   const [items,      setItems]      = useState<VideoItem[]>([])
@@ -118,7 +122,7 @@ export function BulkVideoUpload({ projectId, subStageConfig }: Props) {
       const file = list[i]
       try {
         const { duration, thumbnail } = await extractVideoMeta(file)
-        const totalFrames = Math.max(1, Math.round(duration * 24))
+        const totalFrames = Math.max(1, Math.round(duration * fps))
         const startFrame  = 101
         next.push({
           uid:        `${Date.now()}-${Math.random()}`,
@@ -136,7 +140,7 @@ export function BulkVideoUpload({ projectId, subStageConfig }: Props) {
     setItems(prev => [...prev, ...next])
     if (failed.length) setError(`Skipped (unreadable): ${failed.join(', ')}`)
     setProcessing(false)
-  }, [committedCount, items.length])
+  }, [committedCount, items.length, fps])
 
   // ── Drag & drop ────────────────────────────────────────────────────────────
 
@@ -164,61 +168,94 @@ export function BulkVideoUpload({ projectId, subStageConfig }: Props) {
 
   async function createAll() {
     if (!items.length || creating) return
+
+    // BUG-38: validate shot numbers BEFORE creating anything. The partial unique
+    // index on (projectId, subStageId, shotNumber) would otherwise reject a
+    // collision mid-flight and leave a confusing partial result.
+    const trimmedShots = items.map(it => it.shotNumber.trim())
+    if (trimmedShots.some(s => !s)) {
+      setError('Every shot needs a shot number before creating.')
+      return
+    }
+    const seen = new Set<string>()
+    const internalDupes = new Set<string>()
+    for (const s of trimmedShots) {
+      if (seen.has(s)) internalDupes.add(s)
+      else seen.add(s)
+    }
+    if (internalDupes.size) {
+      setError(`Duplicate shot numbers in this batch: ${[...internalDupes].join(', ')}. Make them unique.`)
+      return
+    }
+
     setCreating(true)
     setError(null)
     let versionErrors = 0
     let mirrorSkipped = 0
     try {
-      // BUG-22 follow-up: pre-load Animation tasks for this project so we can
-      // detect when a mirror already exists and avoid hitting the partial
-      // unique index on (projectId, subStageId, shotNumber).
-      await usePipelineStore.getState().loadForSubStage(projectId, ANIMATION_SUB_STAGE_ID)
+      // Refresh cut-shot + Animation rows for this project so the duplicate and
+      // existing-mirror checks below see the latest server state.
+      await Promise.all([
+        usePipelineStore.getState().loadForSubStage(projectId, subStageConfig.id),
+        usePipelineStore.getState().loadForSubStage(projectId, ANIMATION_SUB_STAGE_ID),
+      ])
+      const allTasks = usePipelineStore.getState().tasks
 
-      for (const item of items) {
+      // BUG-38: reject shot numbers that already exist as cut shots in this stage.
+      const existingCutShots = new Set(
+        allTasks
+          .filter(t => t.projectId === projectId && t.subStageId === subStageConfig.id && t.shotNumber)
+          .map(t => t.shotNumber as string)
+      )
+      const dbDupes = [...new Set(trimmedShots.filter(s => existingCutShots.has(s)))]
+      if (dbDupes.length) {
+        setError(`These shot numbers already exist in this stage: ${dbDupes.join(', ')}. Remove or rename them, then retry.`)
+        return
+      }
+
+      // Track which Animation mirrors already exist so we don't violate the
+      // partial unique index. The soft-link needs only ONE animation row per shot.
+      const existingAnimShots = new Set(
+        allTasks
+          .filter(t => t.projectId === projectId && t.subStageId === ANIMATION_SUB_STAGE_ID && t.shotNumber)
+          .map(t => t.shotNumber as string)
+      )
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i]
+        const shot = trimmedShots[i]
         const base = {
           projectId,
-          itemName:   item.shotNumber,
-          shotNumber: item.shotNumber,
+          itemName:   shot,
+          shotNumber: shot,
           frameRange: item.frameRange,
           seconds:    item.seconds,
-          thumbnail:  item.thumbnail,
           status:     'YET_TO_START' as const,
         }
-        // Create the cut-shot row (with thumbnail)
-        const cutTask = await addTask({ ...base, subStageId: subStageConfig.id })
 
-        // Upload the animatic video as version 1 so manager + artists can play it.
-        // Best-effort: if the upload fails the task row still exists and the user
-        // can retry via the Upload button in the task drawer.
+        // BUG-6: create the cut-shot row AND its Animation mirror together in ONE
+        // atomic batch, so we can never end up with a cut shot that has no
+        // downstream Animation twin (the old code created them with two separate
+        // requests — a failure between them left an orphaned cut shot).
+        const rows: TaskCreate[] = [{ ...base, subStageId: subStageConfig.id, thumbnail: item.thumbnail }]
+        const needsMirror = !existingAnimShots.has(shot)
+        if (needsMirror) rows.push({ ...base, subStageId: ANIMATION_SUB_STAGE_ID, thumbnail: null })
+        else mirrorSkipped++
+
+        const created = await addBatch(rows)
+        existingAnimShots.add(shot)          // guard against a repeat later in this run
+        const cutTask = created[0]           // element 0 is always the cut-shot row
+
+        // BUG-6: upload the animatic video AFTER the rows exist. Best-effort —
+        // if it fails the rows still exist and the user can retry from the drawer.
         try {
           const { task: updated } = await Tasks.uploadVersion(cutTask.id, item.file)
           usePipelineStore.getState().applyServerEvent({ type: 'task.updated', task: updated })
         } catch {
           versionErrors++
         }
-
-        // Mirror to Animation — same shot/frame/seconds, no thumbnail and no video
-        // version (Animation reads the latest version from the Cut Shots twin via
-        // a soft-link in the detail drawer).
-        //
-        // Skip if an Animation task with the same shot number already exists for
-        // this project — the partial unique index would otherwise reject the
-        // insert. The soft-link only needs ONE animation row per shot number.
-        const animationExists = usePipelineStore.getState().tasks.some(t =>
-          t.projectId === projectId &&
-          t.subStageId === ANIMATION_SUB_STAGE_ID &&
-          t.shotNumber === item.shotNumber
-        )
-        if (animationExists) {
-          mirrorSkipped++
-        } else {
-          await addTask({
-            ...base,
-            subStageId: ANIMATION_SUB_STAGE_ID,
-            thumbnail:  null,
-          })
-        }
       }
+
       setItems([])
       const messages: string[] = []
       if (versionErrors > 0) messages.push(`${versionErrors} video upload(s) failed — retry via the task drawer`)

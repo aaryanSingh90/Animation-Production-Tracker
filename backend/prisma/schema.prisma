@@ -103,6 +103,7 @@ model Employee {
   // Relations
   assignedTasks  Task[]            @relation("AssignedArtist")
   statusChanges  StatusChange[]
+  audioChanges   AudioChange[]
   comments       ReviewComment[]
 
   @@index([email])
@@ -169,6 +170,7 @@ model Task {
   assignedArtistId  String?
 
   statusHistory     StatusChange[]
+  audioHistory      AudioChange[]
   comments          ReviewComment[]
   versions          TaskVersion[]
 
@@ -206,6 +208,24 @@ model StatusChange {
   task            Task        @relation(fields: [taskId], references: [id], onDelete: Cascade)
   taskId          String
   changedBy       Employee?   @relation(fields: [changedByUserId], references: [id], onDelete: SetNull)
+  changedByUserId String?
+
+  @@index([taskId])
+  @@index([changedAt])
+}
+
+// BUG-21: audit trail for audio-status changes (Editing stage). Mirrors
+// StatusChange but uses the AudioStatus enum. Both columns are nullable
+// because Task.audioStatus itself is optional (only Editing tasks carry one).
+model AudioChange {
+  id              String       @id @default(cuid())
+  from            AudioStatus?
+  to              AudioStatus?
+  changedAt       DateTime     @default(now())
+
+  task            Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId          String
+  changedBy       Employee?    @relation(fields: [changedByUserId], references: [id], onDelete: SetNull)
   changedByUserId String?
 
   @@index([taskId])

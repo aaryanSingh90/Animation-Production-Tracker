@@ -82,9 +82,15 @@ export function ShotMatrix() {
     if (selectedClientId === NO_CLIENT) return
     let cancelled = false
     async function loadAll() {
-      for (const p of visibleProjects) {
-        if (cancelled) break
-        await loadForProject(p.id)
+      // BUG-28: load in small parallel batches. Fully sequential (one await per
+      // project) was needlessly slow for clients with many projects; firing all
+      // requests at once risked a connection storm. Bounded concurrency of 5
+      // gets most of the speed-up without overwhelming the API / pool.
+      const CONCURRENCY = 5
+      const queue = [...visibleProjects]
+      while (queue.length && !cancelled) {
+        const batch = queue.splice(0, CONCURRENCY)
+        await Promise.all(batch.map(p => loadForProject(p.id)))
       }
     }
     void loadAll()

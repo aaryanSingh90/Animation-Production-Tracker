@@ -11,6 +11,7 @@ import { useClientStore }   from '../store/clientStore'
 import { useEmployeeStore } from '../store/employeeStore'
 import { useAuthStore }     from '../store/authStore'
 import { useToastStore }    from '../store/toastStore'
+import { ApiError }         from '../api/client'
 import { STATUS_CONFIG, type TaskStatus, type TaskRow } from '../types'
 import { isOverdue } from '../utils/calcSeconds'
 import { SUB_STAGE_MAP, SUB_STAGE_TO_STAGE_SLUG, STAGE_CONFIGS } from '../config/stageConfigs'
@@ -178,9 +179,16 @@ export function Dashboard() {
     setActionPending(true)
     try {
       const t = allTasks.find(x => x.id === taskId)
-      await addComment(taskId, 'Approved.', 'approval')
+      // BUG-8: flip the STATUS first, then post the comment. The old order
+      // posted "Approved." before the status change — so if the status update
+      // failed (invalid transition, permissions, network) the task kept its old
+      // status but was now stamped with a misleading approval comment. The
+      // status update carries the real state; the comment is just the audit copy.
       await updateTask(taskId, { retakeNote: null, status: 'FINAL_APPROVAL' })
+      await addComment(taskId, 'Approved.', 'approval')
       pushToast({ kind: 'approval', title: 'Approved', body: t ? `${t.itemName} is now Final Approval` : 'Task approved', ttl: 2500 })
+    } catch (err) {
+      pushToast({ kind: 'error', title: 'Approve failed', body: err instanceof ApiError ? err.message : 'Could not approve — please try again.', ttl: 4000 })
     } finally {
       setActionPending(false)
     }
@@ -188,15 +196,20 @@ export function Dashboard() {
 
   async function handleSendRetake() {
     if (!retakeModal || !retakeNote.trim() || actionPending) return
-    const note = retakeNote.trim()
+    const taskId   = retakeModal.taskId
     const taskName = retakeModal.taskName
+    const noteText = retakeNote.trim()
     setActionPending(true)
     try {
-      await addComment(retakeModal.taskId, note, 'retake')
-      await updateTask(retakeModal.taskId, { retakeNote: note, status: 'LEAD_RETAKE' })
+      // BUG-8: same ordering fix — set the status (which also persists the
+      // retakeNote on the task itself) before posting the audit comment.
+      await updateTask(taskId, { retakeNote: noteText, status: 'LEAD_RETAKE' })
+      await addComment(taskId, noteText, 'retake')
       pushToast({ kind: 'retake', title: 'Retake sent', body: `${taskName} — note delivered to artist`, ttl: 2800 })
       setRetakeModal(null)
       setRetakeNote('')
+    } catch (err) {
+      pushToast({ kind: 'error', title: 'Retake failed', body: err instanceof ApiError ? err.message : 'Could not send retake — please try again.', ttl: 4000 })
     } finally {
       setActionPending(false)
     }

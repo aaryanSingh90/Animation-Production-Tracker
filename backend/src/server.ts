@@ -37,6 +37,10 @@ export function createApp() {
         fontSrc:    ["'self'", 'data:'],
         objectSrc:  ["'none'"],
         frameSrc:   ["'none'"],
+        // Disable Helmet's default upgrade-insecure-requests — it breaks the
+        // app on LAN IPs (e.g. 192.168.x.x) over plain HTTP by telling browsers
+        // to silently upgrade asset loads to HTTPS, which doesn't exist locally.
+        upgradeInsecureRequests: null,
       },
     },
     crossOriginEmbedderPolicy: false,
@@ -134,10 +138,14 @@ export function createApp() {
       ? path.resolve(process.env.FRONTEND_DIST)
       : path.join(__dirname, '..', '..', 'frontend', 'dist')
     if (fs.existsSync(distDir)) {
-      app.use(express.static(distDir))
+      // Serve hashed assets (JS/CSS bundles) with long-term immutable cache.
+      // index: false so we control index.html caching ourselves below.
+      app.use(express.static(distDir, { maxAge: '1y', immutable: true, index: false }))
       // SPA fallback — any GET that isn't an API/uploads/health route returns
-      // index.html so React Router deep-links work on hard refresh.
+      // index.html. Always no-cache so browsers never serve a stale index.html
+      // that points to deleted content-hashed bundles (causes white screen).
       app.get(/^(?!\/api\/|\/uploads\/|\/health).*/, (_req, res) => {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
         res.sendFile(path.join(distDir, 'index.html'))
       })
     } else {

@@ -1,11 +1,22 @@
-export function calcSeconds(frameRange: string): number {
+// BUG-2 / BUG-40: fps was hardcoded to 24, so projects shot at 25/30fps got the
+// wrong duration. The frame rate now flows in from project.frameRate. Edge cases
+// mirror the backend's `framesInRange` (tasks.ts) so client and server agree:
+//   • an unparseable / non-two-part range → 0
+//   • a zero range (0-0) → 0 (no frames authored yet)
+//   • end < start → 0 (don't return a negative duration)
+//   • otherwise the inclusive frame count divided by fps
+export function calcSeconds(frameRange: string, fps = 24): number {
   const parts = frameRange.split('-').map(s => parseInt(s.trim(), 10))
   if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1])) return 0
+  const [start, end] = parts
+  if (start === 0 && end === 0) return 0
+  if (end < start) return 0
+  const rate = fps > 0 ? fps : 24
   // Keep exact decimals — display layer formats to 1 decimal place.
   // e.g. 101-124 (24 frames @ 24fps) → 1.0
   //      101-135 (35 frames @ 24fps) → 1.458… (shown as 1.5)
   //      101-148 (48 frames @ 24fps) → 2.0
-  return (parts[1] - parts[0] + 1) / 24
+  return (end - start + 1) / rate
 }
 
 /** Format a frame-count-derived seconds value to one decimal. e.g. 1.46 → "1.5s" */

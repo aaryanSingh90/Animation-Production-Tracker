@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { TaskRow, TaskStatus } from '../types'
 import { Tasks, type TaskCreate, type TaskPatch } from '../api/endpoints'
 import { logger } from '../utils/logger'
+import { useToastStore } from './toastStore'
 
 interface PipelineState {
   tasks:            TaskRow[]
@@ -21,9 +22,10 @@ interface PipelineState {
 
   /**
    * Called at startup for MANAGERs.
-   * Managers load tasks on demand per sub-stage — nothing fetched here.
+   * Loads all tasks so the dashboard shows correct counts immediately and
+   * incoming SSE events (task.updated etc.) have a loaded store to land in.
    */
-  initForManager: () => void
+  initForManager: () => Promise<void>
 
   /**
    * Load tasks for one sub-stage. Safe to call on every navigation —
@@ -47,6 +49,12 @@ interface PipelineState {
   deleteTask:       (id: string)                                             => Promise<void>
   addComment:       (id: string, message: string, type?: 'note' | 'retake' | 'approval') => Promise<TaskRow>
 
+  /** Force-reload all tasks (managers only) — used on SSE reconnect to catch changes missed while offline. */
+  refreshAllTasks: () => Promise<void>
+
+  /** BUG-09: Force-reload THIS artist's own tasks — used on SSE reconnect for non-managers. */
+  refreshForArtist: (userId: string) => Promise<void>
+
   bulkUpdateStatus: (ids: string[], status: TaskStatus)  => Promise<void>
   bulkUpdateArtist: (ids: string[], artistId: string | null) => Promise<void>
   bulkDeleteTasks:  (ids: string[])                      => Promise<void>
@@ -62,7 +70,7 @@ interface PipelineState {
     | { type: 'task.created'; task: TaskRow }
     | { type: 'task.updated'; task: TaskRow }
     | { type: 'task.deleted'; taskId: string }
-  , currentUserId?: string) => void
+  , currentUserId?: string, isManager?: boolean) => void
 }
 
 function upsert(tasks: TaskRow[], next: TaskRow): TaskRow[] {
@@ -71,6 +79,20 @@ function upsert(tasks: TaskRow[], next: TaskRow): TaskRow[] {
   const out = tasks.slice()
   out[idx] = next
   return out
+}
+
+// BUG-41: bulk ops used Promise.allSettled and silently dropped rejected
+// operations, so a manager who selected 20 rows and had 6 fail saw 14 change
+// with zero indication anything went wrong. Surface a toast for the failures.
+function notifyBulkFailures(total: number, succeeded: number, verb: string) {
+  const failed = total - succeeded
+  if (failed <= 0) return
+  useToastStore.getState().push({
+    kind:  'error',
+    title: 'Some changes failed',
+    body:  `${failed} of ${total} task${total !== 1 ? 's' : ''} could not be ${verb}. They were left unchanged.`,
+    ttl:   5000,
+  })
 }
 
 export const usePipelineStore = create<PipelineState>()((set, get) => ({
@@ -94,12 +116,62 @@ export const usePipelineStore = create<PipelineState>()((set, get) => ({
     } catch (err) {
       logger.error('[tasks] initForArtist failed', err)
       set({ loading: false, initialized: true })
+      // BUG-42: surface the failure — otherwise the app boots into a silent empty state.
+      useToastStore.getState().push({ kind: 'error', title: 'Could not load your tasks', body: 'Check your connection and reload.', ttl: 6000 })
     }
   },
 
-  initForManager: () => {
-    // Managers load tasks on demand per sub-stage — nothing to fetch here
-    set({ initialized: true })
+  initForManager: async () => {
+    if (get().initialized) return
+    set({ loading: true })
+    try {
+      // Load every task so the dashboard shows correct counts on login and
+      // incoming SSE events have a populated loadedSubStages map to match against.
+      const { tasks } = await Tasks.list()
+      const loadedSubStages: Record<string, true> = {}
+      for (const t of tasks) {
+        loadedSubStages[`${t.projectId}:${t.subStageId}`] = true
+        loadedSubStages[`project:${t.projectId}`] = true
+      }
+      set({ tasks, loadedSubStages, loading: false, initialized: true })
+    } catch (err) {
+      logger.error('[tasks] initForManager failed', err)
+      set({ loading: false, initialized: true })
+      // BUG-42: surface the failure — otherwise the dashboard boots empty with no clue why.
+      useToastStore.getState().push({ kind: 'error', title: 'Could not load tasks', body: 'Check your connection and reload.', ttl: 6000 })
+    }
+  },
+
+  refreshAllTasks: async () => {
+    set({ loading: true })
+    try {
+      const { tasks } = await Tasks.list()
+      const loadedSubStages: Record<string, true> = {}
+      for (const t of tasks) {
+        loadedSubStages[`${t.projectId}:${t.subStageId}`] = true
+        loadedSubStages[`project:${t.projectId}`] = true
+      }
+      set({ tasks, loadedSubStages, loading: false })
+    } catch (err) {
+      logger.error('[tasks] refreshAllTasks failed', err)
+      set({ loading: false })
+      useToastStore.getState().push({ kind: 'error', title: 'Sync failed', body: 'Could not refresh tasks after reconnecting.', ttl: 4000 })
+    }
+  },
+
+  // BUG-09: non-managers also need their own tasks re-pulled on SSE reconnect.
+  // Their store only ever holds tasks assigned to them, so a full replace with
+  // the freshly-fetched assignee list is correct.
+  refreshForArtist: async (userId) => {
+    set({ loading: true })
+    try {
+      const { tasks } = await Tasks.list({ assignedArtistId: userId })
+      set({ tasks, loading: false })
+    } catch (err) {
+      logger.error('[tasks] refreshForArtist failed', err)
+      set({ loading: false })
+      useToastStore.getState().push({ kind: 'error', title: 'Sync failed', body: 'Could not refresh your tasks after reconnecting.', ttl: 4000 })
+    }
   },
 
   // ── On-demand per sub-stage loading ────────────────────────────────────────
@@ -212,6 +284,7 @@ export const usePipelineStore = create<PipelineState>()((set, get) => ({
       for (const t of ok) tasks = upsert(tasks, t)
       return { tasks }
     })
+    notifyBulkFailures(ids.length, ok.length, 'updated')
   },
 
   bulkUpdateArtist: async (ids, artistId) => {
@@ -226,11 +299,17 @@ export const usePipelineStore = create<PipelineState>()((set, get) => ({
       for (const t of ok) tasks = upsert(tasks, t)
       return { tasks }
     })
+    notifyBulkFailures(ids.length, ok.length, 'reassigned')
   },
 
   bulkDeleteTasks: async (ids) => {
-    await Promise.allSettled(ids.map(id => Tasks.remove(id)))
-    set(s => ({ tasks: s.tasks.filter(t => !ids.includes(t.id)) }))
+    const results = await Promise.allSettled(ids.map(id => Tasks.remove(id)))
+    // BUG-41: only drop rows that ACTUALLY deleted server-side. The old code
+    // filtered out every requested id regardless of outcome, so a failed delete
+    // vanished from the UI yet reappeared on the next load — a confusing ghost.
+    const deletedIds = ids.filter((_, i) => results[i].status === 'fulfilled')
+    set(s => ({ tasks: s.tasks.filter(t => !deletedIds.includes(t.id)) }))
+    notifyBulkFailures(ids.length, deletedIds.length, 'deleted')
   },
 
   // BUG-15: Bulk retake with a required note so artists know what to fix.
@@ -246,6 +325,7 @@ export const usePipelineStore = create<PipelineState>()((set, get) => ({
       for (const t of ok) tasks = upsert(tasks, t)
       return { tasks }
     })
+    notifyBulkFailures(ids.length, ok.length, 'sent for retake')
   },
 
   // ── Derived helpers ─────────────────────────────────────────────────────────
@@ -259,24 +339,22 @@ export const usePipelineStore = create<PipelineState>()((set, get) => ({
 
   // ── SSE ─────────────────────────────────────────────────────────────────────
 
-  applyServerEvent: (event, currentUserId) => {
+  applyServerEvent: (event, currentUserId, isManager) => {
     if (event.type === 'task.deleted') {
       set(s => ({ tasks: s.tasks.filter(t => t.id !== event.taskId) }))
     } else {
       const { task } = event
       const key = `${task.projectId}:${task.subStageId}`
 
-      // Accept the update when any of these is true:
-      //   isLoaded      — manager already loaded this sub-stage; keep it current
-      //   isOwn         — task was already in the store (existing assignment)
-      //   isAssignedToMe — manager just assigned / re-assigned this task to the
-      //                    current user; without this check artists would never
-      //                    see new tasks without refreshing
+      // Managers always receive every event — they need full visibility across
+      // all artists and projects (dashboard counts, pipeline matrix, team page).
+      // For artists/leads, only accept updates for sub-stages already loaded,
+      // tasks already in the store, or tasks newly assigned to them.
       const isLoaded       = !!get().loadedSubStages[key]
       const isOwn          = get().tasks.some(t => t.id === task.id)
       const isAssignedToMe = !!currentUserId && task.assignedArtistId === currentUserId
 
-      if (isLoaded || isOwn || isAssignedToMe) {
+      if (isManager || isLoaded || isOwn || isAssignedToMe) {
         set(s => ({ tasks: upsert(s.tasks, task) }))
       }
     }

@@ -18,6 +18,9 @@ dist-ssr
 .env.*.local
 !.env.example
 
+# Runtime-uploaded media (videos / thumbnails) — never commit user content
+backend/uploads/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

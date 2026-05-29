@@ -5,17 +5,35 @@ const SECRET = process.env.JWT_SECRET
 if (!SECRET) {
   throw new Error('JWT_SECRET must be set in environment')
 }
-if (SECRET.length < 32) {
+// BUG-32: detect placeholder / low-entropy secrets. The OLD check only matched
+// 'change-me' / 'secret' / 'dev' and silently passed the real local default
+// ("local-dev-jwt-secret-replace-in-production-please"). We now match a broad
+// set of giveaway substrings (and short length), and in PRODUCTION we refuse to
+// boot rather than merely warning — a predictable JWT secret lets anyone forge
+// admin sessions.
+const PLACEHOLDER_PATTERNS = [
+  'change-me', 'changeme', 'replace', 'placeholder', 'local-dev', 'localdev',
+  'dev-secret', 'please', 'example', 'insecure', 'todo', 'xxxx', 'default',
+]
+const secretLooksWeak =
+  SECRET.length < 32 ||
+  SECRET === 'secret' || SECRET === 'dev' ||
+  PLACEHOLDER_PATTERNS.some(p => SECRET!.toLowerCase().includes(p))
+
+if (secretLooksWeak) {
+  const advice =
+    `Generate a strong one: ` +
+    `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      `[security] JWT_SECRET is a placeholder or too short — refusing to start in production. ${advice}`,
+    )
+  }
   // eslint-disable-next-line no-console
   console.warn(
-    `[security] JWT_SECRET is short (${SECRET.length} chars). ` +
-    `Generate a long random string for production: ` +
-    `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`,
+    `[security] JWT_SECRET looks like a placeholder or is short (${SECRET.length} chars). ` +
+    `Fine for localhost, but replace it before deploying. ${advice}`,
   )
-}
-if (SECRET.includes('change-me') || SECRET === 'secret' || SECRET === 'dev') {
-  // eslint-disable-next-line no-console
-  console.warn('[security] JWT_SECRET appears to be a placeholder. Replace it before deploying.')
 }
 
 export interface JwtPayload {

@@ -62,34 +62,15 @@ interface RequestOpts extends Omit<RequestInit, 'body'> {
   params?: Record<string, string | number | boolean | null | undefined>
 }
 
-async function request<T>(path: string, opts: RequestOpts = {}): Promise<T> {
-  const { body, params, headers, ...rest } = opts
-  const url = new URL(`${API_URL}${path.startsWith('/') ? path : `/${path}`}`)
-  if (params) {
-    for (const [k, v] of Object.entries(params)) {
-      if (v === undefined || v === null) continue
-      url.searchParams.set(k, String(v))
-    }
-  }
-
-  const finalHeaders: Record<string, string> = {
-    Accept: 'application/json',
-    ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-    // Authorization header is back-compat only — the cookie is the primary
-    // mechanism now. If both are present the backend prefers the cookie.
-    ...(inMemoryToken ? { Authorization: `Bearer ${inMemoryToken}` } : {}),
-    ...(headers as Record<string, string> | undefined),
-  }
-
-  const res = await fetch(url.toString(), {
-    ...rest,
-    headers: finalHeaders,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-    // CRITICAL: include credentials so the browser sends the HttpOnly cookie
-    // on cross-origin requests (Vercel frontend → Render backend).
-    credentials: 'include',
-  })
-
+/**
+ * Shared response handling for BOTH JSON requests and multipart uploads.
+ * BUG-04: previously only `request()` ran this logic, so a video upload via
+ * `postForm()` that hit an expired session (401) or a forced password change
+ * (403) just threw a generic error — the user was never booted to /login or the
+ * change-password screen. Centralising it here makes uploads behave exactly like
+ * every other call.
+ */
+async function handleResponse<T>(res: Response): Promise<T> {
   // 401 → not authenticated. Clear local state + boot to /login.
   if (res.status === 401) {
     setToken(null)
@@ -134,6 +115,42 @@ async function request<T>(path: string, opts: RequestOpts = {}): Promise<T> {
   return res.json() as Promise<T>
 }
 
+async function request<T>(path: string, opts: RequestOpts = {}): Promise<T> {
+  const { body, params, headers, ...rest } = opts
+  // API_URL is '' in single-origin (v3) builds. `new URL('/api/...')` with no
+  // base throws "Invalid URL", which the store surfaces as a misleading
+  // "Network error — is the server running?". Passing the current page origin
+  // as the base resolves relative paths against this host; an absolute API_URL
+  // (frontend hosted separately) still takes precedence and ignores the base.
+  const url = new URL(`${API_URL}${path.startsWith('/') ? path : `/${path}`}`, window.location.origin)
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      if (v === undefined || v === null) continue
+      url.searchParams.set(k, String(v))
+    }
+  }
+
+  const finalHeaders: Record<string, string> = {
+    Accept: 'application/json',
+    ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+    // Authorization header is back-compat only — the cookie is the primary
+    // mechanism now. If both are present the backend prefers the cookie.
+    ...(inMemoryToken ? { Authorization: `Bearer ${inMemoryToken}` } : {}),
+    ...(headers as Record<string, string> | undefined),
+  }
+
+  const res = await fetch(url.toString(), {
+    ...rest,
+    headers: finalHeaders,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+    // CRITICAL: include credentials so the browser sends the HttpOnly cookie
+    // on cross-origin requests (Vercel frontend → Render backend).
+    credentials: 'include',
+  })
+
+  return handleResponse<T>(res)
+}
+
 export const api = {
   get:    <T>(path: string, params?: RequestOpts['params'])             => request<T>(path, { method: 'GET',    params }),
   post:   <T>(path: string, body?: unknown)                              => request<T>(path, { method: 'POST',   body }),
@@ -142,20 +159,14 @@ export const api = {
 
   /** Send FormData (file upload) — browser sets Content-Type + boundary automatically. */
   postForm: <T>(path: string, form: FormData): Promise<T> => {
-    const url = `${API_URL}${path.startsWith('/') ? path : `/${path}`}`
+    const url = new URL(`${API_URL}${path.startsWith('/') ? path : `/${path}`}`, window.location.origin)
     const headers: Record<string, string> = {
       Accept: 'application/json',
       ...(inMemoryToken ? { Authorization: `Bearer ${inMemoryToken}` } : {}),
     }
-    return fetch(url, { method: 'POST', headers, body: form, credentials: 'include' })
-      .then(async res => {
-        if (!res.ok) {
-          let bodyJson: unknown; try { bodyJson = await res.json() } catch { /* */ }
-          const msg = (bodyJson && typeof bodyJson === 'object' && 'error' in bodyJson)
-            ? String((bodyJson as { error: unknown }).error) : res.statusText
-          throw new ApiError(res.status, msg, bodyJson)
-        }
-        return res.json() as Promise<T>
-      })
+    // BUG-04: run the SAME response handling as request() so an upload that hits
+    // a 401 / 403 triggers the global logout / password-change / no-access flows.
+    return fetch(url.toString(), { method: 'POST', headers, body: form, credentials: 'include' })
+      .then(res => handleResponse<T>(res))
   },
 }
